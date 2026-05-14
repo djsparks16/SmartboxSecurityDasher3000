@@ -1690,7 +1690,7 @@ class SentinelApp(tk.Tk):
         super().__init__()
         self.title(APP_NAME)
         self.geometry("1480x860")
-        self.minsize(1250, 760)
+        self.minsize(1080, 680)
         self.configure(bg=BG)
         self._init_fonts()
         self.cfg = Config.load()
@@ -1713,6 +1713,7 @@ class SentinelApp(tk.Tk):
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
         self._setup_style()
         self._build()
+        self.after(350, self.pulse_overview_status)
         self.start_engine()
         self.after(250, self.drain_queue)
 
@@ -1843,7 +1844,7 @@ class SentinelApp(tk.Tk):
         tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162232", fg=TEXT, activebackground="#24364B", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
 
         self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.overview.pack(fill="x", pady=(14, 6))
+        # self.overview.pack(fill="x", pady=(14, 6))  # Hidden: status now lives in the Overview page itself.
         self.state_badge = tk.Label(self.overview, text="INITIALISING", bg=PANEL, fg=BLUE, font=(self.font_ui, 10, "bold"))
         self.state_badge.pack(side="left", padx=(18, 10), pady=12)
         self.state_detail = tk.Label(self.overview, text="Waiting for first telemetry pull...", bg=PANEL, fg=TEXT, font=(self.font_ui, 10))
@@ -1872,14 +1873,48 @@ class SentinelApp(tk.Tk):
         self.main_tabs.add(self.tab_software, text="Software")
         self._build_main_tab_pills()
 
-        body = tk.Frame(self.tab_overview, bg=BG)
-        body.pack(fill="both", expand=True, pady=(12, 0))
+        body = self.make_scrollable_page(self.tab_overview)
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 8))
         tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
+        self.hero_strip = tk.Frame(body, bg=BG)
+        self.hero_strip.pack(fill="x", pady=(0, 8))
+
+        self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
+        self.hero_priority_shell.configure(height=128)
+        self.hero_priority_shell.pack_propagate(False)
+        self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
+
+        hero_top = tk.Frame(self.hero_priority_panel, bg=PANEL)
+        hero_top.pack(fill="x", padx=16, pady=(12, 0))
+        tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="left")
+        self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
+        self.hero_priority_pill.pack(side="right")
+        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 24, "bold"))
+        self.hero_priority_value.pack(anchor="w", padx=16, pady=(10, 0))
+        self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), justify="left")
+        self.hero_priority_detail.pack(anchor="w", padx=16, pady=(4, 0))
+        self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="", bg=PANEL, fg="#7BE7C8", font=(self.font_ui, 9, "bold"), justify="left")
+        self.hero_priority_meta.pack(anchor="w", padx=16, pady=(6, 10))
+
+        self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
+        self.heartbeat_shell.configure(height=128)
+        self.heartbeat_shell.pack_propagate(False)
+        self.heartbeat_shell.pack(side="left", fill="x", expand=True, padx=(0, 0), pady=2)
+
+        hb_top = tk.Frame(self.heartbeat_panel, bg=GLASS)
+        hb_top.pack(fill="x", padx=16, pady=(12, 2))
+        tk.Label(hb_top, text="Live heartbeat", bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="left")
+        self.heartbeat_state = tk.Label(hb_top, text="CONNECTING", bg=GLASS, fg=BLUE, font=(self.font_ui, 9, "bold"))
+        self.heartbeat_state.pack(side="right")
+        self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
+        self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=72, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
+
         self.overview_status_cards = tk.Frame(body, bg=BG)
         self.overview_status_cards.pack(fill="x", pady=(0, 8))
         self.overview_status = {}
@@ -1920,19 +1955,19 @@ class SentinelApp(tk.Tk):
         self.trend_strip = tk.Frame(body, bg=BG)
         self.trend_strip.pack(fill="x", pady=(0, 8))
         for title, key, color in [
-            ("Defender active alerts", "defender", ORANGE),
-            ("Intune non-compliance", "compliance", BLUE),
-            ("UniFi offline sites", "network", RED),
-            ("Security signals", "security_signals", BLUE),
+            ("Defender pulse", "defender", ORANGE),
+            ("Intune posture drift", "compliance", BLUE),
+            ("UniFi network pulse", "network", RED),
+            ("Signal composition", "security_signals", BLUE),
         ]:
-            panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            panel_shell.configure(height=76)
+            panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=20, padding=1)
+            panel_shell.configure(height=116)
             panel_shell.pack_propagate(False)
-            panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
-            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 15, "bold"))
+            panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
+            tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 17, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=72, bg=GLASS, highlightthickness=0, bd=0)
+            c = tk.Canvas(panel, height=78, bg=GLASS, highlightthickness=0, bd=0)
             c.pack(fill="x", padx=10, pady=(0, 10))
             if key == "security_signals":
                 self.security_signals_canvas = c
@@ -2035,7 +2070,7 @@ class SentinelApp(tk.Tk):
 
 
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.platform_bar.pack(fill="x", pady=(8, 0))
+        # self.platform_bar.pack(fill="x", pady=(8, 0))  # Dropped from Overview for a cleaner status-led front page.
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -3097,6 +3132,50 @@ class SentinelApp(tk.Tk):
                 except Exception:
                     pass
 
+            if hasattr(self, "hero_priority_value"):
+                live_sources = [str(s).upper() for s in payload.get("sources", {}).get("live", []) if s]
+                connected = bool(live_sources)
+                if defender_critical > 0:
+                    hero_head, hero_detail, hero_color = "DEFENDER CRITICAL", f"{defender_critical} high / critical Defender alerts active. Immediate triage recommended.", RED
+                elif unencrypted > 0:
+                    hero_head, hero_detail, hero_color = "BITLOCKER GAP", f"{unencrypted} device(s) currently report as unencrypted in Intune posture.", RED
+                elif offline > 0:
+                    hero_head, hero_detail, hero_color = "SITE OFFLINE", f"{offline} UniFi site(s) offline. Network visibility or service availability may be impacted.", RED
+                elif defender_active > 0 or noncompliant > 0:
+                    hero_head, hero_detail, hero_color = "ACTION REQUIRED", f"{defender_active} active Defender alert(s) and {noncompliant} non-compliant device(s) are keeping the estate off-green.", ORANGE
+                elif degraded > 0 or stale > 0 or no_user > 0:
+                    hero_head, hero_detail, hero_color = "WATCH LIST", f"{degraded} degraded site(s), {stale} stale device(s), {no_user} device(s) without owner context.", AMBER
+                else:
+                    hero_head, hero_detail, hero_color = "SYSTEM OK", "No critical front-page blockers detected across Defender, Intune and UniFi.", GREEN
+
+                self.hero_priority_value.config(text=hero_head, fg=hero_color)
+                self.hero_priority_detail.config(text=hero_detail, fg=TEXT)
+                self.hero_priority_meta.config(text=f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}", fg=hero_color if hero_color != GREEN else "#8FD7B9")
+                self.hero_priority_pill.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER), bg=("#12281E" if connected else "#2A1D11"))
+                self.heartbeat_color = GREEN if connected else AMBER
+                self.heartbeat_state.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER))
+                self.heartbeat_meta.config(text=f"Polling {' + '.join(live_sources) if live_sources else 'local / cached telemetry'} • heartbeat pulse active", fg=TEXT)
+                try:
+                    self.hero_priority_shell.canvas.delete("panel")
+                    w = max(self.hero_priority_shell.canvas.winfo_width() - 1, 120)
+                    h = max(self.hero_priority_shell.canvas.winfo_height() - 1, 70)
+                    self.hero_priority_shell.canvas.create_polygon(
+                        self._rounded_points(1, 1, w, h, 24),
+                        smooth=True, splinesteps=24, fill=PANEL, outline=hero_color, width=1.8, tags="panel"
+                    )
+                    self.hero_priority_shell.canvas.tag_lower("panel")
+                    self.heartbeat_shell.canvas.delete("panel")
+                    w2 = max(self.heartbeat_shell.canvas.winfo_width() - 1, 120)
+                    h2 = max(self.heartbeat_shell.canvas.winfo_height() - 1, 70)
+                    self.heartbeat_shell.canvas.create_polygon(
+                        self._rounded_points(1, 1, w2, h2, 24),
+                        smooth=True, splinesteps=24, fill=GLASS, outline=(GREEN if connected else AMBER), width=1.6, tags="panel"
+                    )
+                    self.heartbeat_shell.canvas.tag_lower("panel")
+                except Exception:
+                    pass
+                self.draw_heartbeat()
+
         if hasattr(self, "posture_labels"):
             for key, label in self.posture_labels.items():
                 value = int(m.get(key, 0) or 0)
@@ -3153,74 +3232,130 @@ class SentinelApp(tk.Tk):
             return
         canvas, _ = self.trend_canvases[key]
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 54)
+        w = max(canvas.winfo_width(), 220)
+        h = max(canvas.winfo_height(), 74)
+        canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
-        # soft grid
-        for y in (12, int(h / 2), h - 10):
-            canvas.create_line(6, y, w - 6, y, fill="#1B2635")
+        left, top, right, bottom = 10, 10, w - 10, h - 12
+        for i in range(4):
+            y = top + ((bottom - top) * i / 3)
+            canvas.create_line(left, y, right, y, fill="#182435")
+        for i in range(6):
+            x = left + ((right - left) * i / 5)
+            canvas.create_line(x, top, x, bottom, fill="#111A2A")
 
-        vals = values[-40:] if values else []
+        vals = [max(0, int(v or 0)) for v in (values[-32:] if values else [])]
         if not vals:
+            canvas.create_text(left + 8, bottom - 8, text="Awaiting signal history", anchor="sw", fill=MUTED, font=(self.font_ui, 8, "bold"))
             return
-
-        vmax = max(max(vals), 1)
         if len(vals) == 1:
             vals = vals * 2
 
-        points = []
-        for i, value in enumerate(vals):
-            x = (i / max(len(vals) - 1, 1)) * (w - 18) + 9
-            y = h - 12 - ((value / vmax) * (h - 26))
-            points.append((x, y))
+        vmax = max(max(vals), 1)
+        pts = []
+        for i, v in enumerate(vals):
+            x = left + (i / max(1, len(vals) - 1)) * (right - left)
+            y = bottom - ((v / vmax) * (bottom - top - 8))
+            pts.append((x, y))
 
-        # glassy area fill plus smoothed line
-        area = [(points[0][0], h - 11)] + points + [(points[-1][0], h - 11)]
+        flat = [coord for p in pts for coord in p]
+        area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
         flat_area = [coord for p in area for coord in p]
+
         canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray25")
+        canvas.create_line(*flat, fill="#142033", width=8, smooth=True, splinesteps=18)
+        canvas.create_line(*flat, fill=color, width=2.8, smooth=True, splinesteps=18)
 
-        flat_line = [coord for p in points for coord in p]
-        canvas.create_line(*flat_line, fill=color, width=2.6, smooth=True, splinesteps=24)
-        canvas.create_oval(points[-1][0] - 3, points[-1][1] - 3, points[-1][0] + 3, points[-1][1] + 3, fill=color, outline=color)
+        recent = pts[-6:]
+        for px, py in recent:
+            canvas.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline=color)
 
-        # tiny min/max markers for a richer telemetry feel
-        canvas.create_text(8, h - 4, text=str(vals[-1]), fill=color, anchor="sw", font=(self.font_ui, 7, "bold"))
+        last = vals[-1]
+        canvas.create_text(left + 6, top + 2, text=f"Now {last}", anchor="nw", fill=color, font=(self.font_ui, 8, "bold"))
+        canvas.create_text(right - 2, top + 2, text=f"Peak {vmax}", anchor="ne", fill="#7D8DA6", font=(self.font_ui, 8))
 
     def draw_security_signals(self, values):
         canvas = self.security_signals_canvas
         if not canvas:
             return
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 260)
-        h = max(canvas.winfo_height(), 68)
+        w = max(canvas.winfo_width(), 280)
+        h = max(canvas.winfo_height(), 74)
+        canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
-        # The front page should show useful security signal sources, not abstract severity buckets.
         parts = [
-            ("Defender", int(values.get("defender", 0) or 0), ORANGE),
+            ("Def", int(values.get("defender", 0) or 0), ORANGE),
             ("Graph", int(values.get("graph", 0) or 0), BLUE),
-            ("Intune posture", int(values.get("intune", 0) or 0), AMBER),
-            ("UniFi issues", int(values.get("unifi", 0) or 0), RED),
+            ("Intune", int(values.get("intune", 0) or 0), AMBER),
+            ("UniFi", int(values.get("unifi", 0) or 0), RED),
         ]
         total = max(sum(v for _, v, _ in parts), 1)
 
-        x = 10
-        y1, y2 = 16, 32
-        usable = w - 20
-        canvas.create_rectangle(10, y1, w - 10, y2, fill="#172131", outline="")
-        for _, val, color in parts:
-            seg = int((val / total) * usable) if val > 0 else 0
-            if seg:
-                canvas.create_rectangle(x, y1, min(w - 10, x + seg), y2, fill=color, outline="")
+        left, top, right = 12, 12, w - 12
+        bar_h = 16
+        canvas.create_rectangle(left, top, right, top + bar_h, fill="#111A2A", outline="#1A2940")
+        x = left + 1
+        usable = (right - left - 2)
+        for label, val, color in parts:
+            seg = max(0, int((val / total) * usable)) if val else 0
+            if seg > 0:
+                canvas.create_rectangle(x, top + 1, min(right - 1, x + seg), top + bar_h - 1, fill=color, outline="")
                 x += seg
 
-        # Legend, wrapped if needed.
-        lx = 12
-        ly = 48
-        for label, val, color in parts:
-            canvas.create_oval(lx, ly - 4, lx + 8, ly + 4, fill=color, outline="")
-            txt = f"{label} {val}"
-            canvas.create_text(lx + 12, ly, text=txt, fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
-            lx += max(95, int((w - 24) / 4))
+        canvas.create_text(left, top + 24, text=f"Total signals {sum(v for _, v, _ in parts)}", anchor="nw", fill=TEXT, font=(self.font_ui, 8, "bold"))
+
+        lx = left
+        ly = top + 46
+        step = max(62, int((w - 24) / 4))
+        for i, (label, val, color) in enumerate(parts):
+            cx = lx + i * step
+            canvas.create_oval(cx, ly - 4, cx + 8, ly + 4, fill=color, outline=color)
+            canvas.create_text(cx + 12, ly, text=f"{label} {val}", fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
+
+    def draw_heartbeat(self):
+        canvas = getattr(self, "heartbeat_canvas", None)
+        if canvas is None:
+            return
+        canvas.delete("all")
+        w = max(canvas.winfo_width(), 280)
+        h = max(canvas.winfo_height(), 64)
+        canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
+
+        phase = int(getattr(self, "heartbeat_phase", 0))
+        self.heartbeat_phase = phase + 1
+        color = getattr(self, "heartbeat_color", GREEN)
+        mid = int(h * 0.58)
+
+        for y in (12, mid, h - 12):
+            canvas.create_line(10, y, w - 10, y, fill="#182435")
+        for x in range(10, w, 28):
+            canvas.create_line(x, 10, x, h - 10, fill="#101827")
+
+        offset = (phase * 10) % 56
+        pts = []
+        x = -offset
+        while x < w + 56:
+            pts.extend([
+                (x, mid),
+                (x + 10, mid),
+                (x + 14, mid - 2),
+                (x + 18, mid),
+                (x + 24, mid),
+                (x + 28, mid + 4),
+                (x + 32, mid - 26),
+                (x + 36, mid + 18),
+                (x + 42, mid),
+                (x + 56, mid),
+            ])
+            x += 56
+
+        flat = [coord for p in pts for coord in p]
+        canvas.create_line(*flat, fill="#13301E", width=7, smooth=True, splinesteps=18)
+        canvas.create_line(*flat, fill=color, width=2.4, smooth=True, splinesteps=18)
+
+        scan_x = 16 + ((phase * 16) % max(40, w - 32))
+        canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#3DA6FF", dash=(3, 3))
+        canvas.create_text(w - 8, 8, text="LIVE PULSE", anchor="ne", fill=color, font=(self.font_ui, 8, "bold"))
 
     def pulse_overview_status(self):
         if not hasattr(self, "overview_status"):
@@ -3228,13 +3363,15 @@ class SentinelApp(tk.Tk):
         for item in self.overview_status.values():
             canvas = item.get("dot")
             color = item.get("base", GREEN)
-            item["pulse"] = (int(item.get("pulse", 0)) + 1) % 12
-            radius = 3 + (item["pulse"] % 6)
+            item["pulse"] = (int(item.get("pulse", 0)) + 1) % 18
+            radius = 4 + (item["pulse"] % 9)
             canvas.delete("pulse")
             canvas.create_oval(7 - radius, 7 - radius, 7 + radius, 7 + radius, fill="", outline=color, width=1, tags="pulse")
+            canvas.create_oval(5 - radius//2, 5 - radius//2, 9 + radius//2, 9 + radius//2, fill="", outline=color, width=1, tags="pulse")
             canvas.create_oval(3, 3, 11, 11, fill=color, outline=color, tags="pulse")
+        self.draw_heartbeat()
         try:
-            self.after(700, self.pulse_overview_status)
+            self.after(450, self.pulse_overview_status)
         except Exception:
             pass
 
