@@ -1417,7 +1417,7 @@ class SentinelApp(tk.Tk):
         self.card(cards, 0, 0, "Priority state", "priority_state", BLUE)
         self.card(cards, 0, 1, "Active unresolved alerts", "alerts", RED)
         self.card(cards, 0, 2, "Compliance gap", "noncompliant", AMBER)
-        self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
+        self.card(cards, 1, 0, "Intune devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
 
         self.priority_explain_bar = tk.Frame(left, bg="#151C2E", highlightthickness=1, highlightbackground="#31415F")
@@ -1468,7 +1468,7 @@ class SentinelApp(tk.Tk):
 
 
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
-        self.optional_bars.append(self.platform_bar)
+        self.platform_bar.pack(fill="x", pady=(8, 0))
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -1985,7 +1985,7 @@ class SentinelApp(tk.Tk):
             percent = int(m.get("compliance_percent", 0) or 0)
             if devices_total:
                 self.metric_cards["noncompliant"]["hint"].config(
-                    text=f"{gap} gap / {devices_total} Intune devices • {compliant} compliant • {percent}% compliant",
+                    text=f"{gap} non-compliant • {compliant} compliant • {percent}% compliant",
                     fg=MUTED if gap == 0 else AMBER if gap < 100 else RED,
                 )
             else:
@@ -2010,7 +2010,7 @@ class SentinelApp(tk.Tk):
             percent = int(m.get("compliance_percent", 0) or 0)
             if devices_total:
                 self.metric_cards["noncompliant"]["hint"].config(
-                    text=f"{gap} gap / {devices_total} Intune devices • {compliant} compliant • {percent}% compliant",
+                    text=f"{gap} non-compliant • {compliant} compliant • {percent}% compliant",
                     fg=MUTED if gap == 0 else AMBER if gap < 100 else RED,
                 )
 
