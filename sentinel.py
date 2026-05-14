@@ -1781,7 +1781,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=29,
+                  rowheight=27,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -1839,13 +1839,13 @@ class SentinelApp(tk.Tk):
         body.pack(fill="both", expand=True, pady=(12, 0))
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.overview_focus_bar.pack(fill="x", pady=(0, 12))
+        self.overview_focus_bar.pack(fill="x", pady=(0, 8))
         tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
 
         self.trend_strip = tk.Frame(body, bg=BG)
-        self.trend_strip.pack(fill="x", pady=(0, 12))
+        self.trend_strip.pack(fill="x", pady=(0, 8))
         for title, key, color in [
             ("Defender active trend", "defender", ORANGE),
             ("Compliance gap trend", "compliance", BLUE),
@@ -1853,6 +1853,8 @@ class SentinelApp(tk.Tk):
             ("Severity mix", "severity", GREEN),
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
+            panel_shell.configure(height=96)
+            panel_shell.pack_propagate(False)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
             val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
@@ -1899,13 +1901,15 @@ class SentinelApp(tk.Tk):
             box = tk.Frame(self.unifi_bar, bg=PANEL)
             box.pack(side="left", fill="x", expand=True, padx=14, pady=8)
             tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
-            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=(self.font_display, 16, "bold"))
+            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=(self.font_display, 14, "bold"))
             val.pack(anchor="w")
             self.unifi_labels[key] = val
 
 
         self.network_summary_bar = tk.Frame(left, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.network_summary_bar.pack(fill="x", pady=(8, 0))
+        # Overview now keeps network detail in the top cards and executive snapshot.
+        # Full site detail lives on the UniFi tab.
+        # self.network_summary_bar.pack(fill="x", pady=(8, 0))
         ns_left = tk.Frame(self.network_summary_bar, bg=GLASS)
         ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=6)
         tk.Label(ns_left, text="Network site status", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
@@ -1961,8 +1965,8 @@ class SentinelApp(tk.Tk):
         # self.alert_table_panel.pack(fill="both", expand=True, pady=(12, 0))
 
         table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
-        table_header.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(table_header, text="Security alert table", bg=PANEL, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
+        table_header.pack(fill="x", padx=12, pady=(7, 3))
+        tk.Label(table_header, text="Security alert table", bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(side="left")
         self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold"))
         self.alert_table_summary.pack(side="right")
 
@@ -2059,11 +2063,11 @@ class SentinelApp(tk.Tk):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
         header = tk.Frame(panel, bg=PANEL)
-        header.pack(fill="x", padx=12, pady=(10, 4))
+        header.pack(fill="x", padx=12, pady=(7, 3))
         tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 15, "bold")).pack(side="left")
 
         frame = tk.Frame(panel, bg=PANEL)
-        frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
         for key, label, width in columns:
             tree.heading(key, text=label)
@@ -2091,15 +2095,17 @@ class SentinelApp(tk.Tk):
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
+        shell.configure(height=88)
+        shell.pack_propagate(False)
         if width_pack:
-            shell.pack(side="left", fill="x", expand=True, padx=6, pady=5)
+            shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
         else:
-            shell.pack(fill="x", padx=6, pady=5)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(9, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 21, "bold"))
-        val.pack(anchor="w", padx=16, pady=(0, 2))
+            shell.pack(fill="x", padx=6, pady=4)
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 1))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+        val.pack(anchor="w", padx=12, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=14, pady=(0, 8))
+        hint.pack(anchor="w", padx=12, pady=(0, 6))
         self.focus_cards[bucket][key] = {"frame": shell, "value": val, "hint": hint, "base": color}
         return shell
 
@@ -2108,9 +2114,9 @@ class SentinelApp(tk.Tk):
         wrap.pack(fill="both", expand=True, padx=6, pady=6)
         top = tk.Frame(panel, bg=PANEL)
         top.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
+        tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(side="left")
         text_frame = tk.Frame(panel, bg=PANEL)
-        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         widget = tk.Text(
             text_frame,
             bg=GLASS_2,
@@ -2139,8 +2145,8 @@ class SentinelApp(tk.Tk):
         # Defender tab
         defender_wrap = tk.Frame(self.tab_defender, bg=BG)
         defender_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(defender_wrap, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 12))
+        tk.Label(defender_wrap, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(defender_wrap, bg=BG)
         row.pack(fill="x")
@@ -2163,7 +2169,7 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Alert / finding", 360),
             ("detail", "Detail", 420),
-        ], height=24)
+        ], height=28)
 
         self.defender_signal_table = self.table_panel(defender_signal_tab, "Microsoft security signal feed", [
             ("time", "Time", 150),
@@ -2171,13 +2177,13 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Signal", 360),
             ("detail", "Detail", 520),
-        ], height=24)
+        ], height=28)
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
         intune_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(intune_wrap, text="Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 12))
+        tk.Label(intune_wrap, text="Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(intune_wrap, bg=BG)
         row.pack(fill="x")
@@ -2188,7 +2194,7 @@ class SentinelApp(tk.Tk):
 
         platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         platform.pack(fill="x", padx=6, pady=6)
-        tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=(self.font_display, 16, "bold")).pack(anchor="w", padx=14, pady=(10, 8))
+        tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(anchor="w", padx=14, pady=(10, 8))
         self.intune_platform_focus = {}
         plat_row = tk.Frame(platform, bg=PANEL)
         plat_row.pack(fill="x", padx=6, pady=(0, 10))
@@ -2224,28 +2230,28 @@ class SentinelApp(tk.Tk):
             ("user", "User", 260),
             ("compliance", "Compliance", 120),
             ("last_sync", "Last sync", 160),
-        ], height=20)
+        ], height=28)
         self.intune_stale_table = self.table_panel(int_tab_stale, "Devices not contacted for 30+ days", [
             ("name", "Device", 230),
             ("os", "OS", 90),
             ("days", "Days stale", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=20)
+        ], height=28)
         self.intune_posture_table = self.table_panel(int_tab_posture, "Device security posture flags", [
             ("type", "Finding", 170),
             ("device", "Device", 230),
             ("os", "OS", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=20)
+        ], height=28)
         self.intune_text = self.text_panel(int_tab_summary, "Intune inventory summary")
 
         # UniFi tab
         unifi_wrap = tk.Frame(self.tab_unifi, bg=BG)
         unifi_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(unifi_wrap, text="UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 12))
+        tk.Label(unifi_wrap, text="UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         status_shell = tk.Frame(unifi_wrap, bg=BG)
         status_shell.pack(fill="x")
@@ -2255,7 +2261,7 @@ class SentinelApp(tk.Tk):
         self.unifi_tab_status_big = tk.Label(left_big, text="--", bg=PANEL, fg=BLUE, font=(self.font_display, 26, "bold"))
         self.unifi_tab_status_big.pack(anchor="w", padx=16, pady=(0, 2))
         self.unifi_tab_status_hint = tk.Label(left_big, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
-        self.unifi_tab_status_hint.pack(anchor="w", padx=14, pady=(0, 8))
+        self.unifi_tab_status_hint.pack(anchor="w", padx=12, pady=(0, 6))
 
         right_stats = tk.Frame(status_shell, bg=BG)
         right_stats.pack(side="left", fill="both", expand=True)
@@ -2287,20 +2293,20 @@ class SentinelApp(tk.Tk):
             ("degraded", "Degraded", 90),
             ("unknown", "Unknown", 90),
             ("detail", "Detail", 420),
-        ], height=24)
+        ], height=28)
 
         self.unifi_notes_table = self.table_panel(unifi_notes_tab, "UniFi connector notes", [
             ("severity", "Severity", 90),
             ("title", "Finding", 300),
             ("detail", "Detail", 700),
-        ], height=24)
+        ], height=28)
 
 
         # Software tab
         software_wrap = tk.Frame(self.tab_software, bg=BG)
         software_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(software_wrap, text="Software change view", bg=BG, fg=TEXT, font=(self.font_display, 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 12))
+        tk.Label(software_wrap, text="Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         sw_row = tk.Frame(software_wrap, bg=BG)
         sw_row.pack(fill="x")
@@ -2323,21 +2329,23 @@ class SentinelApp(tk.Tk):
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=24)
+        ], height=28)
         self.software_all_table = self.table_panel(sw_all_tab, "Detected software inventory", [
             ("name", "Application", 320),
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=24)
+        ], height=28)
         self.software_text = self.text_panel(sw_notes_tab, "Software detection notes")
 
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
+        shell.configure(height=112)
+        shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=6)
+        shell.grid_propagate(False)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(8, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
         val.pack(anchor="w", padx=16, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
         hint.pack(anchor="w", padx=14, pady=(0, 7))
@@ -2854,7 +2862,7 @@ class SentinelApp(tk.Tk):
             offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
             total_sites = int(m.get("unifi_sites", 0) or 0)
             self.overview_focus_text.config(
-                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   Software: {m.get('new_software_count', 0)} newly observed   •   UniFi: {total_sites} sites, {offline_sites} offline"
+                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   Software: {m.get('new_software_count', 0)} newly observed   •   UniFi: {total_sites} sites, {offline_sites} offline, {m.get('unifi_degraded_sites', 0)} degraded"
             )
 
         self.spark.append(m.get("alerts", 0))
