@@ -2064,7 +2064,7 @@ class SentinelApp(tk.Tk):
             )
             win = canvas.create_window((56, 19), window=btn, width=104, height=30)
 
-            def draw(c=canvas, active=False):
+            def draw(active=False, c=canvas):
                 c.delete("panel")
                 bg = "#223147" if active else "#111925"
                 border = BLUE if active else HAIRLINE
@@ -2109,7 +2109,7 @@ class SentinelApp(tk.Tk):
             )
             canvas.create_window((width // 2, 17), window=btn, width=width - 10, height=28)
 
-            def draw(c=canvas, b=btn, w=width, active=False):
+            def draw(active=False, c=canvas, b=btn, w=width):
                 c.delete("panel")
                 bg = "#223147" if active else "#111925"
                 border = BLUE if active else HAIRLINE
@@ -2121,7 +2121,7 @@ class SentinelApp(tk.Tk):
             for widget in (shell, canvas, btn):
                 widget.bind("<Button-1>", lambda e, f=frame, nb=notebook: self.select_subtab(nb, f))
             buttons[frame] = {"draw": draw}
-            draw(False)
+            draw(active=False)
 
         self.subtab_buttons[notebook] = buttons
         notebook.bind("<<NotebookTabChanged>>", lambda e, nb=notebook: self._sync_subtab_pills(nb), add="+")
