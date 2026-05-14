@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#05080F"
-PANEL = "#0B1420"
-PANEL_2 = "#101D2D"
-TEXT = "#F5FBFF"
-MUTED = "#A9BED4"
-BLUE = "#00C8FF"
-GREEN = "#7CFF00"
-AMBER = "#FFE600"
-ORANGE = "#FF9F0A"
-RED = "#FF335A"
-PURPLE = "#A96BFF"
-GLASS = "#09111B"
-HAIRLINE = "#1D3955"
-GLASS_2 = "#060D16"
-ROW_ALT = "#0D1826"
+BG = "#0B1220"
+PANEL = "#111827"
+PANEL_2 = "#172033"
+TEXT = "#E6EDF7"
+MUTED = "#93A4B8"
+BLUE = "#38BDF8"
+GREEN = "#22C55E"
+AMBER = "#FBBF24"
+ORANGE = "#F97316"
+RED = "#F43F5E"
+PURPLE = "#A78BFA"
+GLASS = "#0F172A"
+HAIRLINE = "#253244"
+GLASS_2 = "#0B1020"
+ROW_ALT = "#141C2B"
 
 
 def now_iso():
@@ -1689,7 +1689,7 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1480x860")
+        self.geometry("1500x920")
         self.minsize(1080, 680)
         self.configure(bg=BG)
         self._init_fonts()
@@ -1834,14 +1834,14 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=24, pady=20)
+        shell.pack(fill="both", expand=True, padx=18, pady=14)
 
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 30, "bold")).pack(side="left")
+        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 26, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=(self.font_ui, 11)).pack(side="left", padx=18, pady=(14,0))
-        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#182435", fg=TEXT, activebackground="#24364B", relief="flat", padx=14, pady=8, font=(self.font_ui, 10, "bold")).pack(side="right")
-        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162232", fg=TEXT, activebackground="#24364B", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
+        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=14, pady=8, font=(self.font_ui, 10, "bold")).pack(side="right")
+        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
 
         self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         # self.overview.pack(fill="x", pady=(14, 6))  # Hidden: status now lives in the Overview page itself.
@@ -1893,7 +1893,7 @@ class SentinelApp(tk.Tk):
         tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
-        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 34, "bold"))
+        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 30, "bold"))
         self.hero_priority_value.pack(anchor="w", padx=18, pady=(14, 0))
         self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=MUTED, font=(self.font_ui, 12, "bold"), justify="left")
         self.hero_priority_detail.pack(anchor="w", padx=18, pady=(6, 0))
@@ -1964,7 +1964,7 @@ class SentinelApp(tk.Tk):
             ("Signal composition", "security_signals", BLUE),
         ]):
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
-            panel_shell.configure(height=108)
+            panel_shell.configure(height=132)
             panel_shell.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=(0 if idx % 2 else 0, 8 if idx % 2 == 0 else 0), pady=4)
             panel_shell.grid_propagate(False)
 
@@ -2110,12 +2110,12 @@ class SentinelApp(tk.Tk):
         self.overview_full_feed_table.column("detail", width=760, anchor="w", stretch=True)
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0B1C2B", foreground="#DFF6FF")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
-        self.overview_full_feed_table.tag_configure("oddrow", background="#0D1522")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#25121A", foreground="#F8CAD6")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#24170D", foreground="#FED7AA")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#24200F", foreground="#FDE68A")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0D1B2A", foreground="#C7E8F9")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0B1E16", foreground="#BBF7D0")
+        self.overview_full_feed_table.tag_configure("oddrow", background=ROW_ALT)
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2199,7 +2199,7 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas):
                 c.delete("panel")
-                bg = "#223147" if active else "#111925"
+                bg = "#1F2A3D" if active else "#111827"
                 border = BLUE if active else HAIRLINE
                 pts = self._rounded_points(2, 2, 110, 36, 16)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
@@ -2244,7 +2244,7 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas, b=btn, w=width):
                 c.delete("panel")
-                bg = "#223147" if active else "#111925"
+                bg = "#1F2A3D" if active else "#111827"
                 border = BLUE if active else HAIRLINE
                 pts = self._rounded_points(2, 2, w - 2, 32, 14)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.3, tags="panel")
@@ -3081,7 +3081,7 @@ class SentinelApp(tk.Tk):
             self.restart_engine()
             win.destroy()
 
-        tk.Button(win, text="Save and restart telemetry", command=save, bg="#182435", fg=TEXT, activebackground="#24364B", relief="flat", padx=14, pady=12, font=(self.font_ui, 10, "bold")).pack(pady=(0, 16))
+        tk.Button(win, text="Save and restart telemetry", command=save, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=14, pady=12, font=(self.font_ui, 10, "bold")).pack(pady=(0, 16))
 
     def start_engine(self):
         self.engine = TelemetryEngine(self.cfg, self.q)
@@ -3392,7 +3392,7 @@ class SentinelApp(tk.Tk):
                 pts.append((x, y))
             flat = [c for p in pts for c in p]
             area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
-            canvas.create_polygon(*[c for p in area for c in p], fill=color, outline="", stipple="gray50")
+            canvas.create_polygon(*[c for p in area for c in p], fill="#122033", outline="")
             canvas.create_line(*flat, fill="#132235", width=5, smooth=True, splinesteps=14)
             canvas.create_line(*flat, fill=color, width=1.8, smooth=True, splinesteps=14)
         except Exception:
@@ -3475,10 +3475,10 @@ class SentinelApp(tk.Tk):
         area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
         flat_area = [coord for p in area for coord in p]
         flat = [coord for p in pts for coord in p]
-        canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray50")
+        canvas.create_polygon(flat_area, fill="#122033", outline="")
         canvas.create_line(*flat, fill="#03101A", width=11, smooth=True, splinesteps=24)
         canvas.create_line(*flat, fill=color, width=4, smooth=True, splinesteps=24)
-        canvas.create_line(*flat, fill="#F8FEFF", width=1, smooth=True, splinesteps=24)
+        # removed bright white highlight for a calmer chart
 
         pulse_x, pulse_y = pts[-1]
         canvas.create_oval(pulse_x - 6, pulse_y - 6, pulse_x + 6, pulse_y + 6, outline=color, width=2)
@@ -3516,7 +3516,7 @@ class SentinelApp(tk.Tk):
             seg = max(0, int((val / total) * usable)) if val else 0
             if seg > 0:
                 canvas.create_rectangle(x, top + 1, min(right - 1, x + seg), top + bar_h - 1, fill=color, outline="")
-                canvas.create_line(x, top + 1, min(right - 1, x + seg), top + 1, fill="#FFFFFF")
+                # removed bright top-edge highlight
                 x += seg
 
         total_live = sum(v for _, v, _ in parts)
@@ -3569,7 +3569,7 @@ class SentinelApp(tk.Tk):
         canvas.create_line(*flat, fill=color, width=2.4, smooth=True, splinesteps=18)
 
         scan_x = 16 + ((phase * 16) % max(40, w - 32))
-        canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#3DA6FF", dash=(3, 3))
+        canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#2563EB", dash=(3, 3))
         canvas.create_text(w - 8, 8, text="LIVE PULSE", anchor="ne", fill=color, font=(self.font_ui, 8, "bold"))
 
     def pulse_overview_status(self):
