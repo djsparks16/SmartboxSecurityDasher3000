@@ -240,6 +240,18 @@ class MicrosoftGraphConnector:
             return "android"
         return "other"
 
+
+    def is_alert_active(self, alert):
+        raw = " ".join([
+            str(alert.get("status") or ""),
+            str(alert.get("classification") or ""),
+            str(alert.get("determination") or ""),
+            str(alert.get("assignedTo") or ""),
+        ]).lower()
+        resolved_words = ("resolved", "dismissed", "closed", "remediated", "benignpositive", "falsepositive", "suppressed")
+        return not any(word in raw for word in resolved_words)
+
+
     def fetch(self):
         if not self.enabled():
             return None
@@ -317,17 +329,22 @@ class MicrosoftGraphConnector:
             if str(d.get("complianceState", "")).lower() not in ("compliant", "unknown", "")
         ]
 
+        graph_active = [a for a in graph_alerts if self.is_alert_active(a)]
+        defender_active = [a for a in defender_alerts if self.is_alert_active(a)]
+        graph_resolved = max(0, len(graph_alerts) - len(graph_active))
+        defender_resolved = max(0, len(defender_alerts) - len(defender_active))
+
         graph_high = [
-            a for a in graph_alerts
+            a for a in graph_active
             if str(a.get("severity", "")).lower() in ("high", "critical")
         ]
         defender_high = [
-            a for a in defender_alerts
+            a for a in defender_active
             if str(a.get("severity", "")).lower() in ("high", "critical")
         ]
 
         # Defender signal feed first, then Graph security, then inventory.
-        for a in defender_alerts[:25]:
+        for a in defender_active[:25]:
             sev = str(a.get("severity", "medium")).lower()
             status = a.get("status") or a.get("classification") or "unknown"
             device = a.get("computerDnsName") or a.get("machineId") or "unknown device"
@@ -338,7 +355,7 @@ class MicrosoftGraphConnector:
                 "source": "Defender for Endpoint",
             })
 
-        for a in graph_alerts[:10]:
+        for a in graph_active[:10]:
             events.append({
                 "severity": "critical" if str(a.get("severity", "")).lower() in ("high", "critical") else "medium",
                 "title": a.get("title", "Microsoft security alert"),
@@ -357,11 +374,13 @@ class MicrosoftGraphConnector:
             events.insert(1, {
                 "severity": "critical" if defender_high else "medium",
                 "title": "Microsoft Defender alerts live",
-                "detail": f"{len(defender_alerts)} Defender alert(s), {len(defender_high)} high/critical.",
+                "detail": f"{len(defender_active)} active Defender alert(s), {len(defender_resolved)} resolved/closed returned, {len(defender_high)} high/critical active.",
                 "source": "Defender for Endpoint",
             })
 
-        total_alerts = len(graph_alerts) + len(defender_alerts)
+        total_alerts_returned = len(graph_alerts) + len(defender_alerts)
+        total_active_alerts = len(graph_active) + len(defender_active)
+        total_resolved_alerts = graph_resolved + defender_resolved
         total_critical = len(graph_high) + len(defender_high)
 
         return {
@@ -374,9 +393,16 @@ class MicrosoftGraphConnector:
             "android": os_counts["android"],
             "other_os": os_counts["other"],
             "noncompliant": len(noncompliant),
-            "alerts": total_alerts,
-            "defender_alerts": len(defender_alerts),
-            "graph_alerts": len(graph_alerts),
+            "alerts": total_active_alerts,
+            "active_alerts": total_active_alerts,
+            "returned_alerts": total_alerts_returned,
+            "resolved_alerts": total_resolved_alerts,
+            "defender_alerts": len(defender_active),
+            "defender_returned_alerts": len(defender_alerts),
+            "defender_resolved_alerts": defender_resolved,
+            "graph_alerts": len(graph_active),
+            "graph_returned_alerts": len(graph_alerts),
+            "graph_resolved_alerts": graph_resolved,
             "critical": total_critical,
             "events": events,
         }
@@ -504,6 +530,19 @@ class UniFiConnector:
             ])
         return paths
 
+
+    def is_unifi_alert_active(self, alert):
+        raw = " ".join([
+            str(alert.get("status") or ""),
+            str(alert.get("state") or ""),
+            str(alert.get("archived") or ""),
+            str(alert.get("resolved") or ""),
+        ]).lower()
+        if "true" in raw and ("resolved" in raw or "archived" in raw):
+            return False
+        return not any(word in raw for word in ("resolved", "closed", "archived", "cleared"))
+
+
     def fetch(self):
         if not self.enabled():
             return None
@@ -599,7 +638,9 @@ class UniFiConnector:
                 "source": "UniFi",
             })
 
-        critical_alerts = sum(1 for a in alerts if self._severity_from_alert(a) == "critical")
+        active_unifi_alerts = [a for a in alerts if self.is_unifi_alert_active(a)]
+        resolved_unifi_alerts = max(0, len(alerts) - len(active_unifi_alerts))
+        critical_alerts = sum(1 for a in active_unifi_alerts if self._severity_from_alert(a) == "critical")
         critical_total = critical_alerts + critical_sites
 
         return {
@@ -608,13 +649,18 @@ class UniFiConnector:
             "unifi_connected": 1,
             "unifi_sites": site_count,
             "unifi_status": "LIVE",
-            "unifi_alerts": len(alerts),
+            "unifi_alerts": len(active_unifi_alerts),
+            "unifi_returned_alerts": len(alerts),
+            "unifi_resolved_alerts": resolved_unifi_alerts,
             "unifi_site_health": site_health,
             "unifi_healthy_sites": healthy_sites,
             "unifi_degraded_sites": degraded_sites,
             "unifi_critical_sites": critical_sites,
             "unifi_visible_sites": visible_sites,
-            "alerts": len(alerts),
+            "alerts": len(active_unifi_alerts),
+            "active_alerts": len(active_unifi_alerts),
+            "returned_alerts": len(alerts),
+            "resolved_alerts": resolved_unifi_alerts,
             "critical": critical_total,
             "sites": site_count,
             "devices": 0,
@@ -768,13 +814,22 @@ class TelemetryEngine(threading.Thread):
                     "devices": 0,
                     "noncompliant": 0,
                     "alerts": 0,
+                    "active_alerts": 0,
+                    "returned_alerts": 0,
+                    "resolved_alerts": 0,
                     "defender_alerts": 0,
+                    "defender_returned_alerts": 0,
+                    "defender_resolved_alerts": 0,
                     "graph_alerts": 0,
+                    "graph_returned_alerts": 0,
+                    "graph_resolved_alerts": 0,
                     "critical": 0,
                     "wan_health": 0,
                     "unifi_connected": 0,
                     "unifi_sites": 0,
                     "unifi_alerts": 0,
+                    "unifi_returned_alerts": 0,
+                    "unifi_resolved_alerts": 0,
                     "unifi_healthy_sites": 0,
                     "unifi_degraded_sites": 0,
                     "unifi_critical_sites": 0,
@@ -810,12 +865,21 @@ class TelemetryEngine(threading.Thread):
         devices = sum(int(r.get("devices", 0)) for r in results)
         noncompliant = sum(int(r.get("noncompliant", 0)) for r in results)
         alerts = sum(int(r.get("alerts", 0)) for r in results)
+        active_alerts = sum(int(r.get("active_alerts", r.get("alerts", 0))) for r in results)
+        returned_alerts = sum(int(r.get("returned_alerts", r.get("alerts", 0))) for r in results)
+        resolved_alerts = sum(int(r.get("resolved_alerts", 0)) for r in results)
         defender_alerts = sum(int(r.get("defender_alerts", 0)) for r in results)
+        defender_returned_alerts = sum(int(r.get("defender_returned_alerts", r.get("defender_alerts", 0))) for r in results)
+        defender_resolved_alerts = sum(int(r.get("defender_resolved_alerts", 0)) for r in results)
         graph_alerts = sum(int(r.get("graph_alerts", 0)) for r in results)
+        graph_returned_alerts = sum(int(r.get("graph_returned_alerts", r.get("graph_alerts", 0))) for r in results)
+        graph_resolved_alerts = sum(int(r.get("graph_resolved_alerts", 0)) for r in results)
         critical = sum(int(r.get("critical", 0)) for r in results)
         unifi_connected = sum(int(r.get("unifi_connected", 0)) for r in results)
         unifi_sites = sum(int(r.get("unifi_sites", 0)) for r in results)
         unifi_alerts = sum(int(r.get("unifi_alerts", 0)) for r in results)
+        unifi_returned_alerts = sum(int(r.get("unifi_returned_alerts", r.get("unifi_alerts", 0))) for r in results)
+        unifi_resolved_alerts = sum(int(r.get("unifi_resolved_alerts", 0)) for r in results)
         unifi_healthy_sites = sum(int(r.get("unifi_healthy_sites", 0)) for r in results)
         unifi_degraded_sites = sum(int(r.get("unifi_degraded_sites", 0)) for r in results)
         unifi_critical_sites = sum(int(r.get("unifi_critical_sites", 0)) for r in results)
@@ -851,14 +915,23 @@ class TelemetryEngine(threading.Thread):
             "metrics": {
                 "devices": devices,
                 "noncompliant": noncompliant,
-                "alerts": alerts,
+                "alerts": active_alerts,
+                "active_alerts": active_alerts,
+                "returned_alerts": returned_alerts,
+                "resolved_alerts": resolved_alerts,
                 "defender_alerts": defender_alerts,
+                "defender_returned_alerts": defender_returned_alerts,
+                "defender_resolved_alerts": defender_resolved_alerts,
                 "graph_alerts": graph_alerts,
+                "graph_returned_alerts": graph_returned_alerts,
+                "graph_resolved_alerts": graph_resolved_alerts,
                 "critical": critical,
                 "wan_health": wan_health,
                 "unifi_connected": unifi_connected,
                 "unifi_sites": unifi_sites,
                 "unifi_alerts": unifi_alerts,
+                "unifi_returned_alerts": unifi_returned_alerts,
+                "unifi_resolved_alerts": unifi_resolved_alerts,
                 "unifi_healthy_sites": unifi_healthy_sites,
                 "unifi_degraded_sites": unifi_degraded_sites,
                 "unifi_critical_sites": unifi_critical_sites,
@@ -949,7 +1022,7 @@ class SentinelApp(tk.Tk):
         for i in range(3):
             cards.grid_columnconfigure(i, weight=1)
         self.card(cards, 0, 0, "Priority state", "priority_state", BLUE)
-        self.card(cards, 0, 1, "Active alerts", "alerts", RED)
+        self.card(cards, 0, 1, "Active unresolved alerts", "alerts", RED)
         self.card(cards, 0, 2, "Compliant gap", "noncompliant", AMBER)
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
@@ -958,7 +1031,7 @@ class SentinelApp(tk.Tk):
         for label, key, color in [
             ("UniFi", "unifi_status", BLUE),
             ("UniFi sites", "unifi_sites", GREEN),
-            ("UniFi alerts", "unifi_alerts", AMBER),
+            ("Active UniFi alerts", "unifi_alerts", AMBER),
             ("Healthy sites", "unifi_healthy_sites", GREEN),
             ("Degraded sites", "unifi_degraded_sites", AMBER),
             ("Critical sites", "unifi_critical_sites", RED),
@@ -1317,7 +1390,7 @@ class SentinelApp(tk.Tk):
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
         unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Defender {m.get('defender_alerts', 0)} • Graph {m.get('graph_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
+        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Active {m.get('active_alerts', m.get('alerts', 0))} • Returned {m.get('returned_alerts', 0)} • Resolved/closed {m.get('resolved_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
         self.spark.append(m.get("alerts", 0))
@@ -1348,7 +1421,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | Defender: {m.get('defender_alerts', 0)} | Graph: {m.get('graph_alerts', 0)}{unifi_footer} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
+        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
         self.canvas.delete("all")
@@ -1358,8 +1431,8 @@ class SentinelApp(tk.Tk):
         current = self.spark[-1] if self.spark else 0
         line_color = RED if current >= 100 else AMBER if current >= 25 else BLUE if current > 0 else GREEN
         self.canvas.create_text(24, 24, anchor="w", text="Alert telemetry", fill=TEXT, font=("Segoe UI Variable Display", 18, "bold"))
-        self.canvas.create_text(24, 52, anchor="w", text="Live alert count trend from Defender for Endpoint and Graph Security", fill=MUTED, font=("Segoe UI", 10))
-        self.canvas.create_text(w - 24, 24, anchor="e", text=f"Current active alerts {int(current)}", fill=line_color, font=("Segoe UI", 11, "bold"))
+        self.canvas.create_text(24, 52, anchor="w", text="Live active unresolved alert trend from Defender, Graph Security, and UniFi", fill=MUTED, font=("Segoe UI", 10))
+        self.canvas.create_text(w - 24, 24, anchor="e", text=f"Current active unresolved alerts {int(current)}", fill=line_color, font=("Segoe UI", 11, "bold"))
         if len(self.spark) < 2:
             return
         left, top, right, bottom = 32, 84, w - 40, h - 30
