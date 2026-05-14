@@ -553,12 +553,14 @@ class TelemetryEngine(threading.Thread):
                     "android": 0,
                     "other_os": 0,
                     "risk": 0,
+                    "priority_state": "CLEAR",
+                    "priority_level": 0,
                 },
                 "events": [
                     {
                         "severity": "info",
-                        "title": "Waiting for live connector data",
-                        "detail": "Open Setup connectors, enable at least one connector, and save.",
+                        "title": "No configured connector is returning data",
+                        "detail": "Open Setup connectors, enable the connector you want, enter credentials, and save.",
                         "source": "Connector health",
                     }
                 ] + [
@@ -586,7 +588,13 @@ class TelemetryEngine(threading.Thread):
         wan = [int(r.get("wan_health")) for r in results if r.get("wan_health") not in (None, 0)]
         wan_health = int(sum(wan) / len(wan)) if wan else 0
         wan_penalty = (100 - wan_health) * 1.2 if wan_health else 0
-        risk = clamp(int((noncompliant / max(devices, 1)) * 42 + alerts * 1.8 + critical * 18 + wan_penalty), 0, 100)
+        risk = 0  # Deprecated: kept internally only so older chart state does not break. Not displayed as a security result.
+        priority_state, priority_level, priority_reason = self.priority_from_counts({
+            "critical": critical,
+            "defender_alerts": defender_alerts,
+            "graph_alerts": graph_alerts,
+            "noncompliant": noncompliant,
+        })
         live_sources = [r["source"] for r in results if r.get("live")]
         sim_sources = [r["source"] for r in results if not r.get("live")]
         events = []
@@ -611,6 +619,9 @@ class TelemetryEngine(threading.Thread):
                 "android": android,
                 "other_os": other_os,
                 "risk": risk,
+                "priority_state": priority_state,
+                "priority_level": priority_level,
+                "priority_reason": priority_reason,
             },
             "events": events,
             "sources": {"live": live_sources, "simulated": sim_sources, "errors": errors},
@@ -631,6 +642,9 @@ class SentinelApp(tk.Tk):
         self.metric_cards = {}
         self.platform_labels = {}
         self.alert_breakdown_labels = {}
+        self.connector_widgets = {}
+        self.optional_metric_keys = ["wan_health"]
+        self.optional_bars = []
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
         self._setup_style()
         self._build()
@@ -682,7 +696,7 @@ class SentinelApp(tk.Tk):
         cards.pack(fill="x")
         for i in range(3):
             cards.grid_columnconfigure(i, weight=1)
-        self.card(cards, 0, 0, "Risk score", "risk", BLUE)
+        self.card(cards, 0, 0, "Priority state", "priority_state", BLUE)
         self.card(cards, 0, 1, "Active alerts", "alerts", RED)
         self.card(cards, 0, 2, "Compliant gap", "noncompliant", AMBER)
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
@@ -690,7 +704,7 @@ class SentinelApp(tk.Tk):
         self.card(cards, 1, 2, "WAN health", "wan_health", BLUE)
 
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
-        self.platform_bar.pack(fill="x", pady=(8, 0))
+        self.optional_bars.append(self.platform_bar)
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -710,14 +724,27 @@ class SentinelApp(tk.Tk):
         self.canvas.pack(fill="both", expand=True, pady=(18, 0))
         self.spark = []
 
-        tk.Label(right, text="Signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
-        self.feed = tk.Frame(right, bg=BG)
-        self.feed.pack(fill="both", expand=True, pady=(10, 0))
+        tk.Label(right, text="Verified signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
+
+        self.feed_canvas = tk.Canvas(right, bg=BG, highlightthickness=0, bd=0)
+        self.feed_scrollbar = tk.Scrollbar(right, orient="vertical", command=self.feed_canvas.yview, bg=PANEL, troughcolor=BG, activebackground="#243455")
+        self.feed_canvas.configure(yscrollcommand=self.feed_scrollbar.set)
+
+        self.feed_canvas.pack(side="left", fill="both", expand=True, pady=(10, 0))
+        self.feed_scrollbar.pack(side="right", fill="y", pady=(10, 0))
+
+        self.feed = tk.Frame(self.feed_canvas, bg=BG)
+        self.feed_window = self.feed_canvas.create_window((0, 0), window=self.feed, anchor="nw")
+
+        self.feed.bind("<Configure>", self._on_feed_configure)
+        self.feed_canvas.bind("<Configure>", self._on_feed_canvas_configure)
+        self.feed_canvas.bind("<Enter>", self._bind_feed_mousewheel)
+        self.feed_canvas.bind("<Leave>", self._unbind_feed_mousewheel)
 
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(footer, text="Real connector mode only. No simulated telemetry is generated.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(footer, text="Only configured live connectors are displayed. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
 
     def card(self, parent, row, col, title, key, color):
         f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#22304C")
@@ -731,65 +758,140 @@ class SentinelApp(tk.Tk):
         self.metric_cards[key] = {"frame": f, "value": val, "hint": hint, "base": color}
 
     def metric_style(self, key, val):
-        val = safe_float(val, 0)
+        raw = str(val)
+        num = safe_float(val, 0)
+        if key == "priority_state":
+            state = raw.upper()
+            if state == "CRITICAL":
+                return RED, "critical alerts present"
+            if state == "HIGH":
+                return RED, "large alert/compliance volume"
+            if state == "ACTION":
+                return AMBER, "investigation required"
+            return GREEN, "no active findings"
         if key == "risk":
-            if val >= 75:
-                return RED, "critical risk"
-            if val >= 50:
-                return AMBER, "elevated risk"
-            if val >= 25:
-                return BLUE, "watching"
-            return GREEN, "healthy"
+            return MUTED, "deprecated"
         if key == "alerts":
-            if val >= 25:
-                return RED, "heavy alert load"
-            if val >= 10:
-                return AMBER, "investigate"
-            if val > 0:
+            if num >= 100:
+                return RED, "high alert volume"
+            if num >= 25:
+                return AMBER, "elevated alert volume"
+            if num > 0:
                 return BLUE, "active"
             return GREEN, "clear"
         if key == "noncompliant":
-            if val >= 10:
-                return RED, "needs action"
-            if val > 0:
-                return AMBER, "drift detected"
+            if num >= 100:
+                return RED, "large compliance gap"
+            if num >= 25:
+                return AMBER, "compliance drift"
+            if num > 0:
+                return BLUE, "small compliance gap"
             return GREEN, "fully compliant"
         if key == "critical":
-            if val > 0:
+            if num > 0:
                 return RED, "immediate attention"
             return GREEN, "none"
         if key == "wan_health":
-            if val <= 0:
+            if num <= 0:
                 return MUTED, "no network source"
-            if val < 90:
+            if num < 90:
                 return RED, "unstable"
-            if val < 95:
+            if num < 95:
                 return AMBER, "degraded"
-            if val < 98:
+            if num < 98:
                 return BLUE, "good"
             return GREEN, "excellent"
         if key == "devices":
-            if val <= 0:
+            if num <= 0:
                 return AMBER, "no visibility"
             return GREEN, "visible"
         return BLUE, "live"
 
     def overall_state(self, metrics):
-        risk = safe_float(metrics.get("risk", 0), 0)
-        critical = safe_float(metrics.get("critical", 0), 0)
-        noncompliant = safe_float(metrics.get("noncompliant", 0), 0)
-        alerts = safe_float(metrics.get("alerts", 0), 0)
-        if critical > 0 or risk >= 75:
+        state = str(metrics.get("priority_state", "CLEAR")).upper()
+        if state == "CRITICAL":
             return "CRITICAL", RED
-        if risk >= 50 or noncompliant >= 10 or alerts >= 25:
-            return "ELEVATED", AMBER
-        if risk >= 25 or alerts > 0 or noncompliant > 0:
-            return "WATCH", BLUE
-        return "HEALTHY", GREEN
+        if state == "HIGH":
+            return "HIGH", RED
+        if state == "ACTION":
+            return "ACTION", AMBER
+        return "CLEAR", GREEN
+
+
+    def connector_enabled(self, section):
+        return bool(self.cfg.get(section, {}).get("enabled", False))
+
+    def set_widget_visible(self, widget, visible, manager="pack", **opts):
+        if not widget:
+            return
+        if visible:
+            if manager == "pack" and not widget.winfo_manager():
+                widget.pack(**opts)
+            elif manager == "grid" and not widget.winfo_manager():
+                widget.grid(**opts)
+        else:
+            if widget.winfo_manager():
+                widget.pack_forget() if manager == "pack" else widget.grid_forget()
+
+    def update_configured_visibility(self, metrics, sources):
+        """Hide optional connector UI unless the connector is configured and returning live data."""
+        microsoft_live = any("Microsoft" in s or "Defender" in s for s in sources.get("live", []))
+        network_live = any("UniFi" in s for s in sources.get("live", []))
+        datto_live = any("Datto" in s for s in sources.get("live", []))
+        rocket_live = any("Rocket" in s for s in sources.get("live", []))
+
+        # WAN health is only meaningful if a network connector is configured/live.
+        wan_card = self.metric_cards.get("wan_health", {}).get("frame")
+        if wan_card:
+            if network_live or int(metrics.get("wan_health", 0) or 0) > 0:
+                if not wan_card.winfo_manager():
+                    wan_card.grid(row=1, column=2, sticky="nsew", padx=8, pady=8)
+            else:
+                if wan_card.winfo_manager():
+                    wan_card.grid_forget()
+
+        # Platform and alert breakdown bars are Microsoft-specific.
+        for bar in getattr(self, "optional_bars", []):
+            if microsoft_live:
+                if not bar.winfo_manager():
+                    bar.pack(fill="x", pady=(8, 0))
+            else:
+                if bar.winfo_manager():
+                    bar.pack_forget()
+
+
+
+    def _on_feed_configure(self, event=None):
+        self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
+
+    def _on_feed_canvas_configure(self, event):
+        self.feed_canvas.itemconfigure(self.feed_window, width=event.width)
+
+    def _feed_mousewheel(self, event):
+        # Windows/macOS mouse wheel support. Positive delta means up on Windows.
+        delta = -1 * int(event.delta / 120) if event.delta else 0
+        self.feed_canvas.yview_scroll(delta, "units")
+
+    def _feed_mousewheel_linux_up(self, event):
+        self.feed_canvas.yview_scroll(-3, "units")
+
+    def _feed_mousewheel_linux_down(self, event):
+        self.feed_canvas.yview_scroll(3, "units")
+
+    def _bind_feed_mousewheel(self, event=None):
+        self.feed_canvas.bind_all("<MouseWheel>", self._feed_mousewheel)
+        self.feed_canvas.bind_all("<Button-4>", self._feed_mousewheel_linux_up)
+        self.feed_canvas.bind_all("<Button-5>", self._feed_mousewheel_linux_down)
+
+    def _unbind_feed_mousewheel(self, event=None):
+        self.feed_canvas.unbind_all("<MouseWheel>")
+        self.feed_canvas.unbind_all("<Button-4>")
+        self.feed_canvas.unbind_all("<Button-5>")
+
 
     def open_setup(self):
         win = tk.Toplevel(self)
-        win.title("Sentinel setup")
+        win.title("Dasher setup")
         win.geometry("780x690")
         win.configure(bg=BG)
         win.transient(self)
@@ -880,11 +982,13 @@ class SentinelApp(tk.Tk):
 
     def render(self, payload):
         m = payload["metrics"]
+        self.update_configured_visibility(m, payload["sources"])
         for key, val in m.items():
-            suffix = "%" if key in ("risk", "wan_health") else ""
+            suffix = "%" if key == "wan_health" else ""
             if key in self.metric_labels:
                 color, hint = self.metric_style(key, val)
-                self.metric_labels[key].config(text=f"{val}{suffix}", fg=color)
+                display = str(val).upper() if key == "priority_state" else f"{val}{suffix}"
+                self.metric_labels[key].config(text=display, fg=color)
                 self.metric_cards[key]["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
                 self.metric_cards[key]["frame"].config(highlightbackground=color)
 
@@ -895,12 +999,12 @@ class SentinelApp(tk.Tk):
             label.config(text=str(m.get(key, 0)))
 
         state_text, state_color = self.overall_state(m)
-        live = ", ".join(payload["sources"]["live"]) or "none"
+        live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
-        self.state_detail.config(text=f"Risk {m.get('risk', 0)}% • Devices {m.get('devices', 0)} • Defender {m.get('defender_alerts', 0)} • Graph {m.get('graph_alerts', 0)} • Win {m.get('windows', 0)} • iOS/iPadOS {m.get('ios', 0)} • Mac {m.get('macos', 0)}")
+        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Defender {m.get('defender_alerts', 0)} • Graph {m.get('graph_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
-        self.spark.append(m["risk"])
+        self.spark.append(m.get("alerts", 0))
         self.spark = self.spark[-80:]
         self.draw_spark()
 
@@ -910,7 +1014,7 @@ class SentinelApp(tk.Tk):
         sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         sev_color = {"critical": RED, "high": RED, "medium": AMBER, "info": BLUE, "low": GREEN}
         sev_bg = {"critical": "#26111A", "high": "#26111A", "medium": "#241E11", "info": "#131C2D", "low": "#102019"}
-        events = sorted(payload["events"][:10], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
+        events = sorted(payload["events"][:50], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
         for event in events:
             sev = str(event.get("severity", "info")).lower()
             color = sev_color.get(sev, BLUE)
@@ -924,7 +1028,10 @@ class SentinelApp(tk.Tk):
             tk.Label(f, text=event.get("title", "event"), bg=bg, fg=TEXT, font=("Segoe UI", 10, "bold"), wraplength=320, justify="left").pack(anchor="w", padx=12, pady=(4,0))
             tk.Label(f, text=event.get("detail", ""), bg=bg, fg=MUTED, font=("Segoe UI", 8), wraplength=320, justify="left").pack(anchor="w", padx=12, pady=(0, 8))
 
-        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | alerts: {m.get('alerts', 0)} | non-compliant: {m.get('noncompliant', 0)}")
+        self.feed.update_idletasks()
+        self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
+
+        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | Defender: {m.get('defender_alerts', 0)} | Graph: {m.get('graph_alerts', 0)} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
         self.canvas.delete("all")
@@ -932,25 +1039,28 @@ class SentinelApp(tk.Tk):
         h = max(10, self.canvas.winfo_height())
         self.canvas.create_rectangle(0, 0, w, h, fill=PANEL, outline="")
         current = self.spark[-1] if self.spark else 0
-        line_color, state_text = self.metric_style("risk", current)
-        self.canvas.create_text(24, 24, anchor="w", text="Risk telemetry", fill=TEXT, font=("Segoe UI Variable Display", 18, "bold"))
-        self.canvas.create_text(24, 52, anchor="w", text="Correlation engine: endpoint compliance + network health + security alerts", fill=MUTED, font=("Segoe UI", 10))
-        self.canvas.create_text(w - 24, 24, anchor="e", text=f"Current risk {int(current)}%", fill=line_color, font=("Segoe UI", 11, "bold"))
+        line_color = RED if current >= 100 else AMBER if current >= 25 else BLUE if current > 0 else GREEN
+        self.canvas.create_text(24, 24, anchor="w", text="Alert telemetry", fill=TEXT, font=("Segoe UI Variable Display", 18, "bold"))
+        self.canvas.create_text(24, 52, anchor="w", text="Live alert count trend from Defender for Endpoint and Graph Security", fill=MUTED, font=("Segoe UI", 10))
+        self.canvas.create_text(w - 24, 24, anchor="e", text=f"Current active alerts {int(current)}", fill=line_color, font=("Segoe UI", 11, "bold"))
         if len(self.spark) < 2:
             return
         left, top, right, bottom = 32, 84, w - 40, h - 30
-        for y in range(0, 101, 25):
-            yy = bottom - (y / 100) * (bottom - top)
+        max_value = max(max(self.spark), 10)
+        scale_top = max(10, int(((max_value + 24) // 25) * 25))
+        for y in range(0, scale_top + 1, max(1, scale_top // 4)):
+            yy = bottom - (y / max(scale_top, 1)) * (bottom - top)
             self.canvas.create_line(left, yy, right, yy, fill="#202B44")
             self.canvas.create_text(right + 6, yy, anchor="w", text=str(y), fill="#526078", font=("Segoe UI", 8))
         pts = []
         for i, v in enumerate(self.spark):
             x = left + (i / max(1, len(self.spark) - 1)) * (right - left)
-            y = bottom - (v / 100) * (bottom - top)
+            y = bottom - (v / max(scale_top, 1)) * (bottom - top)
             pts.extend([x, y])
         self.canvas.create_line(*pts, fill=line_color, width=3, smooth=True)
         x, y = pts[-2], pts[-1]
         self.canvas.create_oval(x-6, y-6, x+6, y+6, fill=line_color, outline="")
+
 
 
 def main():
