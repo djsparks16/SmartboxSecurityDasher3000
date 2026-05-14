@@ -118,7 +118,7 @@ class Config:
         "demo_mode": False,
         "poll_seconds": 8,
         "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
-        "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "enabled": False},
+        "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "enabled": False},
         "datto": {"api_url": "", "access_token": "", "enabled": False},
         "rocketcyber": {"base_url": "https://api-us.rocketcyber.com", "api_key": "", "enabled": False},
     }
@@ -327,7 +327,7 @@ class MicrosoftGraphConnector:
         ]
 
         # Defender signal feed first, then Graph security, then inventory.
-        for a in defender_alerts[:6]:
+        for a in defender_alerts[:25]:
             sev = str(a.get("severity", "medium")).lower()
             status = a.get("status") or a.get("classification") or "unknown"
             device = a.get("computerDnsName") or a.get("machineId") or "unknown device"
@@ -338,7 +338,7 @@ class MicrosoftGraphConnector:
                 "source": "Defender for Endpoint",
             })
 
-        for a in graph_alerts[:5]:
+        for a in graph_alerts[:10]:
             events.append({
                 "severity": "critical" if str(a.get("severity", "")).lower() in ("high", "critical") else "medium",
                 "title": a.get("title", "Microsoft security alert"),
@@ -390,28 +390,236 @@ class UniFiConnector:
         c = self.cfg["unifi"]
         return c.get("enabled") and c.get("base_url") and c.get("api_key")
 
+    def _items_from_response(self, data):
+        if isinstance(data, list):
+            return data
+        if not isinstance(data, dict):
+            return []
+        for key in ("data", "value", "events", "alerts", "alarms", "items", "results", "sites"):
+            val = data.get(key)
+            if isinstance(val, list):
+                return val
+        return []
+
+    def _severity_from_alert(self, alert):
+        raw = str(
+            alert.get("severity")
+            or alert.get("level")
+            or alert.get("priority")
+            or alert.get("type")
+            or alert.get("category")
+            or ""
+        ).lower()
+        if any(x in raw for x in ("critical", "error", "wan", "offline", "down", "fail")):
+            return "critical"
+        if any(x in raw for x in ("warn", "medium", "blocked", "threat", "rogue")):
+            return "medium"
+        return "info"
+
+    def _alert_title(self, alert):
+        return (
+            alert.get("title")
+            or alert.get("message")
+            or alert.get("name")
+            or alert.get("event")
+            or alert.get("type")
+            or "UniFi alert"
+        )
+
+    def _alert_detail(self, alert):
+        parts = []
+        for key in ("siteName", "site_id", "deviceName", "hostname", "clientName", "mac", "ip", "timestamp", "datetime", "time"):
+            if alert.get(key):
+                parts.append(str(alert.get(key)))
+        return " | ".join(parts[:4]) or "UniFi event returned by API"
+
+    def _site_id(self, site):
+        return str(site.get("id") or site.get("_id") or site.get("siteId") or site.get("site_id") or site.get("name") or "")
+
+    def _site_name(self, site):
+        return str(site.get("name") or site.get("displayName") or site.get("siteName") or site.get("desc") or self._site_id(site) or "UniFi site")
+
+    def _site_status(self, site):
+        raw = str(
+            site.get("status")
+            or site.get("state")
+            or site.get("health")
+            or site.get("connectionState")
+            or site.get("wanStatus")
+            or site.get("availability")
+            or ""
+        ).lower()
+
+        if any(x in raw for x in ("critical", "offline", "down", "failed", "disconnected", "bad")):
+            return "CRITICAL"
+        if any(x in raw for x in ("warning", "degraded", "poor", "limited", "attention")):
+            return "DEGRADED"
+        if any(x in raw for x in ("online", "active", "healthy", "good", "ok", "connected")):
+            return "HEALTHY"
+
+        # Official site listings may not include health. Treat as visible, not healthy.
+        return "VISIBLE"
+
+    def _site_detail(self, site):
+        parts = []
+        for key in ("status", "state", "health", "wanStatus", "connectionState", "deviceCount", "devices", "clients", "clientCount"):
+            if site.get(key) not in (None, ""):
+                parts.append(f"{key}: {site.get(key)}")
+        return ", ".join(parts[:4]) or "site object visible; health fields not returned"
+
+    def _alert_paths(self, base, site_id, configured_path):
+        if configured_path:
+            path = configured_path.strip()
+            if path.startswith("http://") or path.startswith("https://"):
+                return [path]
+            if not path.startswith("/"):
+                path = "/" + path
+            return [base + path]
+
+        if not site_id:
+            return []
+
+        safe_site = urllib.parse.quote(site_id.strip(), safe="")
+        return [
+            f"{base}/proxy/network/integration/v1/sites/{safe_site}/alerts",
+            f"{base}/proxy/network/integration/v1/sites/{safe_site}/events",
+            f"{base}/proxy/network/integration/v1/sites/{safe_site}/alarms",
+        ]
+
+    def _site_health_paths(self, base, site_id, configured_path):
+        if configured_path:
+            path = configured_path.strip()
+            if path.startswith("http://") or path.startswith("https://"):
+                return [path]
+            if not path.startswith("/"):
+                path = "/" + path
+            return [base + path]
+
+        paths = []
+        if site_id:
+            safe_site = urllib.parse.quote(site_id.strip(), safe="")
+            paths.extend([
+                f"{base}/proxy/network/integration/v1/sites/{safe_site}/health",
+                f"{base}/proxy/network/integration/v1/sites/{safe_site}/devices",
+            ])
+        return paths
+
     def fetch(self):
         if not self.enabled():
             return None
+
         c = self.cfg["unifi"]
         base = c["base_url"].rstrip("/")
         headers = {"X-API-KEY": c["api_key"], "Accept": "application/json"}
-        # The official UniFi API surface is expanding; keep endpoint configurable by version.
-        path = "/proxy/network/integration/v1/sites"
-        sites = Http.request("GET", base + path, headers=headers)
-        items = sites.get("data") or sites.get("value") or sites.get("sites") or []
+
+        site_path = "/proxy/network/integration/v1/sites"
+        sites_response = Http.request("GET", base + site_path, headers=headers)
+        sites = self._items_from_response(sites_response)
+        site_count = len(sites) if isinstance(sites, list) else 0
+
+        # Try optional health endpoint. If unavailable, use the site listing objects as the health source.
+        health_items = []
+        health_errors = []
+        for url in self._site_health_paths(base, c.get("site_id", ""), c.get("site_health_path", "")):
+            try:
+                data = Http.request("GET", url, headers=headers)
+                health_items = self._items_from_response(data)
+                if health_items:
+                    break
+            except Exception as e:
+                health_errors.append(str(e)[:120])
+
+        site_health_source = health_items if health_items else sites
+        site_health = []
+        for site in site_health_source[:25]:
+            if not isinstance(site, dict):
+                continue
+            site_health.append({
+                "name": self._site_name(site),
+                "id": self._site_id(site),
+                "status": self._site_status(site),
+                "detail": self._site_detail(site),
+            })
+
+        healthy_sites = sum(1 for s in site_health if s["status"] == "HEALTHY")
+        degraded_sites = sum(1 for s in site_health if s["status"] == "DEGRADED")
+        critical_sites = sum(1 for s in site_health if s["status"] == "CRITICAL")
+        visible_sites = sum(1 for s in site_health if s["status"] == "VISIBLE")
+
+        alerts = []
+        for url in self._alert_paths(base, c.get("site_id", ""), c.get("alerts_path", "")):
+            try:
+                data = Http.request("GET", url, headers=headers)
+                alerts = self._items_from_response(data)
+                break
+            except Exception:
+                pass
+
+        events = [{
+            "severity": "info",
+            "title": "UniFi API reachable",
+            "detail": f"{site_count} site object(s) returned.",
+            "source": "UniFi",
+        }]
+
+        if site_health:
+            events.append({
+                "severity": "critical" if critical_sites else "medium" if degraded_sites else "info",
+                "title": "UniFi site health loaded",
+                "detail": f"{len(site_health)} site(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
+                "source": "UniFi",
+            })
+
+        if alerts:
+            events.insert(0, {
+                "severity": "critical" if any(self._severity_from_alert(a) == "critical" for a in alerts) else "medium",
+                "title": "UniFi alerts live",
+                "detail": f"{len(alerts)} alert/event item(s) returned.",
+                "source": "UniFi",
+            })
+            for alert in alerts[:25]:
+                events.append({
+                    "severity": self._severity_from_alert(alert),
+                    "title": self._alert_title(alert),
+                    "detail": self._alert_detail(alert),
+                    "source": "UniFi",
+                })
+        elif c.get("site_id") or c.get("alerts_path"):
+            events.append({
+                "severity": "medium",
+                "title": "UniFi alert endpoint returned no items",
+                "detail": "No UniFi alerts/events found, or endpoint shape did not contain a list.",
+                "source": "UniFi",
+            })
+        else:
+            events.append({
+                "severity": "info",
+                "title": "UniFi alerts not configured",
+                "detail": "Add Site ID or Alerts path in Setup to query UniFi alerts/events.",
+                "source": "UniFi",
+            })
+
+        critical_alerts = sum(1 for a in alerts if self._severity_from_alert(a) == "critical")
+        critical_total = critical_alerts + critical_sites
+
         return {
             "source": "UniFi",
             "live": True,
-            "sites": len(items) if isinstance(items, list) else 1,
+            "unifi_connected": 1,
+            "unifi_sites": site_count,
+            "unifi_status": "LIVE",
+            "unifi_alerts": len(alerts),
+            "unifi_site_health": site_health,
+            "unifi_healthy_sites": healthy_sites,
+            "unifi_degraded_sites": degraded_sites,
+            "unifi_critical_sites": critical_sites,
+            "unifi_visible_sites": visible_sites,
+            "alerts": len(alerts),
+            "critical": critical_total,
+            "sites": site_count,
             "devices": 0,
             "wan_health": 0,
-            "events": [{
-                "severity": "info",
-                "title": "UniFi controller reachable",
-                "detail": f"{len(items) if isinstance(items, list) else 1} site object(s) returned",
-                "source": "UniFi",
-            }],
+            "events": events,
         }
 
 
@@ -564,6 +772,14 @@ class TelemetryEngine(threading.Thread):
                     "graph_alerts": 0,
                     "critical": 0,
                     "wan_health": 0,
+                    "unifi_connected": 0,
+                    "unifi_sites": 0,
+                    "unifi_alerts": 0,
+                    "unifi_healthy_sites": 0,
+                    "unifi_degraded_sites": 0,
+                    "unifi_critical_sites": 0,
+                    "unifi_visible_sites": 0,
+                    "unifi_site_health": [],
                     "windows": 0,
                     "ios": 0,
                     "macos": 0,
@@ -597,6 +813,16 @@ class TelemetryEngine(threading.Thread):
         defender_alerts = sum(int(r.get("defender_alerts", 0)) for r in results)
         graph_alerts = sum(int(r.get("graph_alerts", 0)) for r in results)
         critical = sum(int(r.get("critical", 0)) for r in results)
+        unifi_connected = sum(int(r.get("unifi_connected", 0)) for r in results)
+        unifi_sites = sum(int(r.get("unifi_sites", 0)) for r in results)
+        unifi_alerts = sum(int(r.get("unifi_alerts", 0)) for r in results)
+        unifi_healthy_sites = sum(int(r.get("unifi_healthy_sites", 0)) for r in results)
+        unifi_degraded_sites = sum(int(r.get("unifi_degraded_sites", 0)) for r in results)
+        unifi_critical_sites = sum(int(r.get("unifi_critical_sites", 0)) for r in results)
+        unifi_visible_sites = sum(int(r.get("unifi_visible_sites", 0)) for r in results)
+        unifi_site_health = []
+        for r in results:
+            unifi_site_health.extend(r.get("unifi_site_health", []) or [])
         windows = sum(int(r.get("windows", 0)) for r in results)
         ios = sum(int(r.get("ios", 0)) for r in results)
         macos = sum(int(r.get("macos", 0)) for r in results)
@@ -630,6 +856,14 @@ class TelemetryEngine(threading.Thread):
                 "graph_alerts": graph_alerts,
                 "critical": critical,
                 "wan_health": wan_health,
+                "unifi_connected": unifi_connected,
+                "unifi_sites": unifi_sites,
+                "unifi_alerts": unifi_alerts,
+                "unifi_healthy_sites": unifi_healthy_sites,
+                "unifi_degraded_sites": unifi_degraded_sites,
+                "unifi_critical_sites": unifi_critical_sites,
+                "unifi_visible_sites": unifi_visible_sites,
+                "unifi_site_health": unifi_site_health,
                 "windows": windows,
                 "ios": ios,
                 "macos": macos,
@@ -659,6 +893,7 @@ class SentinelApp(tk.Tk):
         self.metric_cards = {}
         self.platform_labels = {}
         self.alert_breakdown_labels = {}
+        self.unifi_labels = {}
         self.connector_widgets = {}
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
@@ -718,7 +953,36 @@ class SentinelApp(tk.Tk):
         self.card(cards, 0, 2, "Compliant gap", "noncompliant", AMBER)
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
-        self.card(cards, 1, 2, "WAN health", "wan_health", BLUE)
+
+        self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        for label, key, color in [
+            ("UniFi", "unifi_status", BLUE),
+            ("UniFi sites", "unifi_sites", GREEN),
+            ("UniFi alerts", "unifi_alerts", AMBER),
+            ("Healthy sites", "unifi_healthy_sites", GREEN),
+            ("Degraded sites", "unifi_degraded_sites", AMBER),
+            ("Critical sites", "unifi_critical_sites", RED),
+        ]:
+            box = tk.Frame(self.unifi_bar, bg=PANEL)
+            box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+            tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 16, "bold"))
+            val.pack(anchor="w")
+            self.unifi_labels[key] = val
+
+
+        self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.unifi_site_health_title = tk.Label(self.unifi_site_health_bar, text="UniFi site health", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
+        self.unifi_site_health_title.pack(anchor="w", padx=12, pady=(8, 2))
+        self.unifi_site_health_text = tk.Label(self.unifi_site_health_bar, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=1100)
+        self.unifi_site_health_text.pack(anchor="w", padx=12, pady=(0, 8))
+
+        self.top_issues_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.top_issues_bar.pack(fill="x", pady=(8, 0))
+        tk.Label(self.top_issues_bar, text="Top live findings", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        self.top_issues_text = tk.Label(self.top_issues_bar, text="Waiting for alerts...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=900)
+        self.top_issues_text.pack(anchor="w", padx=12, pady=(0, 8))
+
 
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         self.optional_bars.append(self.platform_bar)
@@ -737,7 +1001,7 @@ class SentinelApp(tk.Tk):
             self.platform_labels[key] = val
 
 
-        self.canvas = tk.Canvas(left, bg=PANEL, highlightthickness=0, height=250)
+        self.canvas = tk.Canvas(left, bg=PANEL, highlightthickness=0, height=165)
         self.canvas.pack(fill="both", expand=True, pady=(18, 0))
         self.spark = []
 
@@ -854,18 +1118,23 @@ class SentinelApp(tk.Tk):
         """Hide optional connector UI unless the connector is configured and returning live data."""
         microsoft_live = any("Microsoft" in s or "Defender" in s for s in sources.get("live", []))
         network_live = any("UniFi" in s for s in sources.get("live", []))
-        datto_live = any("Datto" in s for s in sources.get("live", []))
-        rocket_live = any("Rocket" in s for s in sources.get("live", []))
 
-        # WAN health is only meaningful if a network connector is configured/live.
-        wan_card = self.metric_cards.get("wan_health", {}).get("frame")
-        if wan_card:
-            if network_live or int(metrics.get("wan_health", 0) or 0) > 0:
-                if not wan_card.winfo_manager():
-                    wan_card.grid(row=1, column=2, sticky="nsew", padx=8, pady=8)
+        # UniFi gets its own small strip. WAN remains hidden until deeper UniFi health is mapped.
+        if hasattr(self, "unifi_bar"):
+            if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
+                if not self.unifi_bar.winfo_manager():
+                    self.unifi_bar.pack(fill="x", pady=(8, 0), before=self.top_issues_bar)
             else:
-                if wan_card.winfo_manager():
-                    wan_card.grid_forget()
+                if self.unifi_bar.winfo_manager():
+                    self.unifi_bar.pack_forget()
+
+        if hasattr(self, "unifi_site_health_bar"):
+            if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
+                if not self.unifi_site_health_bar.winfo_manager():
+                    self.unifi_site_health_bar.pack(fill="x", pady=(8, 0), before=self.top_issues_bar)
+            else:
+                if self.unifi_site_health_bar.winfo_manager():
+                    self.unifi_site_health_bar.pack_forget()
 
         # Platform and alert breakdown bars are Microsoft-specific.
         for bar in getattr(self, "optional_bars", []):
@@ -875,36 +1144,6 @@ class SentinelApp(tk.Tk):
             else:
                 if bar.winfo_manager():
                     bar.pack_forget()
-
-
-
-    def _on_feed_configure(self, event=None):
-        self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
-
-    def _on_feed_canvas_configure(self, event):
-        self.feed_canvas.itemconfigure(self.feed_window, width=event.width)
-
-    def _feed_mousewheel(self, event):
-        # Windows/macOS mouse wheel support. Positive delta means up on Windows.
-        delta = -1 * int(event.delta / 120) if event.delta else 0
-        self.feed_canvas.yview_scroll(delta, "units")
-
-    def _feed_mousewheel_linux_up(self, event):
-        self.feed_canvas.yview_scroll(-3, "units")
-
-    def _feed_mousewheel_linux_down(self, event):
-        self.feed_canvas.yview_scroll(3, "units")
-
-    def _bind_feed_mousewheel(self, event=None):
-        self.feed_canvas.bind_all("<MouseWheel>", self._feed_mousewheel)
-        self.feed_canvas.bind_all("<Button-4>", self._feed_mousewheel_linux_up)
-        self.feed_canvas.bind_all("<Button-5>", self._feed_mousewheel_linux_down)
-
-    def _unbind_feed_mousewheel(self, event=None):
-        self.feed_canvas.unbind_all("<MouseWheel>")
-        self.feed_canvas.unbind_all("<Button-4>")
-        self.feed_canvas.unbind_all("<Button-5>")
-
 
     def open_setup(self):
         win = tk.Toplevel(self)
@@ -953,6 +1192,8 @@ class SentinelApp(tk.Tk):
             ("Base URL", "base_url", False),
             ("API key", "api_key", True),
             ("Site ID optional", "site_id", False),
+            ("Alerts path optional", "alerts_path", False),
+            ("Site health path optional", "site_health_path", False),
         ])
         add_tab("Datto RMM", "datto", [
             ("API URL, e.g. https://vidal-api.centrastage.net", "api_url", False),
@@ -1015,10 +1256,33 @@ class SentinelApp(tk.Tk):
         for key, label in self.alert_breakdown_labels.items():
             label.config(text=str(m.get(key, 0)))
 
+        for key, label in self.unifi_labels.items():
+            if key == "unifi_status":
+                label.config(text="LIVE" if int(m.get("unifi_connected", 0) or 0) > 0 else "--")
+            else:
+                label.config(text=str(m.get(key, 0)))
+
+        site_lines = []
+        for site in (m.get("unifi_site_health", []) or [])[:12]:
+            status = site.get("status", "VISIBLE")
+            site_lines.append(f"{status}: {site.get('name', 'UniFi site')} ({site.get('detail', '')})")
+        if site_lines and hasattr(self, "unifi_site_health_text"):
+            self.unifi_site_health_text.config(text="  •  ".join(site_lines), fg=TEXT)
+        elif hasattr(self, "unifi_site_health_text"):
+            self.unifi_site_health_text.config(text="No UniFi site health fields returned yet.", fg=MUTED)
+
+        top_events = [e for e in payload["events"] if str(e.get("severity", "")).lower() in ("critical", "high", "medium")]
+        if top_events:
+            summary = "  •  ".join([f"{e.get('source','')}: {e.get('title','')}" for e in top_events[:3]])
+            self.top_issues_text.config(text=summary, fg=TEXT)
+        else:
+            self.top_issues_text.config(text="No critical or medium live findings returned.", fg=MUTED)
+
         state_text, state_color = self.overall_state(m)
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
-        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Defender {m.get('defender_alerts', 0)} • Graph {m.get('graph_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}")
+        unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
+        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Defender {m.get('defender_alerts', 0)} • Graph {m.get('graph_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
         self.spark.append(m.get("alerts", 0))
@@ -1031,7 +1295,7 @@ class SentinelApp(tk.Tk):
         sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         sev_color = {"critical": RED, "high": RED, "medium": AMBER, "info": BLUE, "low": GREEN}
         sev_bg = {"critical": "#26111A", "high": "#26111A", "medium": "#241E11", "info": "#131C2D", "low": "#102019"}
-        events = sorted(payload["events"][:50], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
+        events = sorted(payload["events"][:100], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
         for event in events:
             sev = str(event.get("severity", "info")).lower()
             color = sev_color.get(sev, BLUE)
@@ -1048,7 +1312,8 @@ class SentinelApp(tk.Tk):
         self.feed.update_idletasks()
         self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
-        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | Defender: {m.get('defender_alerts', 0)} | Graph: {m.get('graph_alerts', 0)} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
+        unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
+        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | Defender: {m.get('defender_alerts', 0)} | Graph: {m.get('graph_alerts', 0)}{unifi_footer} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
         self.canvas.delete("all")
