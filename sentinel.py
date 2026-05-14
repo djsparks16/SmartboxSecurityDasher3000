@@ -1787,9 +1787,9 @@ class SentinelApp(tk.Tk):
                   background=[("selected", "#223044"), ("active", "#17212D")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
         style.configure("Dasher.Treeview",
-                  background=GLASS_2,
-                  foreground=TEXT,
-                  fieldbackground=GLASS_2,
+                  background="#0A1724",
+                  foreground="#EAF4FF",
+                  fieldbackground="#0A1724",
                   rowheight=31,
                   borderwidth=0,
                   relief="flat",
@@ -2126,11 +2126,11 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
-        self.overview_defender_feed_table.tag_configure("sev_critical", background="#22131C", foreground="#FFD8E3")
-        self.overview_defender_feed_table.tag_configure("sev_high", background="#231A10", foreground="#FFE3B7")
-        self.overview_defender_feed_table.tag_configure("sev_medium", background="#202014", foreground="#FFF1A8")
-        self.overview_defender_feed_table.tag_configure("sev_info", background="#0B2638", foreground="#D7F2FF")
-        self.overview_defender_feed_table.tag_configure("sev_low", background="#0A241B", foreground="#DDFCEA")
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#1A1018", foreground="#FFE7EE")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#1D1710", foreground="#FFE7C4")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#2A210D", foreground="#FFEFB5")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0B2131", foreground="#E0F6FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#0B211A", foreground="#DFFBEE")
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
@@ -2162,11 +2162,11 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#22131C", foreground="#FFD8E3")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#231A10", foreground="#FFE3B7")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#202014", foreground="#FFF1A8")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0B2638", foreground="#D7F2FF")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#0A241B", foreground="#DDFCEA")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#1A1018", foreground="#FFE7EE")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#1D1710", foreground="#FFE7C4")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#2A210D", foreground="#FFEFB5")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0B2131", foreground="#E0F6FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0B211A", foreground="#DFFBEE")
         self.overview_full_feed_table.tag_configure("oddrow", background="#0E1D2C", foreground="#D8E8F8")
         self.overview_full_feed_table.tag_configure("alt", background="#101D2D", foreground="#E7F2FF")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
@@ -2469,13 +2469,13 @@ class SentinelApp(tk.Tk):
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        # Screenshot-style table bands: soft glass rows with pill-readable foregrounds.
-        tree.tag_configure("bad", foreground="#FFE4EA", background="#2B0A14")
-        tree.tag_configure("warn", foreground="#FFF4B8", background="#31270A")
-        tree.tag_configure("high", foreground="#FFE8C6", background="#2D1806")
-        tree.tag_configure("good", foreground="#E5FFE5", background="#11290D")
-        tree.tag_configure("info", foreground="#DFF6FF", background="#0C2638")
-        tree.tag_configure("alt", foreground="#E7F2FF", background="#101D2D")
+        # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
+        tree.tag_configure("bad", foreground="#FFE9EF", background="#21111A")
+        tree.tag_configure("warn", foreground="#FFF0B8", background="#1B1A13")
+        tree.tag_configure("high", foreground="#FFE4C0", background="#1E1710")
+        tree.tag_configure("good", foreground="#E6FFE8", background="#101F18")
+        tree.tag_configure("info", foreground="#E1F6FF", background="#0B2131")
+        tree.tag_configure("alt", foreground="#E7F2FF", background="#0E1B2B")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2510,9 +2510,9 @@ class SentinelApp(tk.Tk):
             "THROTTLED": "THROTTLED",
         }
         label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
-        # Tk Treeview does not support true per-cell rounded rectangles, so the
-        # pill is drawn as padded text and backed by the row color. It keeps the
-        # same compact bubble rhythm as the Overview tables without custom canvas code.
+        # Native ttk.Treeview cannot draw true rounded per-cell widgets. This
+        # gives every coded value a compact capsule silhouette without painting
+        # whole rows neon.
         return f"  {label}  "
 
     def _should_bubble_column(self, tree, column_key, index, value):
@@ -2541,17 +2541,17 @@ class SentinelApp(tk.Tk):
 
     def _table_tag_from_values(self, values, fallback=None):
         text = " ".join(str(v).lower() for v in values)
-        if any(x in text for x in ("critical", "unencrypted", "jailbreak/root")):
+        # Do not turn whole rows into giant red/brown slabs. Only severe rows
+        # receive a subtle tint; normal rows stay glassy and readable.
+        if any(x in text for x in ("critical", "crit", "unencrypted", "jailbreak/root")):
             return "bad"
-        if any(x in text for x in ("high", "offline")):
+        if any(x in text for x in ("offline", "high")):
             return "high"
-        if any(x in text for x in ("medium", "noncompliant", "non-compliant", "degraded", "throttled", "check")):
+        if any(x in text for x in ("degraded", "throttled")):
             return "warn"
-        if any(x in text for x in ("active", "info", "visible", "android", "ios", "macos", "windows")):
-            return fallback or "info"
-        if any(x in text for x in ("healthy", "compliant", "good", "ok")):
-            return "good"
-        return fallback
+        if fallback:
+            return fallback
+        return None
 
     def insert_table_row(self, tree, values, tag=None):
         values = list(values)
