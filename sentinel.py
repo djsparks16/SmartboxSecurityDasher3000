@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#0B1220"
-PANEL = "#111827"
-PANEL_2 = "#172033"
-TEXT = "#E6EDF7"
-MUTED = "#93A4B8"
-BLUE = "#38BDF8"
-GREEN = "#22C55E"
-AMBER = "#FBBF24"
-ORANGE = "#F97316"
-RED = "#F43F5E"
-PURPLE = "#A78BFA"
-GLASS = "#0F172A"
-HAIRLINE = "#253244"
-GLASS_2 = "#0B1020"
-ROW_ALT = "#141C2B"
+BG = "#05080F"
+PANEL = "#0B1420"
+PANEL_2 = "#101D2D"
+TEXT = "#F5FBFF"
+MUTED = "#A9BED4"
+BLUE = "#00C8FF"
+GREEN = "#7CFF00"
+AMBER = "#FFE600"
+ORANGE = "#FF9F0A"
+RED = "#FF335A"
+PURPLE = "#A96BFF"
+GLASS = "#09111B"
+HAIRLINE = "#1D3955"
+GLASS_2 = "#060D16"
+ROW_ALT = "#0D1826"
 
 
 def now_iso():
@@ -1422,7 +1422,7 @@ class TelemetryEngine(threading.Thread):
         if defender >= 10:
             return "HIGH", 3, f"{defender} active Defender alert(s)"
         if defender > 0:
-            return "ACTION", 2, f"{defender} active Defender alert(s)"
+            return "ACTION", 2, f"{defender} active Defender alert(s), medium included"
         return "CLEAR", 0, "no active Defender alerts"
 
 
@@ -1689,8 +1689,8 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1500x920")
-        self.minsize(1080, 680)
+        self.geometry("1620x940")
+        self.minsize(1180, 760)
         self.configure(bg=BG)
         self._init_fonts()
         self.cfg = Config.load()
@@ -1708,10 +1708,9 @@ class SentinelApp(tk.Tk):
         self.trend_canvases = {}
         self.trend_labels = {}
         self.security_signals_canvas = None
+        self.table_sort_state = {}
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
-        # Remember the user's table sort choices across telemetry refreshes.
-        self.table_sort_state = {}
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
         self._setup_style()
         self._build()
@@ -1791,7 +1790,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=34,
+                  rowheight=32,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -1799,7 +1798,6 @@ class SentinelApp(tk.Tk):
                   background="#132133",
                   foreground="#B9CBE1",
                   relief="flat",
-                  anchor="center",
                   font=(self.font_ui, 9, "bold"))
         style.map("Dasher.Treeview",
                   background=[("selected", "#17385A")],
@@ -1837,14 +1835,14 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=18, pady=14)
+        shell.pack(fill="both", expand=True, padx=24, pady=20)
 
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 26, "bold")).pack(side="left")
+        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 30, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=(self.font_ui, 11)).pack(side="left", padx=18, pady=(14,0))
-        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=14, pady=8, font=(self.font_ui, 10, "bold")).pack(side="right")
-        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
+        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#182435", fg=TEXT, activebackground="#24364B", relief="flat", padx=14, pady=8, font=(self.font_ui, 10, "bold")).pack(side="right")
+        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162232", fg=TEXT, activebackground="#24364B", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
 
         self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         # self.overview.pack(fill="x", pady=(14, 6))  # Hidden: status now lives in the Overview page itself.
@@ -1887,16 +1885,16 @@ class SentinelApp(tk.Tk):
         self.hero_strip.pack(fill="x", pady=(0, 8))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
-        self.hero_priority_shell.configure(height=148)
+        self.hero_priority_shell.configure(height=126)
         self.hero_priority_shell.pack_propagate(False)
         self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
         hero_top = tk.Frame(self.hero_priority_panel, bg=PANEL)
         hero_top.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
+        tk.Label(hero_top, text="Top action", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
-        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 30, "bold"))
+        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 34, "bold"))
         self.hero_priority_value.pack(anchor="w", padx=18, pady=(14, 0))
         self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=MUTED, font=(self.font_ui, 12, "bold"), justify="left")
         self.hero_priority_detail.pack(anchor="w", padx=18, pady=(6, 0))
@@ -1904,7 +1902,7 @@ class SentinelApp(tk.Tk):
         self.hero_priority_meta.pack(anchor="w", padx=18, pady=(8, 10))
 
         self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
-        self.heartbeat_shell.configure(height=148)
+        self.heartbeat_shell.configure(height=126)
         self.heartbeat_shell.pack_propagate(False)
         self.heartbeat_shell.pack(side="left", fill="x", expand=True, padx=(0, 0), pady=2)
 
@@ -1915,7 +1913,7 @@ class SentinelApp(tk.Tk):
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
-        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=90, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=68, bg=GLASS, highlightthickness=0, bd=0)
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
@@ -1956,7 +1954,9 @@ class SentinelApp(tk.Tk):
 
 
         self.trend_strip = tk.Frame(body, bg=BG)
-        self.trend_strip.pack(fill="x", pady=(0, 8))
+        # Trend strip hidden from Overview to keep the front page readable.
+        # Detailed sortable tables carry the operational view.
+        # self.trend_strip.pack(fill="x", pady=(0, 8))
         for col in range(2):
             self.trend_strip.grid_columnconfigure(col, weight=1)
 
@@ -1967,7 +1967,7 @@ class SentinelApp(tk.Tk):
             ("Signal composition", "security_signals", BLUE),
         ]):
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
-            panel_shell.configure(height=132)
+            panel_shell.configure(height=108)
             panel_shell.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=(0 if idx % 2 else 0, 8 if idx % 2 == 0 else 0), pady=4)
             panel_shell.grid_propagate(False)
 
@@ -2081,14 +2081,12 @@ class SentinelApp(tk.Tk):
         # self.platform_bar.pack(fill="x", pady=(8, 0))  # Dropped from Overview for a cleaner status-led front page.
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
-        self.overview_full_feed_shell.configure(height=310)
-        self.overview_full_feed_shell.pack_propagate(False)
-        self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(10, 0))
+        self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(8, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 24, "bold")).pack(side="left")
-        tk.Label(full_feed_header, text="Click any header to sort · newest and highest severity first by default", bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="right")
+        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        tk.Label(full_feed_header, text="Color-coded live event table · severity first, newest items first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -2101,23 +2099,23 @@ class SentinelApp(tk.Tk):
             style="Dasher.Treeview",
             yscrollcommand=self.overview_full_feed_scrollbar.set,
             selectmode="browse",
-            height=14,
+            height=30,
         )
         self.setup_tree_columns(self.overview_full_feed_table, [
-            ("severity", "Severity", 110),
-            ("source", "Source", 180),
-            ("time", "Time", 170),
-            ("title", "Alert / finding", 560),
-            ("detail", "Detail", 760),
+            ("severity", "Severity", 96),
+            ("source", "Source", 168),
+            ("time", "Time", 158),
+            ("title", "Alert / finding", 520),
+            ("detail", "Detail", 820),
         ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#25121A", foreground="#F8CAD6")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#24170D", foreground="#FED7AA")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#24200F", foreground="#FDE68A")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0D1B2A", foreground="#C7E8F9")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#0B1E16", foreground="#BBF7D0")
-        self.overview_full_feed_table.tag_configure("oddrow", background=ROW_ALT)
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0B1C2B", foreground="#DFF6FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
+        self.overview_full_feed_table.tag_configure("oddrow", background="#0D1522")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2201,7 +2199,7 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas):
                 c.delete("panel")
-                bg = "#1F2A3D" if active else "#111827"
+                bg = "#223147" if active else "#111925"
                 border = BLUE if active else HAIRLINE
                 pts = self._rounded_points(2, 2, 110, 36, 16)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
@@ -2246,7 +2244,7 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas, b=btn, w=width):
                 c.delete("panel")
-                bg = "#1F2A3D" if active else "#111827"
+                bg = "#223147" if active else "#111925"
                 border = BLUE if active else HAIRLINE
                 pts = self._rounded_points(2, 2, w - 2, 32, 14)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.3, tags="panel")
@@ -2279,39 +2277,21 @@ class SentinelApp(tk.Tk):
     def _tree_sort_value(self, raw):
         value = "" if raw is None else str(raw).strip()
         if value == "":
-            return (3, "")
+            return (2, "")
 
-        # Severity should sort by operational importance, not alphabetically.
-        sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
-        upper = value.upper()
-        if upper in sev_rank:
-            return (0, sev_rank[upper])
-
-        # Known status words also get an intentional order.
-        status_rank = {"ACTIVE": 0, "NETWORK": 1, "INFO": 2, "RESOLVED/CLOSED": 3, "HEALTHY": 4, "DEGRADED": 1, "CRITICAL": 0, "VISIBLE": 5}
-        if upper in status_rank:
-            return (0, status_rank[upper])
-
-        # Numeric sort, including commas and percentages.
+        # Numeric sort first.
         try:
             cleaned = value.replace(",", "").replace("%", "")
-            return (1, float(cleaned))
+            return (0, float(cleaned))
         except Exception:
             pass
 
-        # ISO-ish dates and common timestamp strings sort acceptably as text once normalized.
-        return (2, value.lower())
-
-    def _heading_base_text(self, tree, column):
-        try:
-            return getattr(tree, "_heading_texts", {}).get(column, column)
-        except Exception:
-            return column
+        # ISO-ish dates and common timestamp strings sort acceptably as text
+        # once normalized to lowercase.
+        return (1, value.lower())
 
     def sort_treeview(self, tree, column, reverse=False, remember=True):
         try:
-            if column not in tree["columns"]:
-                return
             rows = [(self._tree_sort_value(tree.set(item, column)), item) for item in tree.get_children("")]
             rows.sort(reverse=reverse)
             for index, (_, item) in enumerate(rows):
@@ -2321,10 +2301,10 @@ class SentinelApp(tk.Tk):
                 self.table_sort_state[str(tree)] = (column, reverse)
 
             for col in tree["columns"]:
-                heading = self._heading_base_text(tree, col)
+                heading = tree.heading(col).get("text", col).replace(" ▲", "").replace(" ▼", "")
                 if col == column:
                     heading += " ▼" if reverse else " ▲"
-                tree.heading(col, text=heading, anchor="center", command=lambda c=col, t=tree: self._toggle_tree_sort(t, c))
+                tree.heading(col, text=heading, command=lambda c=col: self._toggle_tree_sort(tree, c))
         except Exception:
             pass
 
@@ -2333,14 +2313,23 @@ class SentinelApp(tk.Tk):
         next_reverse = (not current_reverse) if current_col == column else False
         self.sort_treeview(tree, column, next_reverse, remember=True)
 
-    def setup_tree_columns(self, tree, columns, center_all=False):
-        """Create sortable, visually aligned Treeview columns."""
-        tree._heading_texts = {key: label for key, label, width in columns}
+    def _column_anchor(self, key, label):
+        raw = f"{key} {label}".lower()
+        centered = (
+            "severity", "status", "time", "days", "devices", "online", "offline",
+            "degraded", "unknown", "version", "source", "os", "compliance",
+            "last_sync", "last sync", "publisher"
+        )
+        numeric = ("count", "total", "active", "returned", "resolved", "critical", "alerts")
+        if any(x in raw for x in centered + numeric):
+            return "center"
+        return "w"
+
+    def setup_tree_columns(self, tree, columns):
         for key, label, width in columns:
+            anchor = self._column_anchor(key, label)
             tree.heading(key, text=label, anchor="center", command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
-            numericish = key in {"devices", "online", "offline", "degraded", "unknown", "days"}
-            anchor = "center" if center_all or numericish or key in {"severity", "status", "time", "source"} else "w"
-            tree.column(key, width=width, anchor=anchor, stretch=(key not in {"severity", "status", "time"}))
+            tree.column(key, width=width, anchor=anchor, stretch=True)
 
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
@@ -3108,7 +3097,7 @@ class SentinelApp(tk.Tk):
             self.restart_engine()
             win.destroy()
 
-        tk.Button(win, text="Save and restart telemetry", command=save, bg="#1F2937", fg=TEXT, activebackground="#334155", relief="flat", padx=14, pady=12, font=(self.font_ui, 10, "bold")).pack(pady=(0, 16))
+        tk.Button(win, text="Save and restart telemetry", command=save, bg="#182435", fg=TEXT, activebackground="#24364B", relief="flat", padx=14, pady=12, font=(self.font_ui, 10, "bold")).pack(pady=(0, 16))
 
     def start_engine(self):
         self.engine = TelemetryEngine(self.cfg, self.q)
@@ -3419,7 +3408,7 @@ class SentinelApp(tk.Tk):
                 pts.append((x, y))
             flat = [c for p in pts for c in p]
             area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
-            canvas.create_polygon(*[c for p in area for c in p], fill="#122033", outline="")
+            canvas.create_polygon(*[c for p in area for c in p], fill=color, outline="", stipple="gray50")
             canvas.create_line(*flat, fill="#132235", width=5, smooth=True, splinesteps=14)
             canvas.create_line(*flat, fill=color, width=1.8, smooth=True, splinesteps=14)
         except Exception:
@@ -3463,13 +3452,6 @@ class SentinelApp(tk.Tk):
         if not events:
             tree.insert("", "end", values=("INFO", "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
 
-        # Keep the feed useful after every poll: preserve manual sort, otherwise severity first.
-        state = self.table_sort_state.get(str(tree))
-        if state:
-            self.sort_treeview(tree, state[0], state[1], remember=False)
-        else:
-            self.sort_treeview(tree, "severity", False, remember=False)
-
     def draw_trend(self, key, values, color):
         if key not in self.trend_canvases:
             return
@@ -3509,10 +3491,10 @@ class SentinelApp(tk.Tk):
         area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
         flat_area = [coord for p in area for coord in p]
         flat = [coord for p in pts for coord in p]
-        canvas.create_polygon(flat_area, fill="#122033", outline="")
+        canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray50")
         canvas.create_line(*flat, fill="#03101A", width=11, smooth=True, splinesteps=24)
         canvas.create_line(*flat, fill=color, width=4, smooth=True, splinesteps=24)
-        # removed bright white highlight for a calmer chart
+        canvas.create_line(*flat, fill="#F8FEFF", width=1, smooth=True, splinesteps=24)
 
         pulse_x, pulse_y = pts[-1]
         canvas.create_oval(pulse_x - 6, pulse_y - 6, pulse_x + 6, pulse_y + 6, outline=color, width=2)
@@ -3550,7 +3532,7 @@ class SentinelApp(tk.Tk):
             seg = max(0, int((val / total) * usable)) if val else 0
             if seg > 0:
                 canvas.create_rectangle(x, top + 1, min(right - 1, x + seg), top + bar_h - 1, fill=color, outline="")
-                # removed bright top-edge highlight
+                canvas.create_line(x, top + 1, min(right - 1, x + seg), top + 1, fill="#FFFFFF")
                 x += seg
 
         total_live = sum(v for _, v, _ in parts)
@@ -3603,7 +3585,7 @@ class SentinelApp(tk.Tk):
         canvas.create_line(*flat, fill=color, width=2.4, smooth=True, splinesteps=18)
 
         scan_x = 16 + ((phase * 16) % max(40, w - 32))
-        canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#2563EB", dash=(3, 3))
+        canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#3DA6FF", dash=(3, 3))
         canvas.create_text(w - 8, 8, text="LIVE PULSE", anchor="ne", fill=color, font=(self.font_ui, 8, "bold"))
 
     def pulse_overview_status(self):
@@ -3627,14 +3609,12 @@ class SentinelApp(tk.Tk):
     def default_sort_tables(self):
         # First-load defaults only. Once the user clicks a header, repolls preserve that choice.
         sort_targets = [
-            ("overview_full_feed_table", "severity", False),
             ("defender_alert_table", "time", True),
             ("defender_signal_table", "time", True),
             ("intune_noncompliant_table", "last_sync", True),
             ("intune_stale_table", "days", True),
             ("intune_posture_table", "type", False),
             ("unifi_sites_table", "status", False),
-            ("unifi_notes_table", "severity", False),
             ("software_new_table", "name", False),
             ("software_all_table", "devices", True),
         ]
