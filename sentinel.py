@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#03070D"
-PANEL = "#07111D"
-PANEL_2 = "#0D1A2A"
-TEXT = "#F4F8FF"
-MUTED = "#9FB1C8"
-BLUE = "#25B9FF"
-GREEN = "#68E600"
-AMBER = "#FFD500"
+BG = "#030812"
+PANEL = "#07121E"
+PANEL_2 = "#0E1B2B"
+TEXT = "#F7FBFF"
+MUTED = "#9CB4CD"
+BLUE = "#19B9FF"
+GREEN = "#64FF00"
+AMBER = "#FFD400"
 ORANGE = "#FF9800"
-RED = "#FF3E68"
-PURPLE = "#A96BFF"
+RED = "#FF3D68"
+PURPLE = "#A56BFF"
 GLASS = "#07111D"
-HAIRLINE = "#23344A"
-GLASS_2 = "#081826"
-ROW_ALT = "#102033"
+HAIRLINE = "#1C3148"
+GLASS_2 = "#091827"
+ROW_ALT = "#0F1D2D"
 
 
 def now_iso():
@@ -1422,7 +1422,7 @@ class TelemetryEngine(threading.Thread):
         if defender >= 10:
             return "HIGH", 3, f"{defender} active Defender alert(s)"
         if defender > 0:
-            return "ACTION", 2, f"{defender} active Defender alert(s)"
+            return "ACTION", 2, f"{defender} active Defender alert(s), medium included"
         return "CLEAR", 0, "no active Defender alerts"
 
 
@@ -1689,8 +1689,8 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1480x860")
-        self.minsize(1080, 680)
+        self.geometry("1760x980")
+        self.minsize(1360, 820)
         self.configure(bg=BG)
         self._init_fonts()
         self.cfg = Config.load()
@@ -1708,6 +1708,7 @@ class SentinelApp(tk.Tk):
         self.trend_canvases = {}
         self.trend_labels = {}
         self.security_signals_canvas = None
+        self.table_sort_state = {}
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
@@ -1789,13 +1790,13 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=27,
+                  rowheight=28,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
         style.configure("Dasher.Treeview.Heading",
-                  background="#142236",
-                  foreground="#B9CBE1",
+                  background="#152337",
+                  foreground="#C7D7EA",
                   relief="flat",
                   font=(self.font_ui, 9, "bold"))
         style.map("Dasher.Treeview",
@@ -1834,14 +1835,14 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=24, pady=20)
+        shell.pack(fill="both", expand=True, padx=26, pady=20)
 
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
         tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 30, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=(self.font_ui, 11)).pack(side="left", padx=18, pady=(14,0))
-        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#182435", fg=TEXT, activebackground="#24364B", relief="flat", padx=14, pady=8, font=(self.font_ui, 10, "bold")).pack(side="right")
-        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162232", fg=TEXT, activebackground="#24364B", relief="flat", padx=12, pady=8, font=(self.font_ui, 9, "bold")).pack(side="right", padx=(0, 8))
+        tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
+        tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
 
         self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         # self.overview.pack(fill="x", pady=(14, 6))  # Hidden: status now lives in the Overview page itself.
@@ -1884,26 +1885,26 @@ class SentinelApp(tk.Tk):
         self.hero_strip.pack(fill="x", pady=(0, 8))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
-        self.hero_priority_shell.configure(height=148)
+        self.hero_priority_shell.configure(height=146, width=1040)
         self.hero_priority_shell.pack_propagate(False)
         self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
         hero_top = tk.Frame(self.hero_priority_panel, bg=PANEL)
         hero_top.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
+        tk.Label(hero_top, text="Defender priority", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
-        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 34, "bold"))
-        self.hero_priority_value.pack(anchor="w", padx=18, pady=(14, 0))
-        self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=TEXT, font=(self.font_ui, 13, "bold"), justify="left")
-        self.hero_priority_detail.pack(anchor="w", padx=18, pady=(6, 0))
-        self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="", bg=PANEL, fg=MUTED, font=(self.font_ui, 12), justify="left")
-        self.hero_priority_meta.pack(anchor="w", padx=18, pady=(8, 10))
+        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="DEFENDER ACTION", bg=PANEL, fg=ORANGE, font=(self.font_display, 31, "bold"))
+        self.hero_priority_value.pack(anchor="w", padx=22, pady=(18, 0))
+        self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="5 active Defender alert(s) need triage.", bg=PANEL, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
+        self.hero_priority_detail.pack(anchor="w", padx=22, pady=(8, 0))
+        self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="Medium and informational Defender alerts stay visible in the focus table.", bg=PANEL, fg="#C4D2E3", font=(self.font_ui, 11), justify="left")
+        self.hero_priority_meta.pack(anchor="w", padx=22, pady=(6, 12))
 
         self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
-        self.heartbeat_shell.configure(height=148)
+        self.heartbeat_shell.configure(height=146, width=520)
         self.heartbeat_shell.pack_propagate(False)
-        self.heartbeat_shell.pack(side="left", fill="x", expand=True, padx=(0, 0), pady=2)
+        self.heartbeat_shell.pack(side="left", fill="x", expand=False, padx=(0, 0), pady=2)
 
         hb_top = tk.Frame(self.heartbeat_panel, bg=GLASS)
         hb_top.pack(fill="x", padx=16, pady=(12, 2))
@@ -1912,46 +1913,36 @@ class SentinelApp(tk.Tk):
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
-        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=90, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=76, bg=GLASS, highlightthickness=0, bd=0)
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
-        self.overview_status_cards.pack(fill="x", pady=(2, 8))
+        self.overview_status_cards.pack(fill="x", pady=(0, 8))
         self.overview_status = {}
-        status_specs = [
-            ("Defender", "overview_defender", ORANGE, "◈"),
-            ("Intune", "overview_intune", RED, "▯"),
-            ("UniFi", "overview_unifi", RED, "≋"),
-            ("Software", "overview_software", ORANGE, "◇"),
-        ]
-        for idx, (title, key, color, icon_text) in enumerate(status_specs):
-            shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=color, radius=18, padding=1)
-            shell.configure(height=122)
+        for title, key, color in [
+            ("Defender", "overview_defender", ORANGE),
+            ("Intune", "overview_intune", AMBER),
+            ("UniFi", "overview_unifi", BLUE),
+            ("Software", "overview_software", GREEN),
+        ]:
+            shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
+            shell.configure(height=128)
             shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=(0, 10 if idx < len(status_specs) - 1 else 0), pady=(4, 8))
+            shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(6, 10))
 
             card_body = tk.Frame(panel, bg=PANEL)
-            card_body.pack(fill="both", expand=True, padx=20, pady=16)
-
+            card_body.pack(fill="both", expand=True, padx=22, pady=16)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
-            dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 15, "bold"), width=2, anchor="w")
-            dot.pack(side="left", padx=(0, 9))
+            icon_text = {"Defender": "🛡", "Intune": "▯", "UniFi": "≋", "Software": "◇"}.get(title, "•")
+            dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 15, "bold"), width=2)
+            dot.pack(side="left", padx=(0, 10))
             tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold")).pack(side="left")
 
-            value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"), anchor="w")
-            value.pack(fill="x", pady=(14, 2))
-            detail = tk.Label(
-                card_body,
-                text="Connector warming up",
-                bg=PANEL,
-                fg=TEXT,
-                font=(self.font_ui, 10),
-                wraplength=460,
-                justify="left",
-                anchor="w"
-            )
-            detail.pack(fill="x", pady=(0, 0))
+            value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"), anchor="w")
+            value.pack(fill="x", pady=(15, 4))
+            detail = tk.Label(card_body, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), wraplength=480, justify="left", anchor="w")
+            detail.pack(fill="x")
 
             self.overview_status[key] = {
                 "shell": shell,
@@ -1965,7 +1956,9 @@ class SentinelApp(tk.Tk):
 
 
         self.trend_strip = tk.Frame(body, bg=BG)
-        self.trend_strip.pack(fill="x", pady=(0, 8))
+        # Trend strip hidden from Overview to keep the front page readable.
+        # Detailed sortable tables carry the operational view.
+        # self.trend_strip.pack(fill="x", pady=(0, 8))
         for col in range(2):
             self.trend_strip.grid_columnconfigure(col, weight=1)
 
@@ -1999,33 +1992,29 @@ class SentinelApp(tk.Tk):
         self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
-        self.security_posture_strip.pack(fill="x", pady=(4, 14))
+        self.security_posture_strip.pack(fill="x", pady=(6, 10))
         self.posture_labels = {}
-        posture_specs = [
+        for label, key, color, icon in [
             ("Stale 30+ days", "stale_30_count", BLUE, "▣"),
             ("Unencrypted", "unencrypted_count", RED, "▣"),
             ("No primary user", "no_user_count", AMBER, "●"),
             ("Degraded sites", "unifi_degraded_sites", ORANGE, "▲"),
-        ]
-        for idx, (label, key, color, icon) in enumerate(posture_specs):
+        ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
             shell.configure(height=78)
             shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=(0, 10 if idx < len(posture_specs) - 1 else 0), pady=(0, 4))
-
+            shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
-            body_row.pack(fill="both", expand=True, padx=16, pady=12)
-
-            badge = tk.Canvas(body_row, width=46, height=46, bg=GLASS, highlightthickness=0, bd=0)
-            badge.pack(side="left", padx=(0, 14))
-            badge.create_oval(3, 3, 43, 43, fill="#0B1A28", outline=color, width=1.4)
-            badge.create_text(23, 23, text=icon, fill=color, font=(self.font_ui, 16, "bold"))
-
+            body_row.pack(fill="both", expand=True, padx=20, pady=18)
+            badge = tk.Canvas(body_row, width=48, height=48, bg=GLASS, highlightthickness=0, bd=0)
+            badge.pack(side="left", padx=(0, 16))
+            badge.create_oval(3, 3, 45, 45, fill="#0D1A28", outline=color, width=1.4)
+            badge.create_text(24, 24, text=icon, fill=color, font=(self.font_ui, 17, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
-            tk.Label(text_col, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w", pady=(0, 1))
+            tk.Label(text_col, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w")
             val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 24, "bold"))
-            val.pack(anchor="w")
+            val.pack(anchor="w", pady=(6, 0))
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
@@ -2101,16 +2090,53 @@ class SentinelApp(tk.Tk):
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         # self.platform_bar.pack(fill="x", pady=(8, 0))  # Dropped from Overview for a cleaner status-led front page.
 
+        self.overview_defender_feed_shell, self.overview_defender_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
+        self.overview_defender_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
+
+        defender_feed_header = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
+        defender_feed_header.pack(fill="x", padx=14, pady=(8, 4))
+        tk.Label(defender_feed_header, text="Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="Active Defender alerts shown first · medium alerts included", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold"))
+        self.overview_defender_feed_summary.pack(side="right")
+
+        self.overview_defender_feed_table_wrap = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
+        self.overview_defender_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self.overview_defender_feed_scrollbar = tk.Scrollbar(self.overview_defender_feed_table_wrap, orient="vertical")
+        self.overview_defender_feed_scrollbar.pack(side="right", fill="y")
+        self.overview_defender_feed_table = ttk.Treeview(
+            self.overview_defender_feed_table_wrap,
+            columns=("severity", "time", "title", "status", "detail"),
+            show="headings",
+            style="Dasher.Treeview",
+            yscrollcommand=self.overview_defender_feed_scrollbar.set,
+            selectmode="browse",
+            height=6,
+        )
+        self.setup_tree_columns(self.overview_defender_feed_table, [
+            ("severity", "Severity", 105),
+            ("time", "Time", 160),
+            ("title", "Alert / finding", 520),
+            ("status", "Status", 120),
+            ("detail", "Detail", 760),
+        ])
+        self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
+        self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0C2232", foreground="#DFF6FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
+
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(8, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
-        full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        full_feed_header.pack(fill="x", padx=14, pady=(8, 4))
+        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
         tk.Label(full_feed_header, text="Color-coded live event table · severity first, newest items first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
-        self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 10))
         self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_table_wrap, orient="vertical")
         self.overview_full_feed_scrollbar.pack(side="right", fill="y")
         self.overview_full_feed_table = ttk.Treeview(
@@ -2120,24 +2146,21 @@ class SentinelApp(tk.Tk):
             style="Dasher.Treeview",
             yscrollcommand=self.overview_full_feed_scrollbar.set,
             selectmode="browse",
-            height=22,
+            height=6,
         )
-        self.overview_full_feed_table.heading("severity", text="Severity")
-        self.overview_full_feed_table.heading("source", text="Source")
-        self.overview_full_feed_table.heading("time", text="Time")
-        self.overview_full_feed_table.heading("title", text="Alert / finding")
-        self.overview_full_feed_table.heading("detail", text="Detail")
-        self.overview_full_feed_table.column("severity", width=96, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("source", width=168, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("time", width=158, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("title", width=420, anchor="w", stretch=True)
-        self.overview_full_feed_table.column("detail", width=760, anchor="w", stretch=True)
+        self.setup_tree_columns(self.overview_full_feed_table, [
+            ("severity", "Severity", 96),
+            ("source", "Source", 168),
+            ("time", "Time", 158),
+            ("title", "Alert / finding", 520),
+            ("detail", "Detail", 820),
+        ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#37111D", foreground="#FFE4EA")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#3A2108", foreground="#FFF0D6")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#4B3500", foreground="#FFF8C4")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0B1C2B", foreground="#DFF6FF")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0C2232", foreground="#DFF6FF")
         self.overview_full_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
         self.overview_full_feed_table.tag_configure("oddrow", background="#0D1522")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
@@ -2185,11 +2208,44 @@ class SentinelApp(tk.Tk):
         self.spark = []
 
         self._build_focus_tabs()
+        self._enforce_soc_console_overview()
 
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 9)).pack(side="left")
         tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 9)).pack(side="right")
+
+
+    def _enforce_soc_console_overview(self):
+        """Final Overview layout guard: force the polished SOC-console composition.
+
+        This prevents older chart-heavy Overview widgets from reappearing when an
+        earlier file version or stale geometry setting is mixed in.
+        """
+        for widget_name in ("trend_strip", "unifi_bar", "network_summary_bar", "unifi_site_health_bar", "platform_bar", "alert_table_panel"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                try:
+                    widget.pack_forget()
+                    widget.grid_forget()
+                except Exception:
+                    pass
+
+        layout_heights = {
+            "hero_priority_shell": 146,
+            "heartbeat_shell": 146,
+            "overview_defender_feed_shell": 230,
+            "overview_full_feed_shell": 220,
+        }
+        for name, height in layout_heights.items():
+            widget = getattr(self, name, None)
+            if widget is not None:
+                try:
+                    widget.configure(height=height)
+                    widget.pack_propagate(False)
+                    widget.grid_propagate(False)
+                except Exception:
+                    pass
 
     def _build_main_tab_pills(self):
         for child in self.main_tab_bar.winfo_children():
@@ -2337,6 +2393,24 @@ class SentinelApp(tk.Tk):
         next_reverse = (not current_reverse) if current_col == column else False
         self.sort_treeview(tree, column, next_reverse, remember=True)
 
+    def _column_anchor(self, key, label):
+        raw = f"{key} {label}".lower()
+        centered = (
+            "severity", "status", "time", "days", "devices", "online", "offline",
+            "degraded", "unknown", "version", "source", "os", "compliance",
+            "last_sync", "last sync", "publisher"
+        )
+        numeric = ("count", "total", "active", "returned", "resolved", "critical", "alerts")
+        if any(x in raw for x in centered + numeric):
+            return "center"
+        return "w"
+
+    def setup_tree_columns(self, tree, columns):
+        for key, label, width in columns:
+            anchor = self._column_anchor(key, label)
+            tree.heading(key, text=label, anchor="center", command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
+            tree.column(key, width=width, anchor=anchor, stretch=True)
+
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
@@ -2347,9 +2421,7 @@ class SentinelApp(tk.Tk):
         frame = tk.Frame(panel, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
-        for key, label, width in columns:
-            tree.heading(key, text=label, command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
-            tree.column(key, width=width, anchor="w", stretch=True)
+        self.setup_tree_columns(tree, columns)
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
@@ -2373,17 +2445,17 @@ class SentinelApp(tk.Tk):
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-        shell.configure(height=88)
+        shell.configure(height=112)
         shell.pack_propagate(False)
         if width_pack:
             shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
         else:
             shell.pack(fill="x", padx=6, pady=4)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 15, "bold"))
-        val.pack(anchor="w", padx=12, pady=(0, 1))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=12, pady=(0, 6))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
+        val.pack(anchor="w", padx=16, pady=(6, 2))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
+        hint.pack(anchor="w", padx=16, pady=(4, 12))
         self.focus_cards[bucket][key] = {"frame": shell, "value": val, "hint": hint, "base": color}
         return shell
 
@@ -2653,14 +2725,14 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=76)
-        shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=5)
+        shell.configure(height=78)
+        shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=6)
         shell.grid_propagate(False)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(6, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
-        val.pack(anchor="w", padx=16, pady=(0, 1))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=12, pady=(0, 5))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 1))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"))
+        val.pack(anchor="w", padx=16, pady=(5, 1))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 9))
+        hint.pack(anchor="w", padx=16, pady=(2, 10))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
 
@@ -3231,22 +3303,22 @@ class SentinelApp(tk.Tk):
             status_data = {
                 "overview_defender": (
                     "ACT NOW" if defender_critical else "ACTION" if defender_active else "OK",
-                    f"{defender_active} active Defender, {defender_critical} high/critical, {graph_active} Graph/MDO context",
+                    f"{defender_active} active Defender • {defender_critical} high/critical • {graph_active} Graph\nMDO context",
                     RED if defender_critical else ORANGE if defender_active else GREEN,
                 ),
                 "overview_intune": (
                     "POSTURE RISK" if unencrypted or stale or noncompliant else "OK",
-                    f"{noncompliant} non-compliant, {stale} stale 30+, {unencrypted} unencrypted, {no_user} no owner",
+                    f"{noncompliant} non-compliant • {stale} stale 30+\n{unencrypted} unencrypted • {no_user} no primary user",
                     RED if unencrypted else ORANGE if stale or noncompliant else GREEN,
                 ),
                 "overview_unifi": (
                     "NETWORK ISSUE" if offline else "DEGRADED" if degraded else "OK",
-                    f"{sites} sites, {offline} offline, {degraded} degraded, {m.get('unifi_devices', 0)} devices",
+                    f"{sites} sites • {max(0, sites - offline - degraded)} online • {degraded} degraded • {offline} offline\n{m.get('unifi_alerts', 0)} UniFi alert endpoints",
                     RED if offline else AMBER if degraded else GREEN,
                 ),
                 "overview_software": (
                     "GRAPH THROTTLED" if "429" in software_state or "backoff" in software_state else "WATCHING",
-                    f"{m.get('detected_app_count', 0)} detected apps returned this run, {software_new} newly observed",
+                    f"{m.get('detected_app_count', 0)} detected apps returned this run\n{software_new} newly observed",
                     ORANGE if "429" in software_state or "backoff" in software_state else BLUE,
                 ),
             }
@@ -3257,7 +3329,7 @@ class SentinelApp(tk.Tk):
                     continue
                 card["base"] = color
                 card["value"].config(text=headline, fg=color)
-                card["detail"].config(text=detail, fg=TEXT)
+                card["detail"].config(text=detail)
                 try:
                     card["shell"].canvas.delete("panel")
                     w = max(card["shell"].canvas.winfo_width() - 1, 80)
@@ -3285,36 +3357,40 @@ class SentinelApp(tk.Tk):
                         hot_events.append(ev)
                 hot_events.sort(key=lambda ev: parse_dt_safe(ev.get("timestamp")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
 
-                if hot_events:
-                    top_event = hot_events[0]
-                    top_sev = str(top_event.get("severity", "high")).upper()
-                    top_src = str(top_event.get("source", "Signal")).upper()
-                    top_title = str(top_event.get("title", "Live incident"))
-                    top_detail = str(top_event.get("detail", ""))
-                    hero_head, hero_detail, hero_color = f"{top_src} INCIDENT", f"{top_sev} · {top_title}", RED
-                    hero_meta_text = top_detail if top_detail else f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif defender_critical > 0:
-                    hero_head, hero_detail, hero_color = "DEFENDER CRITICAL", f"{defender_critical} high / critical Defender alerts active. Immediate triage recommended.", RED
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif unencrypted > 0:
-                    hero_head, hero_detail, hero_color = "BITLOCKER GAP", f"{unencrypted} device(s) currently report as unencrypted in Intune posture.", RED
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif offline > 0:
-                    hero_head, hero_detail, hero_color = "SITE OFFLINE", f"{offline} UniFi site(s) offline. Network visibility or service availability may be impacted.", RED
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif defender_active > 0 or noncompliant > 0:
-                    hero_head, hero_detail, hero_color = "ACTION REQUIRED", f"{defender_active} active Defender alert(s) and {noncompliant} non-compliant device(s) are keeping the estate off-green.", ORANGE
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif degraded > 0 or stale > 0 or no_user > 0:
-                    hero_head, hero_detail, hero_color = "WATCH LIST", f"{degraded} degraded site(s), {stale} stale device(s), {no_user} device(s) without owner context.", AMBER
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
+                if defender_critical > 0:
+                    hero_head = "DEFENDER CRITICAL"
+                    hero_detail = f"{defender_critical} high / critical Defender alert(s) active. Immediate triage recommended."
+                    hero_color = RED
+                elif defender_active > 0:
+                    hero_head = "DEFENDER ACTION"
+                    hero_detail = f"{defender_active} active Defender alert(s) need triage."
+                    hero_color = ORANGE
                 else:
-                    hero_head, hero_detail, hero_color = "SYSTEM OK", "No critical front-page blockers detected across Defender, Intune and UniFi.", GREEN
-                    hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
+                    hero_head = "DEFENDER CLEAR"
+                    hero_detail = "No active Defender alerts currently driving priority."
+                    hero_color = GREEN
+
+                # Keep posture/network issues visible as context, but never let them steal
+                # the Overview headline from Defender.
+                context_bits = []
+                if graph_active:
+                    context_bits.append(f"{graph_active} Graph")
+                if noncompliant:
+                    context_bits.append(f"{noncompliant} Intune non-compliant")
+                if unencrypted:
+                    context_bits.append(f"{unencrypted} unencrypted")
+                if stale:
+                    context_bits.append(f"{stale} stale 30+")
+                if no_user:
+                    context_bits.append(f"{no_user} no primary user")
+                if offline or degraded:
+                    context_bits.append(f"UniFi {offline} offline / {degraded} degraded")
+                context = " • ".join(context_bits) if context_bits else "Intune and UniFi context clear"
+                hero_meta_text = "Medium and informational Defender alerts stay visible in the focus table. " + context
 
                 self.hero_priority_value.config(text=hero_head, fg=hero_color)
                 self.hero_priority_detail.config(text=hero_detail, fg=TEXT)
-                self.hero_priority_meta.config(text=hero_meta_text, fg=MUTED)
+                self.hero_priority_meta.config(text=hero_meta_text, fg=hero_color if hero_color != GREEN else "#9CFFC6")
                 self.hero_priority_pill.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER), bg=("#12281E" if connected else "#2A1D11"))
                 self.heartbeat_color = GREEN if connected else AMBER
                 self.heartbeat_state.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER))
@@ -3364,6 +3440,7 @@ class SentinelApp(tk.Tk):
         self.spark = self.spark[-80:]
         self.render_alert_table(payload.get("alert_rows", []), m)
         self.render_focus_views(payload)
+        self.render_overview_defender_feed(payload)
         self.render_overview_full_feed(payload)
         self.default_sort_tables()
 
@@ -3421,6 +3498,49 @@ class SentinelApp(tk.Tk):
             canvas.create_line(*flat, fill=color, width=1.8, smooth=True, splinesteps=14)
         except Exception:
             pass
+
+    def render_overview_defender_feed(self, payload):
+        tree = getattr(self, "overview_defender_feed_table", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            return
+
+        rows = []
+        for row in payload.get("alert_rows", []) or []:
+            source = str(row.get("source", ""))
+            if "defender" in source.lower():
+                rows.append(row)
+
+        sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
+        def row_key(row):
+            sev = sev_order.get(str(row.get("severity", "INFO")).upper(), 9)
+            parsed = parse_dt_safe(row.get("timestamp"))
+            stamp = parsed.timestamp() if parsed else 0
+            return (sev, -stamp)
+        rows.sort(key=row_key)
+
+        active_count = len(rows)
+        medium_count = sum(1 for r in rows if str(r.get("severity", "")).upper() == "MEDIUM")
+        high_count = sum(1 for r in rows if str(r.get("severity", "")).upper() in ("HIGH", "CRITICAL"))
+        if hasattr(self, "overview_defender_feed_summary"):
+            self.overview_defender_feed_summary.config(text=f"{active_count} active Defender item(s) · {high_count} high/critical · {medium_count} medium · click headers to sort")
+
+        for row in rows[:150]:
+            sev = str(row.get("severity", "INFO")).upper()
+            tag = f"sev_{sev.lower()}" if sev.lower() in ("critical", "high", "medium", "info", "low") else "sev_info"
+            title = str(row.get("title", ""))
+            detail = str(row.get("detail", ""))
+            if len(title) > 118:
+                title = title[:115] + "..."
+            if len(detail) > 170:
+                detail = detail[:167] + "..."
+            tree.insert("", "end", values=(sev, short_ts(row.get("timestamp", "")), title, str(row.get("status", "ACTIVE")), detail), tags=(tag,))
+
+        if not rows:
+            tree.insert("", "end", values=("INFO", "", "No active Defender alerts returned yet.", "INFO", "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -3600,14 +3720,22 @@ class SentinelApp(tk.Tk):
         if not hasattr(self, "overview_status"):
             return
         for item in self.overview_status.values():
-            canvas = item.get("dot")
+            widget = item.get("dot")
             color = item.get("base", GREEN)
             item["pulse"] = (int(item.get("pulse", 0)) + 1) % 18
-            radius = 4 + (item["pulse"] % 9)
-            canvas.delete("pulse")
-            canvas.create_oval(7 - radius, 7 - radius, 7 + radius, 7 + radius, fill="", outline=color, width=1, tags="pulse")
-            canvas.create_oval(5 - radius//2, 5 - radius//2, 9 + radius//2, 9 + radius//2, fill="", outline=color, width=1, tags="pulse")
-            canvas.create_oval(3, 3, 11, 11, fill=color, outline=color, tags="pulse")
+            # Some overview icons are labels, not canvases. Keep the heartbeat alive
+            # instead of letting a label/canvas mismatch kill the visual loop.
+            try:
+                if hasattr(widget, "delete"):
+                    radius = 4 + (item["pulse"] % 9)
+                    widget.delete("pulse")
+                    widget.create_oval(7 - radius, 7 - radius, 7 + radius, 7 + radius, fill="", outline=color, width=1, tags="pulse")
+                    widget.create_oval(5 - radius//2, 5 - radius//2, 9 + radius//2, 9 + radius//2, fill="", outline=color, width=1, tags="pulse")
+                    widget.create_oval(3, 3, 11, 11, fill=color, outline=color, tags="pulse")
+                elif hasattr(widget, "configure"):
+                    widget.configure(fg=color)
+            except Exception:
+                pass
         self.draw_heartbeat()
         try:
             self.after(450, self.pulse_overview_status)
@@ -3617,13 +3745,15 @@ class SentinelApp(tk.Tk):
     def default_sort_tables(self):
         # First-load defaults only. Once the user clicks a header, repolls preserve that choice.
         sort_targets = [
+            ("overview_defender_feed_table", "severity", False),
+            ("overview_full_feed_table", "severity", False),
             ("defender_alert_table", "time", True),
             ("defender_signal_table", "time", True),
             ("intune_noncompliant_table", "last_sync", True),
             ("intune_stale_table", "days", True),
-            ("intune_posture_table", "issue", False),
-            ("unifi_site_table", "status", False),
-            ("software_new_table", "first_seen", True),
+            ("intune_posture_table", "type", False),
+            ("unifi_sites_table", "status", False),
+            ("software_new_table", "name", False),
             ("software_all_table", "devices", True),
         ]
         for attr, col, rev in sort_targets:
