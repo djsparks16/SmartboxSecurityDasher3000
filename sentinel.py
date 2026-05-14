@@ -1817,7 +1817,7 @@ class SentinelApp(tk.Tk):
         self.main_tab_names = []
         self.main_tab_buttons = {}
         self.main_tab_bar = tk.Frame(shell, bg=BG)
-        self.main_tab_bar.pack(fill="x", pady=(14, 6))
+        self.main_tab_bar.pack(fill="x", pady=(10, 4))
 
         self.main_tabs = ttk.Notebook(shell, style="MainHidden.TNotebook")
         self.main_tabs.pack(fill="both", expand=True)
@@ -1840,9 +1840,9 @@ class SentinelApp(tk.Tk):
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 12))
-        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=14, pady=(10, 2))
+        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
-        self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 10))
+        self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
 
         self.trend_strip = tk.Frame(body, bg=BG)
         self.trend_strip.pack(fill="x", pady=(0, 12))
@@ -1854,11 +1854,11 @@ class SentinelApp(tk.Tk):
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
+            tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
             val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=58, bg=GLASS, highlightthickness=0, bd=0)
-            c.pack(fill="x", padx=10, pady=(0, 10))
+            c = tk.Canvas(panel, height=42, bg=GLASS, highlightthickness=0, bd=0)
+            c.pack(fill="x", padx=10, pady=(0, 6))
             if key == "severity":
                 self.severity_mix_canvas = c
                 self.trend_labels[key] = val
@@ -1869,7 +1869,7 @@ class SentinelApp(tk.Tk):
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
         right = tk.Frame(body, bg=BG, width=360)
-        right.pack(side="right", fill="y", padx=(18, 0))
+        right.pack(side="right", fill="y", padx=(12, 0))
         right.pack_propagate(False)
 
         cards = tk.Frame(left, bg=BG)
@@ -1907,12 +1907,12 @@ class SentinelApp(tk.Tk):
         self.network_summary_bar = tk.Frame(left, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.network_summary_bar.pack(fill="x", pady=(8, 0))
         ns_left = tk.Frame(self.network_summary_bar, bg=GLASS)
-        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=8)
+        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=6)
         tk.Label(ns_left, text="Network site status", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
         self.network_status_big = tk.Label(ns_left, text="--", bg=GLASS, fg=BLUE, font=(self.font_display, 18, "bold"))
         self.network_status_big.pack(anchor="w")
         ns_right = tk.Frame(self.network_summary_bar, bg=GLASS)
-        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=8)
+        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=6)
         tk.Label(ns_right, text="UniFi site health summary", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
         self.network_status_detail = tk.Label(ns_right, text="Waiting for UniFi site data", bg=GLASS, fg=TEXT, font=(self.font_ui, 10, "bold"), justify="left")
         self.network_status_detail.pack(anchor="w")
@@ -2017,48 +2017,43 @@ class SentinelApp(tk.Tk):
         ]
         self.main_tab_buttons = {}
         for label, frame in tabs:
-            shell, inner = self.rounded_panel(self.main_tab_bar, fill="#111925", border=HAIRLINE, radius=18, padding=1)
-            shell.pack(side="left", padx=(0, 8), pady=2)
+            shell = tk.Frame(self.main_tab_bar, bg=BG, width=112, height=38)
+            shell.pack(side="left", padx=(0, 8), pady=(0, 2))
+            shell.pack_propagate(False)
+
+            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, bd=0, width=112, height=38)
+            canvas.pack(fill="both", expand=True)
             btn = tk.Label(
-                inner,
+                canvas,
                 text=label,
                 bg="#111925",
                 fg=MUTED,
                 font=(self.font_ui, 10, "bold"),
-                padx=20,
-                pady=10,
+                padx=0,
+                pady=0,
                 cursor="hand2"
             )
-            btn.pack(fill="both", expand=True)
-            for widget in (shell, inner, btn):
+            win = canvas.create_window((56, 19), window=btn, width=104, height=30)
+
+            def draw(c=canvas, active=False):
+                c.delete("panel")
+                bg = "#223147" if active else "#111925"
+                border = BLUE if active else HAIRLINE
+                pts = self._rounded_points(2, 2, 110, 36, 16)
+                c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
+                c.tag_lower("panel")
+                btn.configure(bg=bg, fg=TEXT if active else MUTED)
+
+            for widget in (shell, canvas, btn):
                 widget.bind("<Button-1>", lambda e, f=frame: self.select_main_tab(f))
-            self.main_tab_buttons[frame] = (shell, inner, btn)
+            self.main_tab_buttons[frame] = {"shell": shell, "canvas": canvas, "label": btn, "draw": draw}
+            draw(active=False)
         self.select_main_tab(self.tab_overview)
 
     def select_main_tab(self, frame):
         self.main_tabs.select(frame)
         for tab_frame, parts in self.main_tab_buttons.items():
-            shell, inner, btn = parts
-            active = tab_frame == frame
-            bg = "#223147" if active else "#111925"
-            fg = TEXT if active else MUTED
-            border = BLUE if active else HAIRLINE
-            inner.configure(bg=bg)
-            btn.configure(bg=bg, fg=fg)
-            try:
-                shell.canvas.delete("panel")
-                shell.canvas.create_polygon(
-                    self._rounded_points(1, 1, max(shell.canvas.winfo_width()-1, 42), max(shell.canvas.winfo_height()-1, 24), 18),
-                    smooth=True,
-                    splinesteps=24,
-                    fill=bg,
-                    outline=border,
-                    width=1.5,
-                    tags="panel"
-                )
-                shell.canvas.tag_lower("panel")
-            except Exception:
-                pass
+            parts["draw"](active=(tab_frame == frame))
 
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
@@ -2097,9 +2092,9 @@ class SentinelApp(tk.Tk):
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         if width_pack:
-            shell.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+            shell.pack(side="left", fill="x", expand=True, padx=6, pady=5)
         else:
-            shell.pack(fill="x", padx=6, pady=6)
+            shell.pack(fill="x", padx=6, pady=5)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(9, 1))
         val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 21, "bold"))
         val.pack(anchor="w", padx=16, pady=(0, 2))
@@ -2168,7 +2163,7 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Alert / finding", 360),
             ("detail", "Detail", 420),
-        ], height=22)
+        ], height=24)
 
         self.defender_signal_table = self.table_panel(defender_signal_tab, "Microsoft security signal feed", [
             ("time", "Time", 150),
@@ -2176,7 +2171,7 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Signal", 360),
             ("detail", "Detail", 520),
-        ], height=22)
+        ], height=24)
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
@@ -2229,21 +2224,21 @@ class SentinelApp(tk.Tk):
             ("user", "User", 260),
             ("compliance", "Compliance", 120),
             ("last_sync", "Last sync", 160),
-        ], height=18)
+        ], height=20)
         self.intune_stale_table = self.table_panel(int_tab_stale, "Devices not contacted for 30+ days", [
             ("name", "Device", 230),
             ("os", "OS", 90),
             ("days", "Days stale", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=18)
+        ], height=20)
         self.intune_posture_table = self.table_panel(int_tab_posture, "Device security posture flags", [
             ("type", "Finding", 170),
             ("device", "Device", 230),
             ("os", "OS", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=18)
+        ], height=20)
         self.intune_text = self.text_panel(int_tab_summary, "Intune inventory summary")
 
         # UniFi tab
@@ -2292,13 +2287,13 @@ class SentinelApp(tk.Tk):
             ("degraded", "Degraded", 90),
             ("unknown", "Unknown", 90),
             ("detail", "Detail", 420),
-        ], height=22)
+        ], height=24)
 
         self.unifi_notes_table = self.table_panel(unifi_notes_tab, "UniFi connector notes", [
             ("severity", "Severity", 90),
             ("title", "Finding", 300),
             ("detail", "Detail", 700),
-        ], height=22)
+        ], height=24)
 
 
         # Software tab
@@ -2328,24 +2323,24 @@ class SentinelApp(tk.Tk):
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=22)
+        ], height=24)
         self.software_all_table = self.table_panel(sw_all_tab, "Detected software inventory", [
             ("name", "Application", 320),
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=22)
+        ], height=24)
         self.software_text = self.text_panel(sw_notes_tab, "Software detection notes")
 
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
         shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 25, "bold"))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(8, 1))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"))
         val.pack(anchor="w", padx=16, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=16, pady=(0, 10))
+        hint.pack(anchor="w", padx=14, pady=(0, 7))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
 
@@ -2899,7 +2894,7 @@ class SentinelApp(tk.Tk):
         canvas, _ = self.trend_canvases[key]
         canvas.delete("all")
         w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 58)
+        h = max(canvas.winfo_height(), 42)
         for y in (10, int(h/2), h-8):
             canvas.create_line(4, y, w-4, y, fill="#1B2635")
         if len(values) < 2:
@@ -2926,7 +2921,7 @@ class SentinelApp(tk.Tk):
             return
         canvas.delete("all")
         w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 58)
+        h = max(canvas.winfo_height(), 42)
         total = max(sum(counts.values()), 1)
         x = 10
         y1, y2 = 18, 34
@@ -3258,7 +3253,7 @@ class SentinelApp(tk.Tk):
                 hint = "new to this local dashboard baseline"
             elif key == "detected_app_count":
                 color = BLUE if int(val or 0) > 0 else MUTED
-                hint = "Intune detected apps returned/cached; Graph pages may be rate-limited"
+                hint = "returned/cached from Graph; full estate may require paged pulls"
             elif key == "stale_30_count":
                 color = AMBER if int(val or 0) > 0 else GREEN
                 hint = "devices not contacted 30+ days"
@@ -3296,7 +3291,7 @@ class SentinelApp(tk.Tk):
             f"Newly observed apps: {m.get('new_software_count', 0)}",
             f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
             "If this says 429, Graph is rate-limiting detectedApps. The dashboard now uses a 30-minute local cache/backoff.",
-            "If count is exactly 1000, Graph may be returning a tenant page/window rather than the whole estate in one pull.",
+            "If count is exactly 1000, Graph may be returning a page/window or cached sample. This is not necessarily broken.",
             "",
             "Newly observed software",
             "-" * 100,
