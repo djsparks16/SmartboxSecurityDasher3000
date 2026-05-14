@@ -44,6 +44,8 @@ RED = "#FF6B81"
 PURPLE = "#C7A7FF"
 GLASS = "#10151D"
 HAIRLINE = "#242D3A"
+GLASS_2 = "#0F141C"
+ROW_ALT = "#151C27"
 
 
 def now_iso():
@@ -349,6 +351,7 @@ class MicrosoftGraphConnector:
         devices_url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=100"
         graph_alerts_url = "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=100"
         detected_apps_url = "https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$top=100"
+        detected_apps_beta_url = "https://graph.microsoft.com/beta/deviceManagement/detectedApps?$top=100"
 
         # Dedicated Defender for Endpoint API. This normally needs Defender API permissions on the app:
         # Alert.Read.All and optionally Machine.Read.All for deeper enrichment later.
@@ -388,16 +391,30 @@ class MicrosoftGraphConnector:
                 "source": "Graph Security",
             })
 
+        detected_apps_source = "v1.0"
         try:
             detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=50)
+            if not detected_apps:
+                try:
+                    beta_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=50)
+                    if beta_apps:
+                        detected_apps = beta_apps
+                        detected_apps_source = "beta"
+                except Exception:
+                    pass
         except Exception as e:
             detected_apps_error = str(e)
-            events.append({
-                "severity": "info",
-                "title": "Detected apps inventory unavailable",
-                "detail": detected_apps_error[:180],
-                "source": "Microsoft Graph",
-            })
+            try:
+                detected_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=50)
+                detected_apps_source = "beta"
+            except Exception as beta_e:
+                detected_apps_error = f"{detected_apps_error[:120]} | beta: {str(beta_e)[:120]}"
+                events.append({
+                    "severity": "info",
+                    "title": "Detected apps inventory unavailable",
+                    "detail": detected_apps_error[:180],
+                    "source": "Microsoft Graph",
+                })
 
         try:
             defender_token = self.get_token("https://api.securitycenter.microsoft.com/.default")
@@ -515,7 +532,7 @@ class MicrosoftGraphConnector:
             events.insert(2, {
                 "severity": "info" if not new_software else "medium",
                 "title": "Detected software inventory loaded",
-                "detail": f"{len(detected_apps)} detected apps. {len(new_software)} newly observed since local baseline.",
+                "detail": f"{len(detected_apps)} detected apps from Graph {detected_apps_source}. {len(new_software)} newly observed since local baseline.",
                 "source": "Microsoft Graph",
             })
 
@@ -551,6 +568,8 @@ class MicrosoftGraphConnector:
             "unencrypted_devices": [self.device_row(d) for d in unencrypted[:200]],
             "jailbroken_devices": [self.device_row(d) for d in jailbroken[:100]],
             "detected_app_count": len(detected_apps),
+            "detected_apps_source": detected_apps_source if detected_apps else ("unavailable" if detected_apps_error else "empty"),
+            "detected_apps_error": detected_apps_error or "",
             "new_software_count": len(new_software),
             "new_software": new_software,
             "detected_apps": [
@@ -1394,6 +1413,8 @@ class TelemetryEngine(threading.Thread):
                     "unencrypted_devices": [],
                     "jailbroken_devices": [],
                     "detected_app_count": 0,
+                    "detected_apps_source": "",
+                    "detected_apps_error": "",
                     "new_software_count": 0,
                     "new_software": [],
                     "detected_apps": [],
@@ -1475,6 +1496,8 @@ class TelemetryEngine(threading.Thread):
             detected_apps.extend(r.get("detected_apps", []) or [])
             new_software.extend(r.get("new_software", []) or [])
         detected_app_count = sum(int(r.get("detected_app_count", 0)) for r in results)
+        detected_apps_source = "; ".join([str(r.get("detected_apps_source", "")) for r in results if r.get("detected_apps_source")])
+        detected_apps_error = "; ".join([str(r.get("detected_apps_error", "")) for r in results if r.get("detected_apps_error")])
         new_software_count = sum(int(r.get("new_software_count", 0)) for r in results)
         alerts = sum(int(r.get("alerts", 0)) for r in results)
         active_alerts = sum(int(r.get("active_alerts", r.get("alerts", 0))) for r in results)
@@ -1551,6 +1574,8 @@ class TelemetryEngine(threading.Thread):
                 "unencrypted_devices": unencrypted_devices[:500],
                 "jailbroken_devices": jailbroken_devices[:200],
                 "detected_app_count": detected_app_count,
+                "detected_apps_source": detected_apps_source,
+                "detected_apps_error": detected_apps_error,
                 "new_software_count": new_software_count,
                 "new_software": new_software[:300],
                 "detected_apps": detected_apps[:500],
@@ -1646,6 +1671,21 @@ class SentinelApp(tk.Tk):
         style.map("Dasher.TNotebook.Tab",
                   background=[("selected", "#202A38"), ("active", "#1A2330")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
+        style.configure("Dasher.Treeview",
+                  background=GLASS_2,
+                  foreground=TEXT,
+                  fieldbackground=GLASS_2,
+                  rowheight=28,
+                  borderwidth=0,
+                  font=("Segoe UI", 9))
+        style.configure("Dasher.Treeview.Heading",
+                  background="#1C2634",
+                  foreground=MUTED,
+                  relief="flat",
+                  font=("Segoe UI", 8, "bold"))
+        style.map("Dasher.Treeview",
+                  background=[("selected", "#24344A")],
+                  foreground=[("selected", TEXT)])
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
@@ -1844,6 +1884,35 @@ class SentinelApp(tk.Tk):
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
         tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software tabs. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
 
+    def table_panel(self, parent, title, columns, height=9):
+        shell = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
+        shell.pack(fill="both", expand=True, padx=6, pady=6)
+        header = tk.Frame(shell, bg=PANEL)
+        header.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 15, "bold")).pack(side="left")
+
+        frame = tk.Frame(shell, bg=PANEL)
+        frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
+        for key, label, width in columns:
+            tree.heading(key, text=label)
+            tree.column(key, width=width, anchor="w", stretch=True)
+        yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        yscroll.pack(side="right", fill="y")
+        xscroll.pack(side="bottom", fill="x")
+        return tree
+
+    def clear_table(self, tree):
+        for item in tree.get_children():
+            tree.delete(item)
+
+    def insert_table_row(self, tree, values, tag=None):
+        tree.insert("", "end", values=values, tags=(tag,) if tag else ())
+
+
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground=HAIRLINE)
         if width_pack:
@@ -1868,7 +1937,7 @@ class SentinelApp(tk.Tk):
         text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         widget = tk.Text(
             text_frame,
-            bg="#10151D",
+            bg=GLASS_2,
             fg=TEXT,
             insertbackground=TEXT,
             relief="flat",
@@ -1938,7 +2007,40 @@ class SentinelApp(tk.Tk):
             val.pack(anchor="w")
             self.intune_platform_focus[key] = val
 
-        self.intune_text = self.text_panel(intune_wrap, "Intune inventory and compliance summary")
+        self.intune_tables = ttk.Notebook(intune_wrap, style="Dasher.TNotebook")
+        self.intune_tables.pack(fill="both", expand=True, padx=0, pady=6)
+
+        int_tab_non = tk.Frame(self.intune_tables, bg=BG)
+        int_tab_stale = tk.Frame(self.intune_tables, bg=BG)
+        int_tab_posture = tk.Frame(self.intune_tables, bg=BG)
+        int_tab_summary = tk.Frame(self.intune_tables, bg=BG)
+        self.intune_tables.add(int_tab_non, text="Non-compliant")
+        self.intune_tables.add(int_tab_stale, text="Stale 30+ days")
+        self.intune_tables.add(int_tab_posture, text="Security posture")
+        self.intune_tables.add(int_tab_summary, text="Summary")
+
+        self.intune_noncompliant_table = self.table_panel(int_tab_non, "Non-compliant Intune devices", [
+            ("name", "Device", 230),
+            ("os", "OS", 90),
+            ("user", "User", 260),
+            ("compliance", "Compliance", 120),
+            ("last_sync", "Last sync", 160),
+        ], height=12)
+        self.intune_stale_table = self.table_panel(int_tab_stale, "Devices not contacted for 30+ days", [
+            ("name", "Device", 230),
+            ("os", "OS", 90),
+            ("days", "Days stale", 90),
+            ("user", "User", 260),
+            ("last_sync", "Last sync", 160),
+        ], height=12)
+        self.intune_posture_table = self.table_panel(int_tab_posture, "Device security posture flags", [
+            ("type", "Finding", 170),
+            ("device", "Device", 230),
+            ("os", "OS", 90),
+            ("user", "User", 260),
+            ("last_sync", "Last sync", 160),
+        ], height=12)
+        self.intune_text = self.text_panel(int_tab_summary, "Intune inventory summary")
 
         # UniFi tab
         unifi_wrap = tk.Frame(self.tab_unifi, bg=BG)
@@ -1984,7 +2086,29 @@ class SentinelApp(tk.Tk):
         self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
         self.focus_card(sw_row, "Stale Intune devices", PURPLE, "software", "stale_30_count")
         self.focus_card(sw_row, "Unencrypted devices", RED, "software", "unencrypted_count")
-        self.software_text = self.text_panel(software_wrap, "Software and device-change inventory")
+        self.software_tables = ttk.Notebook(software_wrap, style="Dasher.TNotebook")
+        self.software_tables.pack(fill="both", expand=True, padx=0, pady=6)
+
+        sw_new_tab = tk.Frame(self.software_tables, bg=BG)
+        sw_all_tab = tk.Frame(self.software_tables, bg=BG)
+        sw_notes_tab = tk.Frame(self.software_tables, bg=BG)
+        self.software_tables.add(sw_new_tab, text="Newly observed")
+        self.software_tables.add(sw_all_tab, text="Detected apps")
+        self.software_tables.add(sw_notes_tab, text="Notes")
+
+        self.software_new_table = self.table_panel(sw_new_tab, "Newly observed software", [
+            ("name", "Application", 320),
+            ("version", "Version", 140),
+            ("publisher", "Publisher", 240),
+            ("devices", "Devices", 90),
+        ], height=14)
+        self.software_all_table = self.table_panel(sw_all_tab, "Detected software inventory", [
+            ("name", "Application", 320),
+            ("version", "Version", 140),
+            ("publisher", "Publisher", 240),
+            ("devices", "Devices", 90),
+        ], height=14)
+        self.software_text = self.text_panel(sw_notes_tab, "Software detection notes")
 
 
     def card(self, parent, row, col, title, key, color):
@@ -2735,6 +2859,46 @@ class SentinelApp(tk.Tk):
             int_lines += ["", "No dedicated Microsoft Graph rows returned in this poll."]
         self.set_text_widget(self.intune_text, "\n".join(int_lines))
 
+        # Intune tables
+        if hasattr(self, "intune_noncompliant_table"):
+            self.clear_table(self.intune_noncompliant_table)
+            for d in (m.get("noncompliant_devices", []) or [])[:500]:
+                self.insert_table_row(self.intune_noncompliant_table, [
+                    d.get("name", "unknown"),
+                    d.get("os", ""),
+                    d.get("user", ""),
+                    d.get("compliance", ""),
+                    short_ts(d.get("last_sync", "")),
+                ])
+
+            self.clear_table(self.intune_stale_table)
+            for d in (m.get("stale_devices", []) or [])[:500]:
+                self.insert_table_row(self.intune_stale_table, [
+                    d.get("name", "unknown"),
+                    d.get("os", ""),
+                    d.get("last_sync_days", ""),
+                    d.get("user", ""),
+                    short_ts(d.get("last_sync", "")),
+                ])
+
+            self.clear_table(self.intune_posture_table)
+            for d in (m.get("unencrypted_devices", []) or [])[:300]:
+                self.insert_table_row(self.intune_posture_table, [
+                    "Unencrypted",
+                    d.get("name", "unknown"),
+                    d.get("os", ""),
+                    d.get("user", ""),
+                    short_ts(d.get("last_sync", "")),
+                ])
+            for d in (m.get("jailbroken_devices", []) or [])[:200]:
+                self.insert_table_row(self.intune_posture_table, [
+                    "Jailbreak/root flag",
+                    d.get("name", "unknown"),
+                    d.get("os", ""),
+                    d.get("user", ""),
+                    short_ts(d.get("last_sync", "")),
+                ])
+
         # UniFi focused cards and summary
         for key, card in self.focus_cards["unifi"].items():
             val = m.get(key, 0)
@@ -2817,7 +2981,7 @@ class SentinelApp(tk.Tk):
                 hint = "new to this local dashboard baseline"
             elif key == "detected_app_count":
                 color = BLUE if int(val or 0) > 0 else MUTED
-                hint = "Intune detected apps inventory"
+                hint = "Intune detected apps inventory; 0 may mean Graph permission/API not exposed"
             elif key == "stale_30_count":
                 color = AMBER if int(val or 0) > 0 else GREEN
                 hint = "devices not contacted 30+ days"
@@ -2828,13 +2992,32 @@ class SentinelApp(tk.Tk):
             card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
             card["frame"].config(highlightbackground=color)
 
+        if hasattr(self, "software_new_table"):
+            self.clear_table(self.software_new_table)
+            for app in (m.get("new_software", []) or [])[:500]:
+                self.insert_table_row(self.software_new_table, [
+                    app.get("displayName", "Unknown app"),
+                    app.get("version", ""),
+                    app.get("publisher", ""),
+                    app.get("deviceCount", 0),
+                ])
+            self.clear_table(self.software_all_table)
+            for app in (m.get("detected_apps", []) or [])[:1000]:
+                self.insert_table_row(self.software_all_table, [
+                    app.get("displayName", "Unknown app"),
+                    app.get("version", ""),
+                    app.get("publisher", ""),
+                    app.get("deviceCount", 0),
+                ])
+
         sw_lines = [
-            "Software detection source: Microsoft Graph deviceManagement/detectedApps",
+            f"Software detection source: Microsoft Graph deviceManagement/detectedApps ({m.get('detected_apps_source', 'unknown')})",
             "Important: Graph detectedApps usually does not include install timestamp.",
             "Newly observed means: app/version/publisher was not present in this dashboard's previous local baseline.",
             "",
             f"Detected apps: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
+            f"Graph error/detail: {m.get('detected_apps_error', '') or 'none'}",
             "",
             "Newly observed software",
             "-" * 100,
