@@ -118,7 +118,7 @@ class Config:
         "demo_mode": False,
         "poll_seconds": 8,
         "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
-        "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "enabled": False},
+        "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "site_name_map": "", "enabled": False},
         "datto": {"api_url": "", "access_token": "", "enabled": False},
         "rocketcyber": {"base_url": "https://api-us.rocketcyber.com", "api_key": "", "enabled": False},
     }
@@ -430,6 +430,41 @@ class UniFiConnector:
                 return cur
         return default
 
+    def _parse_site_name_map(self, raw):
+        """Parse manual site name mapping lines: id=name, id:name, or id,name."""
+        mapping = {}
+        if not raw:
+            return mapping
+        for line in str(raw).replace(";", "\n").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            sep = "=" if "=" in line else ":" if ":" in line else "," if "," in line else None
+            if not sep:
+                continue
+            key, value = line.split(sep, 1)
+            key = key.strip().lower()
+            value = value.strip()
+            if key and value:
+                mapping[key] = value
+        return mapping
+
+    def _host_name(self, host):
+        return str(self._get_nested(host, [
+            "name", "displayName", "hostName", "hostname", "consoleName", "owner.name", "meta.name", "metadata.name"
+        ], ""))
+
+    def _host_site_candidates(self, host):
+        vals = set()
+        for path in [
+            "siteId", "site_id", "site.id", "site.siteId", "siteName", "site.name",
+            "defaultSiteId", "defaultSite.id", "networkId", "network.id"
+        ]:
+            val = self._get_nested(host, [path], "")
+            if val not in (None, ""):
+                vals.add(str(val).lower())
+        return vals
+
     def _extract_items(self, data):
         if isinstance(data, list):
             return data
@@ -536,9 +571,10 @@ class UniFiConnector:
 
     def _site_name(self, site):
         return str(self._get_nested(site, [
-            "name", "displayName", "siteName", "description", "desc",
+            "name", "displayName", "siteName", "description", "desc", "nickname", "label",
             "meta.name", "metadata.name", "site.name", "site.displayName",
-            "attributes.name", "properties.name", "label"
+            "attributes.name", "properties.name", "settings.name", "profile.name",
+            "ui.name", "console.name", "host.name"
         ], self._site_id(site) or "UniFi site"))
 
     def _site_aliases(self, site):
@@ -637,8 +673,16 @@ class UniFiConnector:
                 "source": "UniFi",
             })
 
+        hosts = []
+        try:
+            hosts, _ = self._get_paged(base, headers, "/v1/hosts", page_size=500, max_pages=20)
+        except Exception:
+            hosts = []
+
         site_count = len(sites)
         device_count = len(devices)
+        host_count = len(hosts)
+        manual_site_names = self._parse_site_name_map(c.get("site_name_map", ""))
 
         site_index = {}
         alias_to_key = {}
@@ -647,7 +691,16 @@ class UniFiConnector:
             if not isinstance(site, dict):
                 continue
             sid = self._site_id(site) or f"site-{i+1}"
+            aliases = self._site_aliases(site)
             name = self._site_name(site)
+
+            for alias in aliases:
+                if alias.lower() in manual_site_names:
+                    name = manual_site_names[alias.lower()]
+                    break
+            if sid.lower() in manual_site_names:
+                name = manual_site_names[sid.lower()]
+
             site_index[sid] = {
                 "name": name,
                 "id": sid,
@@ -659,8 +712,20 @@ class UniFiConnector:
                 "raw": site,
                 "unmatched_devices": [],
             }
-            for alias in self._site_aliases(site):
+            for alias in aliases:
                 alias_to_key[alias] = sid
+
+        # Some Site Manager responses expose friendlier console/site names through /v1/hosts.
+        for host in hosts:
+            if not isinstance(host, dict):
+                continue
+            hname = self._host_name(host)
+            if not hname:
+                continue
+            for candidate in self._host_site_candidates(host):
+                key = alias_to_key.get(candidate)
+                if key and site_index.get(key, {}).get("name", "").lower() in ("default", key.lower(), ""):
+                    site_index[key]["name"] = hname
 
         unmatched = []
         for device in devices:
@@ -744,7 +809,7 @@ class UniFiConnector:
             events.append({
                 "severity": "info",
                 "title": "UniFi Site Manager API live",
-                "detail": f"{site_count} site(s), {device_count} device(s) returned via /v1/sites and /v1/devices.{trace_bit}",
+                "detail": f"{site_count} site(s), {device_count} device(s), {host_count} host(s) returned via /v1/sites, /v1/devices, /v1/hosts.{trace_bit}",
                 "source": "UniFi",
             })
 
@@ -957,15 +1022,27 @@ class TelemetryEngine(threading.Thread):
         defender = int(metrics.get("defender_alerts", 0) or 0)
         graph = int(metrics.get("graph_alerts", 0) or 0)
         noncompliant = int(metrics.get("noncompliant", 0) or 0)
+        active = int(metrics.get("active_alerts", metrics.get("alerts", 0)) or 0)
+
+        reasons = []
+        if critical > 0:
+            reasons.append(f"{critical} high/critical active alert(s)")
+        if active > 0:
+            reasons.append(f"{active} active unresolved alert(s)")
+        if noncompliant > 0:
+            reasons.append(f"{noncompliant} non-compliant device(s)")
+        if defender > 0:
+            reasons.append(f"{defender} active Defender alert(s)")
+        if graph > 0:
+            reasons.append(f"{graph} active Graph alert(s)")
 
         if critical > 0:
-            return "CRITICAL", 4, "critical alerts present"
-        if defender >= 10 or graph >= 25 or noncompliant >= 100:
-            return "HIGH", 3, "large alert/compliance volume"
-        if defender > 0 or graph > 0 or noncompliant > 0:
-            return "ACTION", 2, "investigation required"
+            return "CRITICAL", 4, " + ".join(reasons[:3]) or "critical alerts present"
+        if defender >= 10 or graph >= 25 or noncompliant >= 100 or active >= 25:
+            return "HIGH", 3, " + ".join(reasons[:3]) or "large alert/compliance volume"
+        if defender > 0 or graph > 0 or noncompliant > 0 or active > 0:
+            return "ACTION", 2, " + ".join(reasons[:3]) or "investigation required"
         return "CLEAR", 0, "no active findings"
-
 
 
     def event_to_alert_row(self, event):
@@ -1089,6 +1166,7 @@ class TelemetryEngine(threading.Thread):
         risk = 0  # Deprecated: kept internally only so older chart state does not break. Not displayed as a security result.
         priority_state, priority_level, priority_reason = self.priority_from_counts({
             "critical": critical,
+            "active_alerts": active_alerts,
             "defender_alerts": defender_alerts,
             "graph_alerts": graph_alerts,
             "noncompliant": noncompliant,
@@ -1220,6 +1298,13 @@ class SentinelApp(tk.Tk):
         self.card(cards, 0, 2, "Compliant gap", "noncompliant", AMBER)
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
+
+        self.priority_explain_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.priority_explain_bar.pack(fill="x", pady=(8, 0))
+        tk.Label(self.priority_explain_bar, text="Why this priority?", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        self.priority_explain_text = tk.Label(self.priority_explain_bar, text="Waiting for live counts...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=1000)
+        self.priority_explain_text.pack(anchor="w", padx=12, pady=(0, 8))
+
 
         self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         for label, key, color in [
@@ -1691,6 +1776,7 @@ class SentinelApp(tk.Tk):
             ("Site ID optional", "site_id", False),
             ("Alerts path optional", "alerts_path", False),
             ("Site health path optional", "site_health_path", False),
+            ("Site name map optional", "site_name_map", False),
         ])
         add_tab("Datto RMM", "datto", [
             ("API URL, e.g. https://vidal-api.centrastage.net", "api_url", False),
@@ -1772,11 +1858,17 @@ class SentinelApp(tk.Tk):
         else:
             self.top_issues_text.config(text="No critical or medium live findings returned.", fg=MUTED)
 
+        if hasattr(self, "priority_explain_text"):
+            self.priority_explain_text.config(
+                text=f"{m.get('priority_state', state_text if 'state_text' in locals() else 'STATE')} because {m.get('priority_reason', 'live counts')}. Active {m.get('active_alerts', m.get('alerts', 0))}, returned {m.get('returned_alerts', 0)}, resolved/closed {m.get('resolved_alerts', 0)}, non-compliant {m.get('noncompliant', 0)}.",
+                fg=TEXT
+            )
+
         state_text, state_color = self.overall_state(m)
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
         unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi devices {m.get('unifi_devices', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Active {m.get('active_alerts', m.get('alerts', 0))} • Returned {m.get('returned_alerts', 0)} • Resolved/closed {m.get('resolved_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
+        self.state_detail.config(text=f"Reason: {m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Active {m.get('active_alerts', m.get('alerts', 0))} • Returned {m.get('returned_alerts', 0)} • Resolved/closed {m.get('resolved_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
         self.spark.append(m.get("alerts", 0))
