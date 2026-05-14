@@ -1885,13 +1885,13 @@ class SentinelApp(tk.Tk):
         self.hero_strip.pack(fill="x", pady=(0, 8))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
-        self.hero_priority_shell.configure(height=126)
+        self.hero_priority_shell.configure(height=154, width=900)
         self.hero_priority_shell.pack_propagate(False)
         self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
         hero_top = tk.Frame(self.hero_priority_panel, bg=PANEL)
         hero_top.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(hero_top, text="Top action", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
+        tk.Label(hero_top, text="Defender priority", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
         self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 34, "bold"))
@@ -1902,9 +1902,9 @@ class SentinelApp(tk.Tk):
         self.hero_priority_meta.pack(anchor="w", padx=18, pady=(8, 10))
 
         self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
-        self.heartbeat_shell.configure(height=126)
+        self.heartbeat_shell.configure(height=154, width=520)
         self.heartbeat_shell.pack_propagate(False)
-        self.heartbeat_shell.pack(side="left", fill="x", expand=True, padx=(0, 0), pady=2)
+        self.heartbeat_shell.pack(side="left", fill="x", expand=False, padx=(0, 0), pady=2)
 
         hb_top = tk.Frame(self.heartbeat_panel, bg=GLASS)
         hb_top.pack(fill="x", padx=16, pady=(12, 2))
@@ -1913,7 +1913,7 @@ class SentinelApp(tk.Tk):
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
-        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=68, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=90, bg=GLASS, highlightthickness=0, bd=0)
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
@@ -1926,7 +1926,7 @@ class SentinelApp(tk.Tk):
             ("Software", "overview_software", GREEN),
         ]:
             shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-            shell.configure(height=92)
+            shell.configure(height=82)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
@@ -2080,12 +2080,49 @@ class SentinelApp(tk.Tk):
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         # self.platform_bar.pack(fill="x", pady=(8, 0))  # Dropped from Overview for a cleaner status-led front page.
 
+        self.overview_defender_feed_shell, self.overview_defender_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
+        self.overview_defender_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
+
+        defender_feed_header = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
+        defender_feed_header.pack(fill="x", padx=14, pady=(10, 6))
+        tk.Label(defender_feed_header, text="Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="Active Defender alerts shown first · medium alerts included", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold"))
+        self.overview_defender_feed_summary.pack(side="right")
+
+        self.overview_defender_feed_table_wrap = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
+        self.overview_defender_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.overview_defender_feed_scrollbar = tk.Scrollbar(self.overview_defender_feed_table_wrap, orient="vertical")
+        self.overview_defender_feed_scrollbar.pack(side="right", fill="y")
+        self.overview_defender_feed_table = ttk.Treeview(
+            self.overview_defender_feed_table_wrap,
+            columns=("severity", "time", "title", "status", "detail"),
+            show="headings",
+            style="Dasher.Treeview",
+            yscrollcommand=self.overview_defender_feed_scrollbar.set,
+            selectmode="browse",
+            height=9,
+        )
+        self.setup_tree_columns(self.overview_defender_feed_table, [
+            ("severity", "Severity", 105),
+            ("time", "Time", 160),
+            ("title", "Alert / finding", 520),
+            ("status", "Status", 120),
+            ("detail", "Detail", 760),
+        ])
+        self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
+        self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0B1C2B", foreground="#DFF6FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
+
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(8, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
         tk.Label(full_feed_header, text="Color-coded live event table · severity first, newest items first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
@@ -2099,7 +2136,7 @@ class SentinelApp(tk.Tk):
             style="Dasher.Treeview",
             yscrollcommand=self.overview_full_feed_scrollbar.set,
             selectmode="browse",
-            height=30,
+            height=12,
         )
         self.setup_tree_columns(self.overview_full_feed_table, [
             ("severity", "Severity", 96),
@@ -3288,14 +3325,17 @@ class SentinelApp(tk.Tk):
                 elif defender_critical > 0:
                     hero_head, hero_detail, hero_color = "DEFENDER CRITICAL", f"{defender_critical} high / critical Defender alerts active. Immediate triage recommended.", RED
                     hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
+                elif defender_active > 0:
+                    hero_head, hero_detail, hero_color = "DEFENDER ACTION", f"{defender_active} active Defender alert(s) need triage. Medium and informational Defender alerts stay visible in the focus table.", ORANGE
+                    hero_meta_text = f"Defender active {defender_active} • High/critical {defender_critical} • Graph context {graph_active} • Intune gap {noncompliant}"
                 elif unencrypted > 0:
                     hero_head, hero_detail, hero_color = "BITLOCKER GAP", f"{unencrypted} device(s) currently report as unencrypted in Intune posture.", RED
                     hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
                 elif offline > 0:
                     hero_head, hero_detail, hero_color = "SITE OFFLINE", f"{offline} UniFi site(s) offline. Network visibility or service availability may be impacted.", RED
                     hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
-                elif defender_active > 0 or noncompliant > 0:
-                    hero_head, hero_detail, hero_color = "ACTION REQUIRED", f"{defender_active} active Defender alert(s) and {noncompliant} non-compliant device(s) are keeping the estate off-green.", ORANGE
+                elif noncompliant > 0:
+                    hero_head, hero_detail, hero_color = "INTUNE ACTION", f"{noncompliant} non-compliant device(s) need review, with no active Defender alerts currently driving priority.", AMBER
                     hero_meta_text = f"Defender active {defender_active} • Intune gap {noncompliant} • Offline sites {offline} • Graph context {graph_active}"
                 elif degraded > 0 or stale > 0 or no_user > 0:
                     hero_head, hero_detail, hero_color = "WATCH LIST", f"{degraded} degraded site(s), {stale} stale device(s), {no_user} device(s) without owner context.", AMBER
@@ -3356,6 +3396,7 @@ class SentinelApp(tk.Tk):
         self.spark = self.spark[-80:]
         self.render_alert_table(payload.get("alert_rows", []), m)
         self.render_focus_views(payload)
+        self.render_overview_defender_feed(payload)
         self.render_overview_full_feed(payload)
         self.default_sort_tables()
 
@@ -3413,6 +3454,49 @@ class SentinelApp(tk.Tk):
             canvas.create_line(*flat, fill=color, width=1.8, smooth=True, splinesteps=14)
         except Exception:
             pass
+
+    def render_overview_defender_feed(self, payload):
+        tree = getattr(self, "overview_defender_feed_table", None)
+        if tree is None:
+            return
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
+            return
+
+        rows = []
+        for row in payload.get("alert_rows", []) or []:
+            source = str(row.get("source", ""))
+            if "defender" in source.lower():
+                rows.append(row)
+
+        sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
+        def row_key(row):
+            sev = sev_order.get(str(row.get("severity", "INFO")).upper(), 9)
+            parsed = parse_dt_safe(row.get("timestamp"))
+            stamp = parsed.timestamp() if parsed else 0
+            return (sev, -stamp)
+        rows.sort(key=row_key)
+
+        active_count = len(rows)
+        medium_count = sum(1 for r in rows if str(r.get("severity", "")).upper() == "MEDIUM")
+        high_count = sum(1 for r in rows if str(r.get("severity", "")).upper() in ("HIGH", "CRITICAL"))
+        if hasattr(self, "overview_defender_feed_summary"):
+            self.overview_defender_feed_summary.config(text=f"{active_count} active Defender item(s) · {high_count} high/critical · {medium_count} medium · click headers to sort")
+
+        for row in rows[:150]:
+            sev = str(row.get("severity", "INFO")).upper()
+            tag = f"sev_{sev.lower()}" if sev.lower() in ("critical", "high", "medium", "info", "low") else "sev_info"
+            title = str(row.get("title", ""))
+            detail = str(row.get("detail", ""))
+            if len(title) > 118:
+                title = title[:115] + "..."
+            if len(detail) > 170:
+                detail = detail[:167] + "..."
+            tree.insert("", "end", values=(sev, short_ts(row.get("timestamp", "")), title, str(row.get("status", "ACTIVE")), detail), tags=(tag,))
+
+        if not rows:
+            tree.insert("", "end", values=("INFO", "", "No active Defender alerts returned yet.", "INFO", "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -3609,6 +3693,8 @@ class SentinelApp(tk.Tk):
     def default_sort_tables(self):
         # First-load defaults only. Once the user clicks a header, repolls preserve that choice.
         sort_targets = [
+            ("overview_defender_feed_table", "severity", False),
+            ("overview_full_feed_table", "severity", False),
             ("defender_alert_table", "time", True),
             ("defender_signal_table", "time", True),
             ("intune_noncompliant_table", "last_sync", True),
