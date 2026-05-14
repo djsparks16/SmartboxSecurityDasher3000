@@ -2142,11 +2142,11 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
-        self.overview_defender_feed_table.tag_configure("sev_critical", background="#102438", foreground="#FFE8EF")
-        self.overview_defender_feed_table.tag_configure("sev_high", background="#11283D", foreground="#FFE4BF")
-        self.overview_defender_feed_table.tag_configure("sev_medium", background="#10263A", foreground="#FFF0BC")
-        self.overview_defender_feed_table.tag_configure("sev_info", background="#0C2436", foreground="#E0F6FF")
-        self.overview_defender_feed_table.tag_configure("sev_low", background="#0D2430", foreground="#DFFBEE")
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#0E2134", foreground="#FF6B8A")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#0E2134", foreground="#FFB45E")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#0E2134", foreground="#FFD75A")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0A2031", foreground="#58C7FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#0B2232", foreground="#72F26B")
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
@@ -2178,13 +2178,13 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#102438", foreground="#FFE8EF")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#11283D", foreground="#FFE4BF")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#10263A", foreground="#FFF0BC")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0C2436", foreground="#E0F6FF")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#0D2430", foreground="#DFFBEE")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#0E2134", foreground="#FF6B8A")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#0E2134", foreground="#FFB45E")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#0E2134", foreground="#FFD75A")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0A2031", foreground="#58C7FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0B2232", foreground="#72F26B")
         self.overview_full_feed_table.tag_configure("oddrow", background="#0F2234", foreground="#D8E8F8")
-        self.overview_full_feed_table.tag_configure("alt", background="#102235", foreground="#E7F2FF")
+        self.overview_full_feed_table.tag_configure("alt", background="#102235", foreground="#DCEBFA")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2335,19 +2335,74 @@ class SentinelApp(tk.Tk):
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FFE8EF", background="#122438")
-                tree.tag_configure("high", foreground="#FFE4BF", background="#11283D")
-                tree.tag_configure("warn", foreground="#FFF0BC", background="#10263A")
-                tree.tag_configure("good", foreground="#E7FFE9", background="#0D2430")
-                tree.tag_configure("info", foreground="#E0F6FF", background="#0C2436")
-                tree.tag_configure("alt", foreground="#E7F2FF", background="#102235")
-                tree.tag_configure("sev_critical", foreground="#FFE8EF", background="#122438")
-                tree.tag_configure("sev_high", foreground="#FFE4BF", background="#11283D")
-                tree.tag_configure("sev_medium", foreground="#FFF0BC", background="#10263A")
-                tree.tag_configure("sev_info", foreground="#E0F6FF", background="#0C2436")
-                tree.tag_configure("sev_low", foreground="#DFFBEE", background="#0D2430")
+                tree.tag_configure("bad", foreground="#FF6B8A", background="#0E2134")
+                tree.tag_configure("high", foreground="#FFB45E", background="#0E2134")
+                tree.tag_configure("warn", foreground="#FFD75A", background="#0E2134")
+                tree.tag_configure("good", foreground="#72F26B", background="#0B2232")
+                tree.tag_configure("info", foreground="#58C7FF", background="#0A2031")
+                tree.tag_configure("alt", foreground="#DCEBFA", background="#102235")
+                tree.tag_configure("sev_critical", foreground="#FF6B8A", background="#0E2134")
+                tree.tag_configure("sev_high", foreground="#FFB45E", background="#0E2134")
+                tree.tag_configure("sev_medium", foreground="#FFD75A", background="#0E2134")
+                tree.tag_configure("sev_info", foreground="#58C7FF", background="#0A2031")
+                tree.tag_configure("sev_low", foreground="#72F26B", background="#0B2232")
             except Exception:
                 pass
+
+    def _make_clickable_recursive(self, widget, command, cursor="hand2"):
+        """Make a composite card feel like one clickable action tile."""
+        try:
+            widget.configure(cursor=cursor)
+        except Exception:
+            pass
+        try:
+            widget.bind("<Button-1>", lambda event: command(), add="+")
+        except Exception:
+            pass
+        try:
+            for child in widget.winfo_children():
+                self._make_clickable_recursive(child, command, cursor=cursor)
+        except Exception:
+            pass
+
+    def _bind_overview_action_navigation(self):
+        """Wire the Overview action ribbon to the matching detailed tabs."""
+        mapping = {
+            "overview_defender": self.tab_defender,
+            "overview_intune": self.tab_intune,
+            "overview_unifi": self.tab_unifi,
+            "overview_software": self.tab_software,
+        }
+        for key, target in mapping.items():
+            card = getattr(self, "overview_status", {}).get(key)
+            if not card:
+                continue
+            def go(tab=target):
+                self.select_main_tab(tab)
+            for part in ("shell", "panel", "dot", "value", "detail"):
+                widget = card.get(part)
+                if widget is not None:
+                    self._make_clickable_recursive(widget, go)
+
+        # Posture ribbon shortcuts: the first three belong in Intune, degraded sites in UniFi.
+        for key, label in getattr(self, "posture_labels", {}).items():
+            target = self.tab_unifi if key == "unifi_degraded_sites" else self.tab_intune
+            def go(tab=target):
+                self.select_main_tab(tab)
+            self._make_clickable_recursive(label, go)
+            try:
+                parent = label.master
+                while parent is not None and str(parent) != str(self):
+                    self._make_clickable_recursive(parent, go)
+                    if parent.master is self.security_posture_strip:
+                        break
+                    parent = parent.master
+            except Exception:
+                pass
+
+        # The hero itself is a Defender shortcut.
+        if hasattr(self, "hero_priority_shell"):
+            self._make_clickable_recursive(self.hero_priority_shell, lambda: self.select_main_tab(self.tab_defender))
 
     def _build_main_tab_pills(self):
         for child in self.main_tab_bar.winfo_children():
@@ -2536,12 +2591,12 @@ class SentinelApp(tk.Tk):
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
-        tree.tag_configure("bad", foreground="#FFE8EF", background="#122235")
-        tree.tag_configure("warn", foreground="#FFF0BC", background="#102438")
-        tree.tag_configure("high", foreground="#FFE3BF", background="#13273A")
-        tree.tag_configure("good", foreground="#E7FFE9", background="#0E2430")
-        tree.tag_configure("info", foreground="#E1F6FF", background="#0C2436")
-        tree.tag_configure("alt", foreground="#E7F2FF", background="#102235")
+        tree.tag_configure("bad", foreground="#FF6B8A", background="#0E2134")
+        tree.tag_configure("warn", foreground="#FFD75A", background="#0E2134")
+        tree.tag_configure("high", foreground="#FFB45E", background="#0E2134")
+        tree.tag_configure("good", foreground="#72F26B", background="#0B2232")
+        tree.tag_configure("info", foreground="#58C7FF", background="#0A2031")
+        tree.tag_configure("alt", foreground="#DCEBFA", background="#102235")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2577,8 +2632,8 @@ class SentinelApp(tk.Tk):
         }
         label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
         # Tk's native Treeview cannot host real rounded widgets per cell, so we
-        # use a compact capsule glyph. It reads as a soft pill without turning
-        # the whole row into a warning slab.
+        # use a compact capsule glyph. Row tags supply the colour; the token keeps
+        # the cell readable as a pill instead of noisy emoji confetti.
         return f"  ● {label}  "
 
     def _should_bubble_column(self, tree, column_key, index, value):
@@ -2607,16 +2662,20 @@ class SentinelApp(tk.Tk):
 
     def _table_tag_from_values(self, values, fallback=None):
         text = " ".join(str(v).lower() for v in values)
-        # Do not turn whole rows into giant red/brown slabs. Only severe rows
-        # receive a subtle tint; normal rows stay glassy and readable.
-        if any(x in text for x in ("critical", "crit", "unencrypted", "jailbreak/root")):
+        # Colour the data, not the whole dashboard. Tags use dark glass backgrounds
+        # with brighter foregrounds so rows read like signal lanes instead of slabs.
+        if any(x in text for x in ("critical", " crit ", "unencrypted", "jailbreak/root", "offline")):
             return "bad"
-        if any(x in text for x in ("offline", "high")):
+        if any(x in text for x in (" high ", "high / critical")):
             return "high"
-        if any(x in text for x in ("degraded", "throttled")):
+        if any(x in text for x in ("medium", " med ", "noncompliant", "non-compliant", "stale", "degraded", "throttled", "no primary")):
             return "warn"
-        if fallback in ("bad", "high", "warn", "good", "info"):
-            return "alt" if fallback in ("warn", "info") else fallback
+        if any(x in text for x in ("active", "healthy", "compliant", " ok ", "clear", "connected")):
+            return "good"
+        if any(x in text for x in ("info", "graph", "microsoft", "unifi", "intune")):
+            return "info"
+        if fallback in ("bad", "high", "warn", "good", "info", "sev_critical", "sev_high", "sev_medium", "sev_info", "sev_low"):
+            return fallback
         return None
 
     def insert_table_row(self, tree, values, tag=None):
