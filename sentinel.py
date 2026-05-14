@@ -1768,6 +1768,11 @@ class SentinelApp(tk.Tk):
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=(self.font_ui, 9))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
         style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
+        style.configure("MainHidden.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        try:
+            style.layout("MainHidden.TNotebook.Tab", [])
+        except Exception:
+            pass
         style.configure("Dasher.TNotebook.Tab", background="#101620", foreground=MUTED, padding=(24, 12), font=(self.font_ui, 10, "bold"), borderwidth=0)
         style.map("Dasher.TNotebook.Tab",
                   background=[("selected", "#223044"), ("active", "#17212D")],
@@ -1776,7 +1781,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=34,
+                  rowheight=29,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -1809,8 +1814,13 @@ class SentinelApp(tk.Tk):
         self.live_badge = tk.Label(self.overview, text="LIVE: NONE", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold"))
         self.live_badge.pack(side="right", padx=(8, 18), pady=12)
 
-        self.main_tabs = ttk.Notebook(shell, style="Dasher.TNotebook")
-        self.main_tabs.pack(fill="both", expand=True, pady=(12, 0))
+        self.main_tab_names = []
+        self.main_tab_buttons = {}
+        self.main_tab_bar = tk.Frame(shell, bg=BG)
+        self.main_tab_bar.pack(fill="x", pady=(14, 6))
+
+        self.main_tabs = ttk.Notebook(shell, style="MainHidden.TNotebook")
+        self.main_tabs.pack(fill="both", expand=True)
 
         self.tab_overview = tk.Frame(self.main_tabs, bg=BG)
         self.tab_defender = tk.Frame(self.main_tabs, bg=BG)
@@ -1823,6 +1833,7 @@ class SentinelApp(tk.Tk):
         self.main_tabs.add(self.tab_intune, text="Intune")
         self.main_tabs.add(self.tab_unifi, text="UniFi")
         self.main_tabs.add(self.tab_software, text="Software")
+        self._build_main_tab_pills()
 
         body = tk.Frame(self.tab_overview, bg=BG)
         body.pack(fill="both", expand=True, pady=(12, 0))
@@ -1863,13 +1874,16 @@ class SentinelApp(tk.Tk):
 
         cards = tk.Frame(left, bg=BG)
         cards.pack(fill="x")
-        for i in range(3):
+        for i in range(4):
             cards.grid_columnconfigure(i, weight=1)
         self.card(cards, 0, 0, "Defender priority", "priority_state", ORANGE)
         self.card(cards, 0, 1, "Active security alerts", "alerts", ORANGE)
         self.card(cards, 0, 2, "Intune compliance gap", "noncompliant", AMBER)
+        self.card(cards, 0, 3, "High/Critical Defender", "critical", RED)
         self.card(cards, 1, 0, "Intune devices", "devices", GREEN)
-        self.card(cards, 1, 1, "High/Critical Defender", "critical", RED)
+        self.card(cards, 1, 1, "UniFi devices", "unifi_devices", BLUE)
+        self.card(cards, 1, 2, "UniFi sites", "unifi_sites", GREEN)
+        self.card(cards, 1, 3, "Offline sites", "unifi_critical_sites", RED)
 
 
         self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
@@ -1893,12 +1907,12 @@ class SentinelApp(tk.Tk):
         self.network_summary_bar = tk.Frame(left, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.network_summary_bar.pack(fill="x", pady=(8, 0))
         ns_left = tk.Frame(self.network_summary_bar, bg=GLASS)
-        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=12)
+        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=8)
         tk.Label(ns_left, text="Network site status", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
         self.network_status_big = tk.Label(ns_left, text="--", bg=GLASS, fg=BLUE, font=(self.font_display, 18, "bold"))
         self.network_status_big.pack(anchor="w")
         ns_right = tk.Frame(self.network_summary_bar, bg=GLASS)
-        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=12)
+        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=8)
         tk.Label(ns_right, text="UniFi site health summary", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
         self.network_status_detail = tk.Label(ns_right, text="Waiting for UniFi site data", bg=GLASS, fg=TEXT, font=(self.font_ui, 10, "bold"), justify="left")
         self.network_status_detail.pack(anchor="w")
@@ -1991,6 +2005,61 @@ class SentinelApp(tk.Tk):
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 9)).pack(side="left")
         tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 9)).pack(side="right")
 
+    def _build_main_tab_pills(self):
+        for child in self.main_tab_bar.winfo_children():
+            child.destroy()
+        tabs = [
+            ("Overview", self.tab_overview),
+            ("Defender", self.tab_defender),
+            ("Intune", self.tab_intune),
+            ("UniFi", self.tab_unifi),
+            ("Software", self.tab_software),
+        ]
+        self.main_tab_buttons = {}
+        for label, frame in tabs:
+            shell, inner = self.rounded_panel(self.main_tab_bar, fill="#111925", border=HAIRLINE, radius=18, padding=1)
+            shell.pack(side="left", padx=(0, 8), pady=2)
+            btn = tk.Label(
+                inner,
+                text=label,
+                bg="#111925",
+                fg=MUTED,
+                font=(self.font_ui, 10, "bold"),
+                padx=20,
+                pady=10,
+                cursor="hand2"
+            )
+            btn.pack(fill="both", expand=True)
+            for widget in (shell, inner, btn):
+                widget.bind("<Button-1>", lambda e, f=frame: self.select_main_tab(f))
+            self.main_tab_buttons[frame] = (shell, inner, btn)
+        self.select_main_tab(self.tab_overview)
+
+    def select_main_tab(self, frame):
+        self.main_tabs.select(frame)
+        for tab_frame, parts in self.main_tab_buttons.items():
+            shell, inner, btn = parts
+            active = tab_frame == frame
+            bg = "#223147" if active else "#111925"
+            fg = TEXT if active else MUTED
+            border = BLUE if active else HAIRLINE
+            inner.configure(bg=bg)
+            btn.configure(bg=bg, fg=fg)
+            try:
+                shell.canvas.delete("panel")
+                shell.canvas.create_polygon(
+                    self._rounded_points(1, 1, max(shell.canvas.winfo_width()-1, 42), max(shell.canvas.winfo_height()-1, 24), 18),
+                    smooth=True,
+                    splinesteps=24,
+                    fill=bg,
+                    outline=border,
+                    width=1.5,
+                    tags="panel"
+                )
+                shell.canvas.tag_lower("panel")
+            except Exception:
+                pass
+
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
@@ -2009,6 +2078,7 @@ class SentinelApp(tk.Tk):
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         tree.tag_configure("bad", foreground=RED, background="#1A141B")
         tree.tag_configure("warn", foreground=AMBER, background="#191813")
+        tree.tag_configure("high", foreground=ORANGE, background="#20170F")
         tree.tag_configure("good", foreground=GREEN, background="#101A17")
         tree.tag_configure("info", foreground=TEXT, background=GLASS_2)
         tree.pack(side="left", fill="both", expand=True)
@@ -2030,11 +2100,11 @@ class SentinelApp(tk.Tk):
             shell.pack(side="left", fill="both", expand=True, padx=6, pady=6)
         else:
             shell.pack(fill="x", padx=6, pady=6)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 26, "bold"))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(9, 1))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 21, "bold"))
         val.pack(anchor="w", padx=16, pady=(0, 2))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=16, pady=(0, 12))
+        hint.pack(anchor="w", padx=14, pady=(0, 8))
         self.focus_cards[bucket][key] = {"frame": shell, "value": val, "hint": hint, "base": color}
         return shell
 
@@ -2098,7 +2168,7 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Alert / finding", 360),
             ("detail", "Detail", 420),
-        ], height=17)
+        ], height=22)
 
         self.defender_signal_table = self.table_panel(defender_signal_tab, "Microsoft security signal feed", [
             ("time", "Time", 150),
@@ -2106,7 +2176,7 @@ class SentinelApp(tk.Tk):
             ("source", "Source", 180),
             ("title", "Signal", 360),
             ("detail", "Detail", 520),
-        ], height=17)
+        ], height=22)
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
@@ -2159,21 +2229,21 @@ class SentinelApp(tk.Tk):
             ("user", "User", 260),
             ("compliance", "Compliance", 120),
             ("last_sync", "Last sync", 160),
-        ], height=12)
+        ], height=18)
         self.intune_stale_table = self.table_panel(int_tab_stale, "Devices not contacted for 30+ days", [
             ("name", "Device", 230),
             ("os", "OS", 90),
             ("days", "Days stale", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=12)
+        ], height=18)
         self.intune_posture_table = self.table_panel(int_tab_posture, "Device security posture flags", [
             ("type", "Finding", 170),
             ("device", "Device", 230),
             ("os", "OS", 90),
             ("user", "User", 260),
             ("last_sync", "Last sync", 160),
-        ], height=12)
+        ], height=18)
         self.intune_text = self.text_panel(int_tab_summary, "Intune inventory summary")
 
         # UniFi tab
@@ -2190,7 +2260,7 @@ class SentinelApp(tk.Tk):
         self.unifi_tab_status_big = tk.Label(left_big, text="--", bg=PANEL, fg=BLUE, font=(self.font_display, 26, "bold"))
         self.unifi_tab_status_big.pack(anchor="w", padx=16, pady=(0, 2))
         self.unifi_tab_status_hint = tk.Label(left_big, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
-        self.unifi_tab_status_hint.pack(anchor="w", padx=16, pady=(0, 12))
+        self.unifi_tab_status_hint.pack(anchor="w", padx=14, pady=(0, 8))
 
         right_stats = tk.Frame(status_shell, bg=BG)
         right_stats.pack(side="left", fill="both", expand=True)
@@ -2222,13 +2292,13 @@ class SentinelApp(tk.Tk):
             ("degraded", "Degraded", 90),
             ("unknown", "Unknown", 90),
             ("detail", "Detail", 420),
-        ], height=16)
+        ], height=22)
 
         self.unifi_notes_table = self.table_panel(unifi_notes_tab, "UniFi connector notes", [
             ("severity", "Severity", 90),
             ("title", "Finding", 300),
             ("detail", "Detail", 700),
-        ], height=16)
+        ], height=22)
 
 
         # Software tab
@@ -2258,24 +2328,24 @@ class SentinelApp(tk.Tk):
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=14)
+        ], height=22)
         self.software_all_table = self.table_panel(sw_all_tab, "Detected software inventory", [
             ("name", "Application", 320),
             ("version", "Version", 140),
             ("publisher", "Publisher", 240),
             ("devices", "Devices", 90),
-        ], height=14)
+        ], height=22)
         self.software_text = self.text_panel(sw_notes_tab, "Software detection notes")
 
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
         shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=18, pady=(16, 2))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 30, "bold"))
-        val.pack(anchor="w", padx=18, pady=(0, 2))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 25, "bold"))
+        val.pack(anchor="w", padx=16, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=18, pady=(0, 14))
+        hint.pack(anchor="w", padx=16, pady=(0, 10))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
 
@@ -2561,7 +2631,7 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "unifi_bar"):
             if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
                 if not self.unifi_bar.winfo_manager():
-                    self.unifi_bar.pack(fill="x", pady=(8, 0), after=self.network_summary_bar)
+                    pass  # network quick stats moved into top overview cards
             else:
                 if self.unifi_bar.winfo_manager():
                     self.unifi_bar.pack_forget()
@@ -2942,7 +3012,7 @@ class SentinelApp(tk.Tk):
                 title = str(r.get("title", ""))
                 detail = str(r.get("detail", ""))
                 ts = short_ts(r.get("timestamp", ""))
-                tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" or status == "ACTIVE" else "info"
+                tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" or status == "ACTIVE" else "info"
                 self.insert_table_row(self.defender_alert_table, [ts, status, sev, src, title, detail], tag=tag)
 
             self.clear_table(self.defender_signal_table)
@@ -2952,7 +3022,7 @@ class SentinelApp(tk.Tk):
                     if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph", "Microsoft"):
                         sev = str(e.get("severity", "info")).upper()
                         ts = short_ts(e.get("timestamp", ""))
-                        tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" else "info"
+                        tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" else "info"
                         self.insert_table_row(self.defender_signal_table, [
                             ts,
                             sev,
@@ -3169,7 +3239,7 @@ class SentinelApp(tk.Tk):
             if uni_rows:
                 for r in uni_rows[:250]:
                     sev = str(r.get("severity", "INFO")).upper()
-                    tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" else "info"
+                    tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" else "info"
                     self.insert_table_row(self.unifi_notes_table, [
                         sev,
                         r.get("title", ""),
@@ -3188,7 +3258,7 @@ class SentinelApp(tk.Tk):
                 hint = "new to this local dashboard baseline"
             elif key == "detected_app_count":
                 color = BLUE if int(val or 0) > 0 else MUTED
-                hint = "Intune detected apps inventory; 0 may mean Graph permission/API not exposed"
+                hint = "Intune detected apps returned/cached; Graph pages may be rate-limited"
             elif key == "stale_30_count":
                 color = AMBER if int(val or 0) > 0 else GREEN
                 hint = "devices not contacted 30+ days"
@@ -3219,13 +3289,14 @@ class SentinelApp(tk.Tk):
 
         sw_lines = [
             f"Software detection source: Microsoft Graph deviceManagement/detectedApps ({m.get('detected_apps_source', 'unknown')})",
-            "Important: Graph detectedApps usually does not include install timestamp.",
+            "Important: Graph detectedApps usually does not include install timestamp and can be throttled/paged by Microsoft.",
             "Newly observed means: app/version/publisher was not present in this dashboard's previous local baseline.",
             "",
-            f"Detected apps: {m.get('detected_app_count', 0)}",
+            f"Detected apps returned/cached this run: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
             f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
             "If this says 429, Graph is rate-limiting detectedApps. The dashboard now uses a 30-minute local cache/backoff.",
+            "If count is exactly 1000, Graph may be returning a tenant page/window rather than the whole estate in one pull.",
             "",
             "Newly observed software",
             "-" * 100,
