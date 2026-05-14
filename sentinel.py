@@ -416,6 +416,20 @@ class UniFiConnector:
         c = self.cfg["unifi"]
         return c.get("enabled") and c.get("base_url") and c.get("api_key")
 
+    def _get_nested(self, obj, paths, default=""):
+        for path in paths:
+            cur = obj
+            ok = True
+            for part in path.split("."):
+                if isinstance(cur, dict) and part in cur:
+                    cur = cur[part]
+                else:
+                    ok = False
+                    break
+            if ok and cur not in (None, ""):
+                return cur
+        return default
+
     def _extract_items(self, data):
         if isinstance(data, list):
             return data
@@ -425,7 +439,6 @@ class UniFiConnector:
         if isinstance(val, list):
             return val
         if isinstance(val, dict):
-            # Some endpoints return an object containing nested lists.
             for key in ("items", "results", "sites", "devices", "alerts", "events", "alarms"):
                 nested = val.get(key)
                 if isinstance(nested, list):
@@ -438,7 +451,6 @@ class UniFiConnector:
         return []
 
     def _get_paged(self, base_url, headers, path, page_size=500, max_pages=50):
-        """Read UniFi Site Manager v1 pages using pageSize and nextToken."""
         if path.startswith("http://") or path.startswith("https://"):
             url = path
         else:
@@ -461,9 +473,7 @@ class UniFiConnector:
             if isinstance(data, dict) and data.get("traceId"):
                 trace_ids.append(str(data.get("traceId")))
 
-            batch = self._extract_items(data)
-            items.extend(batch)
-
+            items.extend(self._extract_items(data))
             next_token = data.get("nextToken") if isinstance(data, dict) else None
             pages += 1
             if not next_token:
@@ -519,23 +529,50 @@ class UniFiConnector:
         return " | ".join(parts[:4]) or "UniFi item returned by Site Manager API"
 
     def _site_id(self, site):
-        return str(site.get("id") or site.get("_id") or site.get("siteId") or site.get("site_id") or site.get("name") or "")
+        return str(self._get_nested(site, [
+            "id", "_id", "siteId", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id",
+            "uuid", "uid", "key"
+        ], ""))
 
     def _site_name(self, site):
-        return str(site.get("name") or site.get("displayName") or site.get("siteName") or site.get("description") or site.get("desc") or self._site_id(site) or "UniFi site")
+        return str(self._get_nested(site, [
+            "name", "displayName", "siteName", "description", "desc",
+            "meta.name", "metadata.name", "site.name", "site.displayName",
+            "attributes.name", "properties.name", "label"
+        ], self._site_id(site) or "UniFi site"))
 
-    def _device_site_id(self, device):
-        return str(device.get("siteId") or device.get("site_id") or device.get("site") or device.get("siteName") or "")
+    def _site_aliases(self, site):
+        vals = set()
+        for path in [
+            "id", "_id", "siteId", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id", "uuid", "uid", "key",
+            "name", "displayName", "siteName", "description", "desc", "meta.name", "metadata.name", "site.name"
+        ]:
+            val = self._get_nested(site, [path], "")
+            if val not in (None, ""):
+                vals.add(str(val).lower())
+        return vals
+
+    def _device_site_candidates(self, device):
+        vals = set()
+        for path in [
+            "siteId", "site_id", "site.id", "site.siteId", "site", "siteName", "site.name",
+            "networkId", "network.id", "network.name", "location.siteId", "location.siteName"
+        ]:
+            val = self._get_nested(device, [path], "")
+            if val not in (None, ""):
+                vals.add(str(val).lower())
+        return vals
+
+    def _device_name(self, device):
+        return str(self._get_nested(device, [
+            "name", "displayName", "deviceName", "hostName", "hostname", "model", "mac", "ip"
+        ], "UniFi device"))
 
     def _device_status(self, device):
-        raw = str(
-            device.get("status")
-            or device.get("state")
-            or device.get("connectionState")
-            or device.get("health")
-            or device.get("availability")
-            or ""
-        ).lower()
+        raw = str(self._get_nested(device, [
+            "status", "state", "connectionState", "health", "availability",
+            "state.status", "overview.status", "connection.status"
+        ], "")).lower()
         if any(x in raw for x in ("offline", "down", "disconnected", "failed", "critical")):
             return "offline"
         if any(x in raw for x in ("adopting", "pending", "updating", "warning", "degraded")):
@@ -573,10 +610,8 @@ class UniFiConnector:
 
         events = []
         site_errors = []
-        device_errors = []
         alert_errors = []
 
-        # Correct Site Manager API shape per UniFi docs: /v1/sites and /v1/devices with nextToken pagination.
         sites = []
         site_trace_ids = []
         try:
@@ -595,7 +630,6 @@ class UniFiConnector:
         try:
             devices, device_trace_ids = self._get_paged(base, headers, "/v1/devices", page_size=500, max_pages=50)
         except Exception as e:
-            device_errors.append(str(e)[:180])
             events.append({
                 "severity": "medium",
                 "title": "UniFi devices query failed",
@@ -606,13 +640,13 @@ class UniFiConnector:
         site_count = len(sites)
         device_count = len(devices)
 
-        # Build per-site health from real site/device objects.
-        site_health = []
         site_index = {}
-        for site in sites:
+        alias_to_key = {}
+
+        for i, site in enumerate(sites):
             if not isinstance(site, dict):
                 continue
-            sid = self._site_id(site)
+            sid = self._site_id(site) or f"site-{i+1}"
             name = self._site_name(site)
             site_index[sid] = {
                 "name": name,
@@ -623,36 +657,58 @@ class UniFiConnector:
                 "degraded": 0,
                 "unknown": 0,
                 "raw": site,
+                "unmatched_devices": [],
             }
+            for alias in self._site_aliases(site):
+                alias_to_key[alias] = sid
 
+        unmatched = []
         for device in devices:
             if not isinstance(device, dict):
                 continue
-            sid = self._device_site_id(device)
-            if sid not in site_index:
-                # Some API responses may use site name instead of ID.
-                sid = str(device.get("siteName") or device.get("site") or "")
-            if sid not in site_index:
-                site_index[sid] = {
-                    "name": sid or "Unknown site",
-                    "id": sid,
-                    "total": 0,
-                    "online": 0,
-                    "offline": 0,
-                    "degraded": 0,
-                    "unknown": 0,
-                    "raw": {},
-                }
+            key = None
+            for candidate in self._device_site_candidates(device):
+                if candidate in alias_to_key:
+                    key = alias_to_key[candidate]
+                    break
+
+            if key is None:
+                unmatched.append(device)
+                continue
 
             status = self._device_status(device)
-            site_index[sid]["total"] += 1
-            site_index[sid][status] = site_index[sid].get(status, 0) + 1
+            site_index[key]["total"] += 1
+            site_index[key][status] = site_index[key].get(status, 0) + 1
 
-        for sid, data in list(site_index.items())[:30]:
+        # If the API returns devices but does not expose a join key, do not invent site allocation.
+        # Put them in a clearly labelled unassigned row.
+        if unmatched:
+            key = "unassigned-devices"
+            site_index[key] = {
+                "name": "Unassigned / site mapping unavailable",
+                "id": key,
+                "total": 0,
+                "online": 0,
+                "offline": 0,
+                "degraded": 0,
+                "unknown": 0,
+                "raw": {},
+                "unmatched_devices": [],
+            }
+            for device in unmatched:
+                status = self._device_status(device)
+                site_index[key]["total"] += 1
+                site_index[key][status] = site_index[key].get(status, 0) + 1
+                site_index[key]["unmatched_devices"].append(self._device_name(device))
+
+        site_health = []
+        for sid, data in list(site_index.items())[:80]:
             status = self._site_status_from_counts(data["total"], data["offline"], data["degraded"])
             detail = f"devices {data['total']}, online {data['online']}, offline {data['offline']}, degraded {data['degraded']}, unknown {data['unknown']}"
             if data["total"] == 0:
-                detail = "site visible; no devices returned for this site"
+                detail = "site visible; no devices mapped to this site by /v1/devices"
+            if sid == "unassigned-devices":
+                detail += " | /v1/devices did not expose a recognised site mapping field"
             site_health.append({
                 "name": data["name"],
                 "id": data["id"],
@@ -670,9 +726,6 @@ class UniFiConnector:
         critical_sites = sum(1 for s in site_health if s["status"] == "CRITICAL")
         visible_sites = sum(1 for s in site_health if s["status"] == "VISIBLE")
 
-        # UniFi Site Manager v1 docs confirm /v1/sites and /v1/devices pagination.
-        # Alert/event endpoints vary by API surface and tenant. Do not guess and present failures as findings.
-        # Only query alerts when the user provides an Alerts path.
         alerts = []
         configured_alert_path = self._configured_path(base, c.get("alerts_path", ""))
         if configured_alert_path:
@@ -695,11 +748,19 @@ class UniFiConnector:
                 "source": "UniFi",
             })
 
+        if unmatched:
+            events.append({
+                "severity": "medium",
+                "title": "UniFi device-to-site mapping incomplete",
+                "detail": f"{len(unmatched)} device(s) did not include a recognised site mapping field. Site names are shown, but device health cannot be assigned to the right site.",
+                "source": "UniFi",
+            })
+
         if site_health:
             events.append({
                 "severity": "critical" if critical_sites else "medium" if degraded_sites else "info",
                 "title": "UniFi site health calculated",
-                "detail": f"{len(site_health)} site(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
+                "detail": f"{len(site_health)} row(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
                 "source": "UniFi",
             })
 
@@ -740,7 +801,6 @@ class UniFiConnector:
             })
 
         if site_errors and not sites:
-            # No point pretending UniFi is live if the core site query failed.
             raise RuntimeError(f"UniFi /v1/sites failed: {site_errors[0]}")
 
         return {
@@ -1403,7 +1463,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(self.unifi_site_table, bg="#182136")
         header.pack(fill="x", pady=(0, 2))
         for title, width in [
-            ("Site", 28),
+            ("Site", 36),
             ("Status", 10),
             ("Devices", 8),
             ("Online", 8),
@@ -1419,7 +1479,7 @@ class SentinelApp(tk.Tk):
             color = status_color.get(status, BLUE)
             row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
             row.pack(fill="x", pady=1)
-            tk.Label(row, text=str(site.get("name", "UniFi site"))[:34], bg=PANEL, fg=TEXT, font=("Segoe UI", 8, "bold"), width=28, anchor="w").pack(side="left", padx=3, pady=4)
+            tk.Label(row, text=str(site.get("name", "UniFi site"))[:48], bg=PANEL, fg=TEXT, font=("Segoe UI", 8, "bold"), width=36, anchor="w").pack(side="left", padx=3, pady=4)
             tk.Label(row, text=status, bg=PANEL, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=3, pady=4)
             for key, width in [("total", 8), ("online", 8), ("offline", 8), ("degraded", 9), ("unknown", 9)]:
                 tk.Label(row, text=str(site.get(key, 0)), bg=PANEL, fg=MUTED if key != "offline" or int(site.get(key, 0) or 0) == 0 else RED, font=("Segoe UI", 8), width=width, anchor="w").pack(side="left", padx=3, pady=4)
