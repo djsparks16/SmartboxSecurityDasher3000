@@ -1954,21 +1954,25 @@ class SentinelApp(tk.Tk):
 
         self.trend_strip = tk.Frame(body, bg=BG)
         self.trend_strip.pack(fill="x", pady=(0, 8))
-        for title, key, color in [
+        for col in range(2):
+            self.trend_strip.grid_columnconfigure(col, weight=1)
+
+        for idx, (title, key, color) in enumerate([
             ("Active alerts", "defender", ORANGE),
-            ("Intune posture drift", "compliance", BLUE),
-            ("UniFi network pulse", "network", RED),
+            ("Compliance drift", "compliance", BLUE),
+            ("Offline site trend", "network", RED),
             ("Signal composition", "security_signals", BLUE),
-        ]:
-            panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=20, padding=1)
-            panel_shell.configure(height=136)
-            panel_shell.pack_propagate(False)
-            panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
+        ]):
+            panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
+            panel_shell.configure(height=124)
+            panel_shell.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=(0 if idx % 2 else 0, 8 if idx % 2 == 0 else 0), pady=4)
+            panel_shell.grid_propagate(False)
+
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
-            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 17, "bold"))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=92, bg=GLASS, highlightthickness=0, bd=0)
-            c.pack(fill="x", padx=10, pady=(0, 10))
+            c = tk.Canvas(panel, height=82, bg=GLASS, highlightthickness=0, bd=0)
+            c.pack(fill="both", expand=True, padx=10, pady=(0, 10))
             if key == "security_signals":
                 self.security_signals_canvas = c
                 self.trend_labels[key] = val
@@ -2078,10 +2082,10 @@ class SentinelApp(tk.Tk):
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 22, "bold")).pack(side="left")
+        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
         tk.Label(full_feed_header, text="Severity-grouped list · newest first inside each category", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
-        self.overview_full_feed_canvas = tk.Canvas(self.overview_full_feed_panel, bg=GLASS, highlightthickness=0, bd=0, height=320)
+        self.overview_full_feed_canvas = tk.Canvas(self.overview_full_feed_panel, bg=GLASS, highlightthickness=0, bd=0, height=420)
         self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_panel, orient="vertical", command=self.overview_full_feed_canvas.yview)
         self.overview_full_feed_canvas.configure(yscrollcommand=self.overview_full_feed_scrollbar.set)
         self.overview_full_feed_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 12))
@@ -2264,28 +2268,28 @@ class SentinelApp(tk.Tk):
         # once normalized to lowercase.
         return (1, value.lower())
 
-    def sort_treeview(self, tree, column, reverse=False):
+    def sort_treeview(self, tree, column, reverse=False, remember=True):
         try:
-            rows = []
-            for item in tree.get_children(""):
-                rows.append((self._tree_sort_value(tree.set(item, column)), item))
+            rows = [(self._tree_sort_value(tree.set(item, column)), item) for item in tree.get_children("")]
             rows.sort(reverse=reverse)
             for index, (_, item) in enumerate(rows):
                 tree.move(item, "", index)
 
-            # Toggle sort direction on next click.
+            if remember:
+                self.table_sort_state[str(tree)] = (column, reverse)
+
             for col in tree["columns"]:
-                heading = tree.heading(col).get("text", col)
-                heading = heading.replace(" ▲", "").replace(" ▼", "")
+                heading = tree.heading(col).get("text", col).replace(" ▲", "").replace(" ▼", "")
                 if col == column:
-                    heading += " ▼" if not reverse else " ▲"
-                tree.heading(
-                    col,
-                    text=heading,
-                    command=lambda c=col, r=(not reverse): self.sort_treeview(tree, c, r),
-                )
+                    heading += " ▼" if reverse else " ▲"
+                tree.heading(col, text=heading, command=lambda c=col: self._toggle_tree_sort(tree, c))
         except Exception:
             pass
+
+    def _toggle_tree_sort(self, tree, column):
+        current_col, current_reverse = self.table_sort_state.get(str(tree), (None, False))
+        next_reverse = (not current_reverse) if current_col == column else False
+        self.sort_treeview(tree, column, next_reverse, remember=True)
 
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
@@ -2298,7 +2302,7 @@ class SentinelApp(tk.Tk):
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
         for key, label, width in columns:
-            tree.heading(key, text=label, command=lambda c=key: self.sort_treeview(tree, c, False))
+            tree.heading(key, text=label, command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
             tree.column(key, width=width, anchor="w", stretch=True)
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
@@ -3360,63 +3364,58 @@ class SentinelApp(tk.Tk):
 
         sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         sev_color = {"critical": RED, "high": ORANGE, "medium": AMBER, "info": BLUE, "low": GREEN}
-        sev_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
-        events = list(payload.get("events", []) or [])[:200]
+        row_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
 
-        grouped = []
+        events = list(payload.get("events", []) or [])[:240]
+        ordered = []
         for sev_name in ("critical", "high", "medium", "info", "low"):
-            grouped.extend(sorted(
+            ordered.extend(sorted(
                 [e for e in events if str(e.get("severity", "info")).lower() == sev_name],
                 key=lambda e: str(e.get("timestamp", "")),
                 reverse=True,
             ))
-        if grouped:
-            events = grouped
+        if ordered:
+            events = ordered
+
+        # Table grid. Compact. No fat cards.
+        header = tk.Frame(frame, bg=GLASS_2, highlightthickness=1, highlightbackground=HAIRLINE)
+        header.pack(fill="x", pady=(0, 4))
+        weights = [0, 0, 0, 3, 4]
+        mins = [92, 160, 154, 360, 460]
+        for i, (w, m) in enumerate(zip(weights, mins)):
+            header.grid_columnconfigure(i, weight=w, minsize=m)
+        for col, label in enumerate(("Severity", "Source", "Time", "Alert / finding", "Detail")):
+            tk.Label(header, text=label, bg=GLASS_2, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=col, sticky="ew", padx=10, pady=7)
 
         if not events:
             tk.Label(frame, text="Waiting for live signal feed data.", bg=GLASS, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(anchor="w", padx=12, pady=12)
             return
 
-        header_shell, header = self.rounded_panel(frame, fill=GLASS_2, border=HAIRLINE, radius=16, padding=1)
-        header_shell.pack(fill="x", pady=(0, 6))
-        header.grid_columnconfigure(0, minsize=92)
-        header.grid_columnconfigure(1, minsize=150)
-        header.grid_columnconfigure(2, minsize=154)
-        header.grid_columnconfigure(3, weight=3)
-        header.grid_columnconfigure(4, weight=4)
-        for col, label, anchor in [
-            (0, "Severity", "w"),
-            (1, "Source", "w"),
-            (2, "Time", "w"),
-            (3, "Alert / finding", "w"),
-            (4, "Detail", "w"),
-        ]:
-            tk.Label(header, text=label, bg=GLASS_2, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor=anchor).grid(row=0, column=col, sticky="ew", padx=10, pady=8)
-
         for idx, event in enumerate(events):
             sev = str(event.get("severity", "info")).lower()
             color = sev_color.get(sev, BLUE)
-            bg = sev_bg.get(sev, PANEL) if idx % 2 == 0 else GLASS
+            bg = row_bg.get(sev, PANEL) if idx % 2 == 0 else GLASS
             src = str(event.get("source", "source"))
             title = str(event.get("title", "event"))
             detail = str(event.get("detail", ""))
             when = short_ts(event.get("timestamp", ""))
-            if len(detail) > 180:
-                detail = detail[:177] + "..."
 
-            row_shell, row = self.rounded_panel(frame, fill=bg, border="#2D3C50", radius=14, padding=1)
-            row_shell.pack(fill="x", pady=3)
-            row.grid_columnconfigure(0, minsize=92)
-            row.grid_columnconfigure(1, minsize=150)
-            row.grid_columnconfigure(2, minsize=154)
-            row.grid_columnconfigure(3, weight=3)
-            row.grid_columnconfigure(4, weight=4)
+            if len(title) > 95:
+                title = title[:92] + "..."
+            if len(detail) > 150:
+                detail = detail[:147] + "..."
 
-            tk.Label(row, text=sev.upper(), bg=color, fg="#071018", font=(self.font_ui, 8, "bold"), padx=10, pady=4).grid(row=0, column=0, sticky="w", padx=10, pady=8)
-            tk.Label(row, text=src, bg=bg, fg="#9FB0CB", font=(self.font_ui, 9, "bold"), anchor="w").grid(row=0, column=1, sticky="ew", padx=(2, 10), pady=8)
-            tk.Label(row, text=when, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=2, sticky="ew", padx=10, pady=8)
-            tk.Label(row, text=title, bg=bg, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w", justify="left", wraplength=420).grid(row=0, column=3, sticky="ew", padx=10, pady=8)
-            tk.Label(row, text=detail, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w", justify="left", wraplength=680).grid(row=0, column=4, sticky="ew", padx=(10, 12), pady=8)
+            row = tk.Frame(frame, bg=bg, highlightthickness=1, highlightbackground="#1E2A39")
+            row.pack(fill="x", pady=1)
+
+            for i, (w, m) in enumerate(zip(weights, mins)):
+                row.grid_columnconfigure(i, weight=w, minsize=m)
+
+            tk.Label(row, text=sev.upper(), bg=color, fg="#071018", font=(self.font_ui, 8, "bold"), padx=8, pady=2).grid(row=0, column=0, sticky="w", padx=10, pady=6)
+            tk.Label(row, text=src, bg=bg, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=1, sticky="ew", padx=10, pady=6)
+            tk.Label(row, text=when, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=2, sticky="ew", padx=10, pady=6)
+            tk.Label(row, text=title, bg=bg, fg=TEXT, font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=3, sticky="ew", padx=10, pady=6)
+            tk.Label(row, text=detail, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=4, sticky="ew", padx=10, pady=6)
 
         try:
             self.overview_full_feed.update_idletasks()
@@ -3429,11 +3428,11 @@ class SentinelApp(tk.Tk):
             return
         canvas, _ = self.trend_canvases[key]
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 400)
-        h = max(canvas.winfo_height(), 118)
+        w = max(canvas.winfo_width(), 320)
+        h = max(canvas.winfo_height(), 84)
         canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
-        left, top, right, bottom = 10, 10, w - 10, h - 12
+        left, top, right, bottom = 10, 8, w - 10, h - 10
         for i in range(4):
             y = top + ((bottom - top) * i / 3)
             canvas.create_line(left, y, right, y, fill="#182435")
@@ -3476,8 +3475,8 @@ class SentinelApp(tk.Tk):
         if not canvas:
             return
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 340)
-        h = max(canvas.winfo_height(), 88)
+        w = max(canvas.winfo_width(), 320)
+        h = max(canvas.winfo_height(), 84)
         canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
         parts = [
@@ -3573,6 +3572,7 @@ class SentinelApp(tk.Tk):
             pass
 
     def default_sort_tables(self):
+        # First-load defaults only. Once the user clicks a header, repolls preserve that choice.
         sort_targets = [
             ("defender_alert_table", "time", True),
             ("defender_signal_table", "time", True),
@@ -3585,12 +3585,18 @@ class SentinelApp(tk.Tk):
         ]
         for attr, col, rev in sort_targets:
             tree = getattr(self, attr, None)
-            if tree is not None:
-                try:
-                    if col in tree["columns"]:
-                        self.sort_treeview(tree, col, rev)
-                except Exception:
-                    pass
+            if tree is None:
+                continue
+            try:
+                if col not in tree["columns"]:
+                    continue
+                state = self.table_sort_state.get(str(tree))
+                if state:
+                    self.sort_treeview(tree, state[0], state[1], remember=False)
+                else:
+                    self.sort_treeview(tree, col, rev, remember=False)
+            except Exception:
+                pass
 
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
