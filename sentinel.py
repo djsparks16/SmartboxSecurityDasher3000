@@ -1183,6 +1183,8 @@ class TelemetryEngine(threading.Thread):
                 "metrics": {
                     "devices": 0,
                     "noncompliant": 0,
+                    "compliant_devices": 0,
+                    "compliance_percent": 0,
                     "alerts": 0,
                     "active_alerts": 0,
                     "returned_alerts": 0,
@@ -1237,6 +1239,8 @@ class TelemetryEngine(threading.Thread):
 
         devices = sum(int(r.get("devices", 0)) for r in results)
         noncompliant = sum(int(r.get("noncompliant", 0)) for r in results)
+        compliant_devices = max(0, devices - noncompliant)
+        compliance_percent = int((compliant_devices / max(devices, 1)) * 100) if devices else 0
         alerts = sum(int(r.get("alerts", 0)) for r in results)
         active_alerts = sum(int(r.get("active_alerts", r.get("alerts", 0))) for r in results)
         returned_alerts = sum(int(r.get("returned_alerts", r.get("alerts", 0))) for r in results)
@@ -1297,6 +1301,8 @@ class TelemetryEngine(threading.Thread):
             "metrics": {
                 "devices": devices,
                 "noncompliant": noncompliant,
+                "compliant_devices": compliant_devices,
+                "compliance_percent": compliance_percent,
                 "alerts": active_alerts,
                 "active_alerts": active_alerts,
                 "returned_alerts": returned_alerts,
@@ -1559,12 +1565,12 @@ class SentinelApp(tk.Tk):
             return GREEN, "clear"
         if key == "noncompliant":
             if num >= 100:
-                return RED, "compliance debt"
+                return AMBER, "device compliance context"
             if num >= 25:
                 return AMBER, "compliance drift"
             if num > 0:
-                return BLUE, "small compliance gap"
-            return GREEN, "fully compliant"
+                return BLUE, "device compliance context"
+            return GREEN, "all Intune devices compliant"
         if key == "critical":
             if num > 0:
                 return RED, "immediate attention"
@@ -1971,6 +1977,23 @@ class SentinelApp(tk.Tk):
         for key, label in self.alert_breakdown_labels.items():
             label.config(text=str(m.get(key, 0)))
 
+        # Show Intune device/compliance context directly under the Compliance gap card.
+        if "noncompliant" in self.metric_cards:
+            devices_total = int(m.get("devices", 0) or 0)
+            gap = int(m.get("noncompliant", 0) or 0)
+            compliant = int(m.get("compliant_devices", max(0, devices_total - gap)) or 0)
+            percent = int(m.get("compliance_percent", 0) or 0)
+            if devices_total:
+                self.metric_cards["noncompliant"]["hint"].config(
+                    text=f"{gap} gap / {devices_total} Intune devices • {compliant} compliant • {percent}% compliant",
+                    fg=MUTED if gap == 0 else AMBER if gap < 100 else RED,
+                )
+            else:
+                self.metric_cards["noncompliant"]["hint"].config(
+                    text="No Intune device inventory returned",
+                    fg=MUTED,
+                )
+
         for key, label in self.unifi_labels.items():
             if key == "unifi_status":
                 label.config(text="LIVE" if int(m.get("unifi_connected", 0) or 0) > 0 else "--")
@@ -1979,17 +2002,29 @@ class SentinelApp(tk.Tk):
 
         self.render_unifi_site_table(m.get("unifi_site_health", []) or [])
 
+        # Final compliance-card override: keep Compliance gap as context, not priority.
+        if "noncompliant" in self.metric_cards:
+            devices_total = int(m.get("devices", 0) or 0)
+            gap = int(m.get("noncompliant", 0) or 0)
+            compliant = int(m.get("compliant_devices", max(0, devices_total - gap)) or 0)
+            percent = int(m.get("compliance_percent", 0) or 0)
+            if devices_total:
+                self.metric_cards["noncompliant"]["hint"].config(
+                    text=f"{gap} gap / {devices_total} Intune devices • {compliant} compliant • {percent}% compliant",
+                    fg=MUTED if gap == 0 else AMBER if gap < 100 else RED,
+                )
+
         state_text, state_color = self.overall_state(m)
 
         if hasattr(self, "priority_explain_text"):
             self.priority_explain_text.config(
-                text=f"{state_text}: {m.get('priority_reason', 'live counts')}. Headline priority is Defender-only. Intune compliance, Graph Security and UniFi are shown below as context, but do not drive HIGH/CRITICAL.",
+                text=f"{state_text}: {m.get('priority_reason', 'live counts')}. Headline priority is Defender-only. Intune compliance shows as device-context under Compliance gap, but does not drive HIGH/CRITICAL.",
                 fg=state_color if state_color != GREEN else TEXT
             )
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
         unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi devices {m.get('unifi_devices', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.state_detail.config(text=f"Defender priority reason: {m.get('priority_reason', 'live counts')} • Defender active {m.get('defender_alerts', 0)} • Defender critical {m.get('defender_critical', 0)} • Intune compliance gap {m.get('noncompliant', 0)} • Graph active {m.get('graph_alerts', 0)}{unifi_bit}")
+        self.state_detail.config(text=f"Defender priority reason: {m.get('priority_reason', 'live counts')} • Defender active {m.get('defender_alerts', 0)} • Defender critical {m.get('defender_critical', 0)} • Intune devices {m.get('devices', 0)} • Compliance gap {m.get('noncompliant', 0)} context only • Graph active {m.get('graph_alerts', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
         self.spark.append(m.get("alerts", 0))
@@ -2020,7 +2055,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | compliance gap: {m.get('noncompliant', 0)}")
+        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | Intune devices: {m.get('devices', 0)} | compliance gap: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
         if not hasattr(self, "canvas"):
