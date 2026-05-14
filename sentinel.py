@@ -442,7 +442,7 @@ class UniFiConnector:
     def _parse_site_name_map(self, raw):
         """Parse manual site name mapping lines: id=name, id:name, id,name, or #1=name."""
         mapping = {}
-        ordered = []
+        ordered = {}
         if not raw:
             return {"mapping": mapping, "ordered": ordered}
         for line in str(raw).replace(";", "\n").splitlines():
@@ -459,27 +459,10 @@ class UniFiConnector:
                 mapping[key] = value
                 if key.startswith("#"):
                     try:
-                        ordered.append((int(key[1:]), value))
+                        ordered[int(key[1:])] = value
                     except Exception:
                         pass
-        return {"mapping": mapping, "ordered": dict(ordered)}
-
-
-    def _host_name(self, host):
-        return str(self._get_nested(host, [
-            "name", "displayName", "hostName", "hostname", "consoleName", "owner.name", "meta.name", "metadata.name"
-        ], ""))
-
-    def _host_site_candidates(self, host):
-        vals = set()
-        for path in [
-            "siteId", "site_id", "site.id", "site.siteId", "siteName", "site.name",
-            "defaultSiteId", "defaultSite.id", "networkId", "network.id"
-        ]:
-            val = self._get_nested(host, [path], "")
-            if val not in (None, ""):
-                vals.add(str(val).lower())
-        return vals
+        return {"mapping": mapping, "ordered": ordered}
 
     def _extract_items(self, data):
         if isinstance(data, list):
@@ -531,127 +514,6 @@ class UniFiConnector:
                 break
 
         return items, trace_ids
-
-    def _severity_from_alert(self, alert):
-        raw = str(
-            alert.get("severity")
-            or alert.get("level")
-            or alert.get("priority")
-            or alert.get("type")
-            or alert.get("category")
-            or alert.get("status")
-            or alert.get("state")
-            or ""
-        ).lower()
-        if any(x in raw for x in ("critical", "error", "wan", "offline", "down", "fail", "disconnected")):
-            return "critical"
-        if any(x in raw for x in ("warn", "medium", "blocked", "threat", "rogue", "degraded")):
-            return "medium"
-        return "info"
-
-    def is_unifi_alert_active(self, alert):
-        raw = " ".join([
-            str(alert.get("status") or ""),
-            str(alert.get("state") or ""),
-            str(alert.get("archived") or ""),
-            str(alert.get("resolved") or ""),
-            str(alert.get("cleared") or ""),
-        ]).lower()
-        if "true" in raw and ("resolved" in raw or "archived" in raw or "cleared" in raw):
-            return False
-        return not any(word in raw for word in ("resolved", "closed", "archived", "cleared"))
-
-    def _alert_title(self, alert):
-        return (
-            alert.get("title")
-            or alert.get("message")
-            or alert.get("name")
-            or alert.get("event")
-            or alert.get("type")
-            or alert.get("category")
-            or "UniFi alert/event"
-        )
-
-    def _alert_detail(self, alert):
-        parts = []
-        for key in ("siteName", "siteId", "site_id", "deviceName", "hostName", "hostname", "clientName", "mac", "ip", "timestamp", "datetime", "time"):
-            if alert.get(key):
-                parts.append(str(alert.get(key)))
-        return " | ".join(parts[:4]) or "UniFi item returned by Site Manager API"
-
-    def _site_id(self, site):
-        return str(self._get_nested(site, [
-            "id", "_id", "siteId", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id",
-            "uuid", "uid", "key"
-        ], ""))
-
-    def _site_name(self, site):
-        return str(self._get_nested(site, [
-            "name", "displayName", "siteName", "description", "desc", "nickname", "label",
-            "meta.name", "metadata.name", "site.name", "site.displayName",
-            "attributes.name", "properties.name", "settings.name", "profile.name",
-            "ui.name", "console.name", "host.name"
-        ], self._site_id(site) or "UniFi site"))
-
-    def _site_aliases(self, site):
-        vals = set()
-        for path in [
-            "id", "_id", "siteId", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id", "uuid", "uid", "key",
-            "name", "displayName", "siteName", "description", "desc", "meta.name", "metadata.name", "site.name"
-        ]:
-            val = self._get_nested(site, [path], "")
-            if val not in (None, ""):
-                vals.add(str(val).lower())
-        return vals
-
-    def _device_site_candidates(self, device):
-        vals = set()
-        for path in [
-            "siteId", "site_id", "site.id", "site.siteId", "site", "siteName", "site.name",
-            "networkId", "network.id", "network.name", "location.siteId", "location.siteName"
-        ]:
-            val = self._get_nested(device, [path], "")
-            if val not in (None, ""):
-                vals.add(str(val).lower())
-        return vals
-
-    def _device_name(self, device):
-        return str(self._get_nested(device, [
-            "name", "displayName", "deviceName", "hostName", "hostname", "model", "mac", "ip"
-        ], "UniFi device"))
-
-    def _device_status(self, device):
-        raw = str(self._get_nested(device, [
-            "status", "state", "connectionState", "health", "availability",
-            "state.status", "overview.status", "connection.status"
-        ], "")).lower()
-        if any(x in raw for x in ("offline", "down", "disconnected", "failed", "critical")):
-            return "offline"
-        if any(x in raw for x in ("adopting", "pending", "updating", "warning", "degraded")):
-            return "degraded"
-        if any(x in raw for x in ("online", "connected", "active", "healthy", "ok")):
-            return "online"
-        return "unknown"
-
-    def _site_status_from_counts(self, total, offline, degraded):
-        if total <= 0:
-            return "VISIBLE"
-        if offline > 0:
-            return "CRITICAL"
-        if degraded > 0:
-            return "DEGRADED"
-        return "HEALTHY"
-
-    def _configured_path(self, base, path):
-        if not path:
-            return ""
-        path = path.strip()
-        if path.startswith("http://") or path.startswith("https://"):
-            return path
-        if not path.startswith("/"):
-            path = "/" + path
-        return base + path
-
 
     def debug_snapshot(self):
         """Return raw sample payloads from UniFi Site Manager API for field mapping."""
@@ -705,6 +567,143 @@ class UniFiConnector:
 
         return snapshot
 
+    def _severity_from_alert(self, alert):
+        raw = str(
+            alert.get("severity")
+            or alert.get("level")
+            or alert.get("priority")
+            or alert.get("type")
+            or alert.get("category")
+            or alert.get("status")
+            or alert.get("state")
+            or ""
+        ).lower()
+        if any(x in raw for x in ("critical", "error", "wan", "offline", "down", "fail", "disconnected")):
+            return "critical"
+        if any(x in raw for x in ("warn", "medium", "blocked", "threat", "rogue", "degraded")):
+            return "medium"
+        return "info"
+
+    def is_unifi_alert_active(self, alert):
+        raw = " ".join([
+            str(alert.get("status") or ""),
+            str(alert.get("state") or ""),
+            str(alert.get("archived") or ""),
+            str(alert.get("resolved") or ""),
+            str(alert.get("cleared") or ""),
+        ]).lower()
+        if "true" in raw and ("resolved" in raw or "archived" in raw or "cleared" in raw):
+            return False
+        return not any(word in raw for word in ("resolved", "closed", "archived", "cleared"))
+
+    def _alert_title(self, alert):
+        return (
+            alert.get("title")
+            or alert.get("message")
+            or alert.get("name")
+            or alert.get("event")
+            or alert.get("type")
+            or alert.get("category")
+            or "UniFi alert/event"
+        )
+
+    def _alert_detail(self, alert):
+        parts = []
+        for key in ("siteName", "siteId", "site_id", "deviceName", "hostName", "hostname", "clientName", "mac", "ip", "timestamp", "datetime", "time"):
+            if alert.get(key):
+                parts.append(str(alert.get(key)))
+        return " | ".join(parts[:4]) or "UniFi item returned by Site Manager API"
+
+    def _site_id(self, site):
+        return str(self._get_nested(site, [
+            "siteId", "id", "_id", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id",
+            "uuid", "uid", "key"
+        ], ""))
+
+    def _site_host_id(self, site):
+        return str(self._get_nested(site, ["hostId", "host.id", "consoleId", "console.id"], ""))
+
+    def _site_name(self, site):
+        name = str(self._get_nested(site, [
+            "meta.desc", "description", "displayName", "siteName", "name", "desc", "nickname", "label",
+            "meta.name", "metadata.name", "site.name", "site.displayName",
+            "attributes.name", "properties.name", "settings.name", "profile.name",
+            "ui.name", "console.name", "host.name"
+        ], ""))
+
+        # UniFi often returns meta.name/default for every site. Prefer a real descriptor if present.
+        if name.lower() == "default":
+            desc = str(self._get_nested(site, ["meta.desc", "description", "desc"], ""))
+            if desc and desc.lower() != "default":
+                return desc
+
+        return name or self._site_id(site) or "UniFi site"
+
+    def _site_aliases(self, site):
+        vals = set()
+        for path in [
+            "siteId", "id", "_id", "site_id", "site.id", "site.siteId", "meta.id", "metadata.id", "uuid", "uid", "key",
+            "hostId", "host.id", "consoleId", "console.id",
+            "name", "displayName", "siteName", "description", "desc", "meta.name", "meta.desc", "metadata.name", "site.name"
+        ]:
+            val = self._get_nested(site, [path], "")
+            if val not in (None, ""):
+                vals.add(str(val).lower())
+        return vals
+
+    def _host_name(self, host):
+        return str(self._get_nested(host, [
+            "name", "hostname", "hostName", "displayName",
+            "reportedState.name", "reportedState.hostname", "reportedState.hardware.name",
+            "reportedState.hardware.shortname"
+        ], ""))
+
+    def _host_aliases(self, host):
+        vals = set()
+        for path in [
+            "id", "hostId", "host.id", "reportedState.controller_uuid",
+            "reportedState.mac", "mac", "reportedState.hardware.mac",
+            "name", "hostname", "reportedState.name", "reportedState.hostname"
+        ]:
+            val = self._get_nested(host, [path], "")
+            if val not in (None, ""):
+                vals.add(str(val).lower())
+        return vals
+
+    def _device_group_host_id(self, group):
+        return str(self._get_nested(group, ["hostId", "id", "host.id"], ""))
+
+    def _device_status(self, device):
+        raw = str(self._get_nested(device, [
+            "status", "state", "connectionState", "health", "availability",
+            "state.status", "overview.status", "connection.status"
+        ], "")).lower()
+        if any(x in raw for x in ("offline", "down", "disconnected", "failed", "critical")):
+            return "offline"
+        if any(x in raw for x in ("adopting", "pending", "updating", "warning", "degraded")):
+            return "degraded"
+        if any(x in raw for x in ("online", "connected", "active", "healthy", "ok")):
+            return "online"
+        return "unknown"
+
+    def _site_status_from_counts(self, total, offline, degraded):
+        if total <= 0:
+            return "VISIBLE"
+        if offline > 0:
+            return "CRITICAL"
+        if degraded > 0:
+            return "DEGRADED"
+        return "HEALTHY"
+
+    def _configured_path(self, base, path):
+        if not path:
+            return ""
+        path = path.strip()
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        if not path.startswith("/"):
+            path = "/" + path
+        return base + path
 
     def fetch(self):
         if not self.enabled():
@@ -731,10 +730,9 @@ class UniFiConnector:
                 "source": "UniFi",
             })
 
-        devices = []
-        device_trace_ids = []
+        device_groups = []
         try:
-            devices, device_trace_ids = self._get_paged(base, headers, "/v1/devices", page_size=500, max_pages=50)
+            device_groups, _ = self._get_paged(base, headers, "/v1/devices", page_size=500, max_pages=50)
         except Exception as e:
             events.append({
                 "severity": "medium",
@@ -750,21 +748,38 @@ class UniFiConnector:
             hosts = []
 
         site_count = len(sites)
-        device_count = len(devices)
+        host_group_count = len(device_groups)
         host_count = len(hosts)
+
         manual_site_names_config = self._parse_site_name_map(c.get("site_name_map", ""))
         manual_site_names = manual_site_names_config.get("mapping", {})
         manual_site_ordered_names = manual_site_names_config.get("ordered", {})
 
+        host_name_by_alias = {}
+        for host in hosts:
+            if not isinstance(host, dict):
+                continue
+            hname = self._host_name(host)
+            if not hname:
+                continue
+            for alias in self._host_aliases(host):
+                host_name_by_alias[alias] = hname
+
         site_index = {}
-        alias_to_key = {}
+        host_to_site_key = {}
 
         for i, site in enumerate(sites):
             if not isinstance(site, dict):
                 continue
+
             sid = self._site_id(site) or f"site-{i+1}"
+            host_id = self._site_host_id(site)
             aliases = self._site_aliases(site)
             name = self._site_name(site)
+
+            # Prefer host/console name when UniFi exposes only "default" for site.
+            if host_id and host_id.lower() in host_name_by_alias and name.lower() in ("default", sid.lower(), ""):
+                name = host_name_by_alias[host_id.lower()]
 
             # Manual fallback supports exact IDs/names and positional #1/#2 mapping.
             if (i + 1) in manual_site_ordered_names:
@@ -776,80 +791,98 @@ class UniFiConnector:
                         break
                 if sid.lower() in manual_site_names:
                     name = manual_site_names[sid.lower()]
+                if host_id and host_id.lower() in manual_site_names:
+                    name = manual_site_names[host_id.lower()]
+
+            counts = self._get_nested(site, ["statistics.counts"], {})
+            api_total = int(counts.get("totalDevice", 0)) if isinstance(counts, dict) else 0
+            api_offline = int(counts.get("offlineDevice", 0)) if isinstance(counts, dict) else 0
+            api_pending = int(counts.get("pendingUpdateDevice", 0)) if isinstance(counts, dict) else 0
+            critical_notifications = int(counts.get("criticalNotification", 0)) if isinstance(counts, dict) else 0
 
             site_index[sid] = {
                 "name": name,
                 "id": sid,
+                "host_id": host_id,
                 "total": 0,
                 "online": 0,
                 "offline": 0,
                 "degraded": 0,
                 "unknown": 0,
+                "api_total": api_total,
+                "api_offline": api_offline,
+                "api_pending": api_pending,
+                "critical_notifications": critical_notifications,
                 "raw": site,
-                "unmatched_devices": [],
             }
+
+            if host_id:
+                host_to_site_key[host_id.lower()] = sid
             for alias in aliases:
-                alias_to_key[alias] = sid
+                host_to_site_key.setdefault(alias.lower(), sid)
 
-        # Some Site Manager responses expose friendlier console/site names through /v1/hosts.
-        for host in hosts:
-            if not isinstance(host, dict):
+        # /v1/devices returns host groups, each with hostId, hostName and nested devices[].
+        nested_device_total = 0
+        unmatched_groups = 0
+        for group in device_groups:
+            if not isinstance(group, dict):
                 continue
-            hname = self._host_name(host)
-            if not hname:
-                continue
-            for candidate in self._host_site_candidates(host):
-                key = alias_to_key.get(candidate)
-                if key and site_index.get(key, {}).get("name", "").lower() in ("default", key.lower(), ""):
-                    site_index[key]["name"] = hname
+            host_id = self._device_group_host_id(group)
+            group_host_name = str(group.get("hostName") or group.get("hostname") or "")
+            nested_devices = group.get("devices") if isinstance(group.get("devices"), list) else []
+            nested_device_total += len(nested_devices)
 
-        unmatched = []
-        for device in devices:
-            if not isinstance(device, dict):
-                continue
-            key = None
-            for candidate in self._device_site_candidates(device):
-                if candidate in alias_to_key:
-                    key = alias_to_key[candidate]
-                    break
+            key = host_to_site_key.get(host_id.lower()) if host_id else None
+            if not key:
+                # Fall back to host name matching.
+                key = host_to_site_key.get(group_host_name.lower()) if group_host_name else None
 
-            if key is None:
-                unmatched.append(device)
-                continue
+            if not key:
+                unmatched_groups += 1
+                key = f"unmatched-{host_id or group_host_name or unmatched_groups}"
+                site_index[key] = {
+                    "name": group_host_name or "Unassigned / site mapping unavailable",
+                    "id": key,
+                    "host_id": host_id,
+                    "total": 0,
+                    "online": 0,
+                    "offline": 0,
+                    "degraded": 0,
+                    "unknown": 0,
+                    "api_total": 0,
+                    "api_offline": 0,
+                    "api_pending": 0,
+                    "critical_notifications": 0,
+                    "raw": {},
+                }
 
-            status = self._device_status(device)
-            site_index[key]["total"] += 1
-            site_index[key][status] = site_index[key].get(status, 0) + 1
+            if group_host_name and site_index[key]["name"].lower() in ("default", site_index[key]["id"].lower(), ""):
+                site_index[key]["name"] = group_host_name
 
-        # If the API returns devices but does not expose a join key, do not invent site allocation.
-        # Put them in a clearly labelled unassigned row.
-        if unmatched:
-            key = "unassigned-devices"
-            site_index[key] = {
-                "name": "Unassigned / site mapping unavailable",
-                "id": key,
-                "total": 0,
-                "online": 0,
-                "offline": 0,
-                "degraded": 0,
-                "unknown": 0,
-                "raw": {},
-                "unmatched_devices": [],
-            }
-            for device in unmatched:
+            for device in nested_devices:
+                if not isinstance(device, dict):
+                    continue
                 status = self._device_status(device)
                 site_index[key]["total"] += 1
                 site_index[key][status] = site_index[key].get(status, 0) + 1
-                site_index[key]["unmatched_devices"].append(self._device_name(device))
+
+        # If nested devices are not returned for a site, use /v1/sites statistics.counts as fallback.
+        for key, row in site_index.items():
+            if row["total"] == 0 and row["api_total"] > 0:
+                row["total"] = row["api_total"]
+                row["offline"] = row["api_offline"]
+                row["degraded"] = row["api_pending"]
+                row["online"] = max(0, row["api_total"] - row["api_offline"] - row["api_pending"])
+                row["unknown"] = 0
 
         site_health = []
-        for sid, data in list(site_index.items())[:80]:
+        for sid, data in list(site_index.items())[:100]:
             status = self._site_status_from_counts(data["total"], data["offline"], data["degraded"])
             detail = f"devices {data['total']}, online {data['online']}, offline {data['offline']}, degraded {data['degraded']}, unknown {data['unknown']}"
+            if data["critical_notifications"]:
+                detail += f", critical notifications {data['critical_notifications']}"
             if data["total"] == 0:
-                detail = "site visible; no devices mapped to this site by /v1/devices"
-            if sid == "unassigned-devices":
-                detail += " | /v1/devices did not expose a recognised site mapping field"
+                detail = "site visible; no device counts returned"
             site_health.append({
                 "name": data["name"],
                 "id": data["id"],
@@ -861,6 +894,9 @@ class UniFiConnector:
                 "degraded": data["degraded"],
                 "unknown": data["unknown"],
             })
+
+        # Count all UniFi devices from nested devices; fall back to site statistics if the nested API is empty.
+        device_count = nested_device_total or sum(int(s.get("total", 0)) for s in site_health)
 
         healthy_sites = sum(1 for s in site_health if s["status"] == "HEALTHY")
         degraded_sites = sum(1 for s in site_health if s["status"] == "DEGRADED")
@@ -885,15 +921,15 @@ class UniFiConnector:
             events.append({
                 "severity": "info",
                 "title": "UniFi Site Manager API live",
-                "detail": f"{site_count} site(s), {device_count} device(s), {host_count} host(s) returned via /v1/sites, /v1/devices, /v1/hosts.{trace_bit}",
+                "detail": f"{site_count} site(s), {device_count} nested device(s), {host_group_count} device group(s), {host_count} host(s).{trace_bit}",
                 "source": "UniFi",
             })
 
-        if unmatched:
+        if unmatched_groups:
             events.append({
                 "severity": "medium",
-                "title": "UniFi device-to-site mapping incomplete",
-                "detail": f"{len(unmatched)} device(s) did not include a recognised site mapping field. Site names are shown, but device health cannot be assigned to the right site.",
+                "title": "UniFi device group mapping incomplete",
+                "detail": f"{unmatched_groups} /v1/devices host group(s) could not be joined by hostId.",
                 "source": "UniFi",
             })
 
@@ -901,7 +937,7 @@ class UniFiConnector:
             events.append({
                 "severity": "critical" if critical_sites else "medium" if degraded_sites else "info",
                 "title": "UniFi site health calculated",
-                "detail": f"{len(site_health)} row(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
+                "detail": f"{len(site_health)} site row(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
                 "source": "UniFi",
             })
 
@@ -1387,7 +1423,7 @@ class SentinelApp(tk.Tk):
         for label, key, color in [
             ("UniFi", "unifi_status", BLUE),
             ("UniFi sites", "unifi_sites", GREEN),
-            ("UniFi devices", "unifi_devices", BLUE),
+            ("UniFi network devices", "unifi_devices", BLUE),
             ("Active UniFi alerts", "unifi_alerts", AMBER),
             ("Healthy sites", "unifi_healthy_sites", GREEN),
             ("Degraded sites", "unifi_degraded_sites", AMBER),
