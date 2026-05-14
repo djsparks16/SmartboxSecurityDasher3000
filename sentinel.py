@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 APP_NAME = "Smartbox Security Dasher 3000"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
@@ -56,6 +56,15 @@ def safe_float(v, default=0.0):
         return float(v)
     except Exception:
         return default
+
+
+def compact_json_sample(obj, limit=2):
+    """Return a small serialisable sample from a list/dict for debug export."""
+    if isinstance(obj, list):
+        return obj[:limit]
+    if isinstance(obj, dict):
+        return obj
+    return obj
 
 
 class SecretBox:
@@ -431,10 +440,11 @@ class UniFiConnector:
         return default
 
     def _parse_site_name_map(self, raw):
-        """Parse manual site name mapping lines: id=name, id:name, or id,name."""
+        """Parse manual site name mapping lines: id=name, id:name, id,name, or #1=name."""
         mapping = {}
+        ordered = []
         if not raw:
-            return mapping
+            return {"mapping": mapping, "ordered": ordered}
         for line in str(raw).replace(";", "\n").splitlines():
             line = line.strip()
             if not line:
@@ -447,7 +457,13 @@ class UniFiConnector:
             value = value.strip()
             if key and value:
                 mapping[key] = value
-        return mapping
+                if key.startswith("#"):
+                    try:
+                        ordered.append((int(key[1:]), value))
+                    except Exception:
+                        pass
+        return {"mapping": mapping, "ordered": dict(ordered)}
+
 
     def _host_name(self, host):
         return str(self._get_nested(host, [
@@ -636,6 +652,60 @@ class UniFiConnector:
             path = "/" + path
         return base + path
 
+
+    def debug_snapshot(self):
+        """Return raw sample payloads from UniFi Site Manager API for field mapping."""
+        if not self.enabled():
+            raise RuntimeError("UniFi connector is not enabled or missing Base URL/API key.")
+
+        c = self.cfg["unifi"]
+        base = c["base_url"].rstrip("/")
+        headers = {"X-API-KEY": c["api_key"], "Accept": "application/json"}
+
+        snapshot = {
+            "base_url": base,
+            "note": "Redact IDs/secrets before sharing outside Smartbox. API key is not included.",
+            "endpoints": {},
+        }
+
+        for name, path in [
+            ("sites", "/v1/sites"),
+            ("devices", "/v1/devices"),
+            ("hosts", "/v1/hosts"),
+        ]:
+            try:
+                items, traces = self._get_paged(base, headers, path, page_size=10, max_pages=1)
+                snapshot["endpoints"][name] = {
+                    "path": path,
+                    "count_sampled": len(items),
+                    "trace_ids": traces,
+                    "sample": compact_json_sample(items, limit=3),
+                }
+            except Exception as e:
+                snapshot["endpoints"][name] = {
+                    "path": path,
+                    "error": str(e),
+                }
+
+        configured_alert_path = self._configured_path(base, c.get("alerts_path", ""))
+        if configured_alert_path:
+            try:
+                items, traces = self._get_paged(base, headers, configured_alert_path, page_size=10, max_pages=1)
+                snapshot["endpoints"]["custom_alerts"] = {
+                    "path": configured_alert_path,
+                    "count_sampled": len(items),
+                    "trace_ids": traces,
+                    "sample": compact_json_sample(items, limit=3),
+                }
+            except Exception as e:
+                snapshot["endpoints"]["custom_alerts"] = {
+                    "path": configured_alert_path,
+                    "error": str(e),
+                }
+
+        return snapshot
+
+
     def fetch(self):
         if not self.enabled():
             return None
@@ -682,7 +752,9 @@ class UniFiConnector:
         site_count = len(sites)
         device_count = len(devices)
         host_count = len(hosts)
-        manual_site_names = self._parse_site_name_map(c.get("site_name_map", ""))
+        manual_site_names_config = self._parse_site_name_map(c.get("site_name_map", ""))
+        manual_site_names = manual_site_names_config.get("mapping", {})
+        manual_site_ordered_names = manual_site_names_config.get("ordered", {})
 
         site_index = {}
         alias_to_key = {}
@@ -694,12 +766,16 @@ class UniFiConnector:
             aliases = self._site_aliases(site)
             name = self._site_name(site)
 
-            for alias in aliases:
-                if alias.lower() in manual_site_names:
-                    name = manual_site_names[alias.lower()]
-                    break
-            if sid.lower() in manual_site_names:
-                name = manual_site_names[sid.lower()]
+            # Manual fallback supports exact IDs/names and positional #1/#2 mapping.
+            if (i + 1) in manual_site_ordered_names:
+                name = manual_site_ordered_names[i + 1]
+            else:
+                for alias in aliases:
+                    if alias.lower() in manual_site_names:
+                        name = manual_site_names[alias.lower()]
+                        break
+                if sid.lower() in manual_site_names:
+                    name = manual_site_names[sid.lower()]
 
             site_index[sid] = {
                 "name": name,
@@ -1271,6 +1347,7 @@ class SentinelApp(tk.Tk):
         tk.Label(header, text="Smartbox Security Dasher 3000", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 28, "bold")).pack(side="left")
         tk.Label(header, text="real-time infrastructure, compliance and threat correlation", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(12,0))
         tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1C2740", fg=TEXT, activebackground="#243455", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
+        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162034", fg=TEXT, activebackground="#243455", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
 
         self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         self.overview.pack(fill="x", pady=(14, 6))
@@ -1299,10 +1376,10 @@ class SentinelApp(tk.Tk):
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
 
-        self.priority_explain_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.priority_explain_bar = tk.Frame(left, bg="#151C2E", highlightthickness=1, highlightbackground="#31415F")
         self.priority_explain_bar.pack(fill="x", pady=(8, 0))
-        tk.Label(self.priority_explain_bar, text="Why this priority?", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
-        self.priority_explain_text = tk.Label(self.priority_explain_bar, text="Waiting for live counts...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=1000)
+        tk.Label(self.priority_explain_bar, text="Why this priority?", bg="#151C2E", fg=TEXT, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        self.priority_explain_text = tk.Label(self.priority_explain_bar, text="Waiting for live counts...", bg="#151C2E", fg=MUTED, font=("Segoe UI", 10, "bold"), justify="left", wraplength=1060)
         self.priority_explain_text.pack(anchor="w", padx=12, pady=(0, 8))
 
 
@@ -1541,8 +1618,10 @@ class SentinelApp(tk.Tk):
         degraded = sum(1 for s in sites if str(s.get("status", "")).upper() == "DEGRADED")
         critical = sum(1 for s in sites if str(s.get("status", "")).upper() == "CRITICAL")
         visible = sum(1 for s in sites if str(s.get("status", "")).upper() == "VISIBLE")
+        unassigned = sum(1 for s in sites if "unassigned" in str(s.get("name", "")).lower())
+        suffix = f" • {unassigned} unassigned mapping row" if unassigned else ""
         self.unifi_site_health_summary.config(
-            text=f"{len(sites)} sites • healthy {healthy} • degraded {degraded} • critical {critical} • visible {visible}"
+            text=f"{len(sites)} rows • healthy {healthy} • degraded {degraded} • critical {critical} • visible {visible}{suffix}"
         )
 
         header = tk.Frame(self.unifi_site_table, bg="#182136")
@@ -1727,6 +1806,26 @@ class SentinelApp(tk.Tk):
                 if bar.winfo_manager():
                     bar.pack_forget()
 
+
+    def export_unifi_debug(self):
+        try:
+            conn = UniFiConnector(self.cfg)
+            snapshot = conn.debug_snapshot()
+            default_name = f"unifi_debug_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            path = filedialog.asksaveasfilename(
+                title="Save UniFi debug JSON",
+                defaultextension=".json",
+                initialfile=default_name,
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            if not path:
+                return
+            Path(path).write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+            messagebox.showinfo("UniFi debug exported", f"Saved UniFi debug sample to:\n{path}\n\nRedact IDs if sharing outside Smartbox.")
+        except Exception as e:
+            messagebox.showerror("UniFi debug export failed", str(e))
+
+
     def open_setup(self):
         win = tk.Toplevel(self)
         win.title("Dasher setup")
@@ -1858,13 +1957,13 @@ class SentinelApp(tk.Tk):
         else:
             self.top_issues_text.config(text="No critical or medium live findings returned.", fg=MUTED)
 
+        state_text, state_color = self.overall_state(m)
+
         if hasattr(self, "priority_explain_text"):
             self.priority_explain_text.config(
-                text=f"{m.get('priority_state', state_text if 'state_text' in locals() else 'STATE')} because {m.get('priority_reason', 'live counts')}. Active {m.get('active_alerts', m.get('alerts', 0))}, returned {m.get('returned_alerts', 0)}, resolved/closed {m.get('resolved_alerts', 0)}, non-compliant {m.get('noncompliant', 0)}.",
-                fg=TEXT
+                text=f"{state_text}: {m.get('priority_reason', 'live counts')}. Returned {m.get('returned_alerts', 0)} total alert objects; {m.get('resolved_alerts', 0)} are resolved/closed.",
+                fg=state_color if state_color != GREEN else TEXT
             )
-
-        state_text, state_color = self.overall_state(m)
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
         unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi devices {m.get('unifi_devices', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
