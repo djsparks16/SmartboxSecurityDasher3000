@@ -1847,7 +1847,7 @@ class SentinelApp(tk.Tk):
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
 
         self.trend_strip = tk.Frame(body, bg=BG)
-        self.trend_strip.pack(fill="x", pady=(0, 10))
+        self.trend_strip.pack(fill="x", pady=(0, 8))
         for title, key, color in [
             ("Defender active trend", "defender", ORANGE),
             ("Compliance gap trend", "compliance", BLUE),
@@ -1855,14 +1855,14 @@ class SentinelApp(tk.Tk):
             ("Severity mix", "severity", GREEN),
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            panel_shell.configure(height=104)
+            panel_shell.configure(height=86)
             panel_shell.pack_propagate(False)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
             val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=54, bg=GLASS, highlightthickness=0, bd=0)
-            c.pack(fill="x", padx=10, pady=(0, 8))
+            c = tk.Canvas(panel, height=68, bg=GLASS, highlightthickness=0, bd=0)
+            c.pack(fill="x", padx=10, pady=(0, 10))
             if key == "severity":
                 self.severity_mix_canvas = c
                 self.trend_labels[key] = val
@@ -2322,7 +2322,7 @@ class SentinelApp(tk.Tk):
         self.focus_card(sw_row, "Detected apps", BLUE, "software", "detected_app_count")
         self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
         self.focus_card(sw_row, "Inventory source", BLUE, "software", "detected_apps_source")
-        self.focus_card(sw_row, "Graph issues", ORANGE, "software", "software_issue_state")
+        self.focus_card(sw_row, "Graph throttle/cache", ORANGE, "software", "software_issue_state")
         self.software_tables = ttk.Notebook(software_wrap, style="Dasher.TNotebook")
         self.software_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
@@ -2350,14 +2350,14 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=104)
-        shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=6)
+        shell.configure(height=86)
+        shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=5)
         shell.grid_propagate(False)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(8, 1))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(6, 1))
         val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
         val.pack(anchor="w", padx=16, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=14, pady=(0, 7))
+        hint.pack(anchor="w", padx=12, pady=(0, 5))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
 
@@ -2948,16 +2948,17 @@ class SentinelApp(tk.Tk):
         if not canvas:
             return
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 54)
+        w = max(canvas.winfo_width(), 220)
+        h = max(canvas.winfo_height(), 68)
         total = max(sum(counts.values()), 1)
 
         palette = [("info", BLUE), ("medium", AMBER), ("high", ORANGE), ("critical", RED)]
-        x = 10
-        y1, y2 = 14, 28
 
-        canvas.create_rectangle(10, y1, w - 10, y2, fill="#172131", outline="")
+        # Stacked severity bar.
+        x = 10
+        y1, y2 = 16, 32
         usable = w - 20
+        canvas.create_rectangle(10, y1, w - 10, y2, fill="#172131", outline="")
         for key, color in palette:
             val = int(counts.get(key, 0) or 0)
             seg = int((val / total) * usable) if val > 0 else 0
@@ -2965,12 +2966,19 @@ class SentinelApp(tk.Tk):
                 canvas.create_rectangle(x, y1, min(w - 10, x + seg), y2, fill=color, outline="")
                 x += seg
 
-        lx = 10
-        for key, color in palette:
-            label = f"{key[:4].title()} {int(counts.get(key, 0) or 0)}"
-            canvas.create_oval(lx, 36, lx + 8, 44, fill=color, outline="")
-            canvas.create_text(lx + 12, 40, text=label, fill=MUTED if counts.get(key, 0) == 0 else TEXT, anchor="w", font=(self.font_ui, 8, "bold"))
-            lx += 72
+        # Legend, fixed positions so it does not vanish at small widths.
+        legend = [
+            ("Info", counts.get("info", 0), BLUE),
+            ("Medium", counts.get("medium", 0), AMBER),
+            ("High", counts.get("high", 0), ORANGE),
+            ("Critical", counts.get("critical", 0), RED),
+        ]
+        lx = 12
+        ly = 48
+        for label, val, color in legend:
+            canvas.create_oval(lx, ly - 4, lx + 8, ly + 4, fill=color, outline="")
+            canvas.create_text(lx + 12, ly, text=f"{label} {int(val or 0)}", fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
+            lx += max(76, int((w - 24) / 4))
 
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
@@ -3298,13 +3306,24 @@ class SentinelApp(tk.Tk):
                 hint = "new to this local dashboard baseline"
             elif key == "detected_app_count":
                 color = BLUE if int(val or 0) > 0 else MUTED
-                hint = "returned/cached from Graph; full estate may require paged pulls"
+                hint = "apps returned/cached from Graph detectedApps"
             elif key == "detected_apps_source":
                 color = BLUE if str(val or "").lower() not in ("", "unavailable") else AMBER
                 hint = "Graph source: v1.0, beta, cache, empty or unavailable"
             elif key == "software_issue_state":
-                color = GREEN if str(val).lower() == "ok" else ORANGE
-                hint = "Graph detectedApps status"
+                raw = str(val or "ok").lower()
+                if "429" in raw or "backoff" in raw:
+                    val = "Cached"
+                    color = ORANGE
+                    hint = "Graph throttled detectedApps; cached inventory shown"
+                elif raw == "ok":
+                    val = "OK"
+                    color = GREEN
+                    hint = "Graph detectedApps status"
+                else:
+                    val = "Check"
+                    color = AMBER
+                    hint = "Graph detectedApps status"
             card["value"].config(text=str(val)[:18], fg=color)
             card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
             card["frame"].config(highlightbackground=color)
@@ -3335,7 +3354,7 @@ class SentinelApp(tk.Tk):
             f"Detected apps returned/cached this run: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
             f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
-            "If this says 429, Graph is rate-limiting detectedApps. The dashboard now uses a 30-minute local cache/backoff.",
+            "429 is Microsoft Graph throttling detectedApps. The dashboard now shows cached inventory and backs off for 30 minutes.",
             "If count is exactly 1000, Graph may be returning a page/window or cached sample. This is not necessarily broken.",
             "",
             "Newly observed software",
