@@ -1,6 +1,6 @@
 
 """
-Smartbox Security by Marc PoC
+Smartbox Security by Marc PoC - v11 final visual polish
 A single-file desktop dashboard for hackathon demos.
 
 Runs with: python sentinel.py
@@ -1939,7 +1939,7 @@ class SentinelApp(tk.Tk):
             card_body.pack(fill="both", expand=True, padx=22, pady=16)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
-            icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
+            icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "⌁", "Software": "▣"}.get(title, "•")
             dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 17, "bold"), width=2)
             dot.pack(side="left", padx=(0, 10))
             title_col = tk.Frame(top, bg=PANEL)
@@ -2009,17 +2009,17 @@ class SentinelApp(tk.Tk):
         self.security_posture_strip.pack(fill="x", pady=(6, 10))
         self.posture_labels = {}
         for label, key, color, icon in [
-            ("Stale 30+ days", "stale_30_count", BLUE, "▦"),
+            ("Stale 30+ days", "stale_30_count", BLUE, "▣"),
             ("Unencrypted", "unencrypted_count", RED, "▣"),
             ("No primary user", "no_user_count", AMBER, "👤"),
-            ("Degraded sites", "unifi_degraded_sites", ORANGE, "📶"),
+            ("Degraded sites", "unifi_degraded_sites", ORANGE, "△"),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=116)
+            shell.configure(height=126)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
-            body_row.pack(fill="both", expand=True, padx=20, pady=12)
+            body_row.pack(fill="both", expand=True, padx=20, pady=15)
             badge = tk.Canvas(body_row, width=50, height=50, bg=GLASS, highlightthickness=0, bd=0)
             badge.pack(side="left", padx=(0, 16))
             badge.create_oval(3, 3, 47, 47, fill="#0D1A28", outline=color, width=1.5)
@@ -2034,7 +2034,7 @@ class SentinelApp(tk.Tk):
                 "Degraded sites": "UniFi site health",
             }.get(label, "live posture")
             tk.Label(text_col, text=subcopy + "  ->", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
-            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 22, "bold"))
+            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 24, "bold"))
             val.pack(anchor="w", pady=(0, 0))
             self.posture_labels[key] = val
 
@@ -2284,8 +2284,8 @@ class SentinelApp(tk.Tk):
             sizes = {
                 "hero_priority_shell": 142 if compact else 150,
                 "heartbeat_shell": 142 if compact else 150,
-                "overview_defender_feed_shell": 242 if compact else 252,
-                "overview_full_feed_shell": (246 if compact else 268) + extra,
+                "overview_defender_feed_shell": 232 if compact else 244,
+                "overview_full_feed_shell": (236 if compact else 260) + extra,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2293,8 +2293,8 @@ class SentinelApp(tk.Tk):
                     widget.configure(height=height)
 
             for tree_name, rows in (
-                ("overview_defender_feed_table", 6 if compact else 7),
-                ("overview_full_feed_table", max(7, (7 if compact else 8) + extra // 32)),
+                ("overview_defender_feed_table", 5 if compact else 6),
+                ("overview_full_feed_table", max(7, (7 if compact else 8) + extra // 34)),
             ):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
@@ -2307,16 +2307,16 @@ class SentinelApp(tk.Tk):
         try:
             style = ttk.Style()
             style.configure("Dasher.Treeview",
-                            background="#0A1D2D",
-                            fieldbackground="#0A1D2D",
+                            background="#071A2A",
+                            fieldbackground="#071A2A",
                             foreground="#EAF4FF",
-                            rowheight=33,
+                            rowheight=35,
                             borderwidth=0,
                             relief="flat",
                             font=(self.font_ui, 10))
             style.configure("Dasher.Treeview.Heading",
-                            background="#1A3148",
-                            foreground="#F0F7FF",
+                            background="#162C43",
+                            foreground="#F3FAFF",
                             relief="flat",
                             font=(self.font_ui, 10, "bold"))
             style.map("Dasher.Treeview",
@@ -2336,17 +2336,17 @@ class SentinelApp(tk.Tk):
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FF7A93", background="#12243A")
-                tree.tag_configure("high", foreground="#FFB86C", background="#12243A")
-                tree.tag_configure("warn", foreground="#FFE06B", background="#12243A")
-                tree.tag_configure("good", foreground="#8BFF7A", background="#0D2435")
-                tree.tag_configure("info", foreground="#66D2FF", background="#0B2134")
-                tree.tag_configure("alt", foreground="#E0ECF8", background="#0D2133")
-                tree.tag_configure("sev_critical", foreground="#FF7A93", background="#12243A")
-                tree.tag_configure("sev_high", foreground="#FFB86C", background="#12243A")
-                tree.tag_configure("sev_medium", foreground="#FFE06B", background="#12243A")
-                tree.tag_configure("sev_info", foreground="#66D2FF", background="#0B2134")
-                tree.tag_configure("sev_low", foreground="#8BFF7A", background="#0D2435")
+                tree.tag_configure("bad", foreground="#FF7895", background="#1A182C")
+                tree.tag_configure("high", foreground="#FFB66B", background="#171E30")
+                tree.tag_configure("warn", foreground="#FFE36E", background="#16243A")
+                tree.tag_configure("good", foreground="#8DFF82", background="#0A2730")
+                tree.tag_configure("info", foreground="#65D1FF", background="#092235")
+                tree.tag_configure("alt", foreground="#DCEBFA", background="#0B1F31")
+                tree.tag_configure("sev_critical", foreground="#FF7895", background="#1A182C")
+                tree.tag_configure("sev_high", foreground="#FFB66B", background="#171E30")
+                tree.tag_configure("sev_medium", foreground="#FFE36E", background="#16243A")
+                tree.tag_configure("sev_info", foreground="#65D1FF", background="#092235")
+                tree.tag_configure("sev_low", foreground="#8DFF82", background="#0A2730")
             except Exception:
                 pass
 
@@ -2582,7 +2582,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(panel, bg=PANEL)
         header.pack(fill="x", padx=12, pady=(7, 3))
         tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 15, "bold")).pack(side="left")
-        tk.Label(header, text="live rows  •  soft severity pills  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(header, text="signal-coloured rows  •  glass bands  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         frame = tk.Frame(panel, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
@@ -2592,12 +2592,12 @@ class SentinelApp(tk.Tk):
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
-        tree.tag_configure("bad", foreground="#FF7A93", background="#12243A")
-        tree.tag_configure("warn", foreground="#FFE06B", background="#12243A")
-        tree.tag_configure("high", foreground="#FFB86C", background="#12243A")
-        tree.tag_configure("good", foreground="#8BFF7A", background="#0D2435")
-        tree.tag_configure("info", foreground="#66D2FF", background="#0B2134")
-        tree.tag_configure("alt", foreground="#E0ECF8", background="#0D2133")
+        tree.tag_configure("bad", foreground="#FF7895", background="#1A182C")
+        tree.tag_configure("warn", foreground="#FFE36E", background="#16243A")
+        tree.tag_configure("high", foreground="#FFB66B", background="#171E30")
+        tree.tag_configure("good", foreground="#8DFF82", background="#0A2730")
+        tree.tag_configure("info", foreground="#65D1FF", background="#092235")
+        tree.tag_configure("alt", foreground="#DCEBFA", background="#0B1F31")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2691,6 +2691,39 @@ class SentinelApp(tk.Tk):
         if role == "offline":
             return f"■ {n}" if n else str(n)
         return str(n)
+
+    def _source_icon_label(self, source):
+        raw = str(source or "")
+        low = raw.lower()
+        if "unifi" in low:
+            return "⌁  " + raw
+        if "defender" in low:
+            return "🛡  " + raw
+        if "intune" in low or "microsoft graph" in low or "graph security" in low:
+            return "👤  " + raw
+        if "software" in low or "detected" in low:
+            return "▣  " + raw
+        if "rocket" in low:
+            return "◆  " + raw
+        if "datto" in low:
+            return "◇  " + raw
+        return "•  " + raw
+
+    def _event_visual_tag(self, severity, source, title, detail):
+        text = " ".join(str(x).lower() for x in (severity, source, title, detail))
+        if any(x in text for x in ("offline", "critical", " down", "failed")):
+            return "bad"
+        if any(x in text for x in ("degraded", "medium", "non-compliant", "noncompliant", "unencrypted", "stale", "throttled", "warning")):
+            return "warn"
+        if any(x in text for x in ("healthy", "connected", "clear", "ok", "compliant", "live", "loaded")):
+            return "good"
+        if str(severity).lower() in ("critical",):
+            return "bad"
+        if str(severity).lower() in ("high",):
+            return "high"
+        if str(severity).lower() in ("medium",):
+            return "warn"
+        return "info"
 
     def _table_tag_from_values(self, values, fallback=None):
         text = " ".join(str(v).lower() for v in values)
@@ -3829,7 +3862,7 @@ class SentinelApp(tk.Tk):
 
         for row in rows[:150]:
             sev = str(row.get("severity", "INFO")).upper()
-            tag = f"sev_{sev.lower()}" if sev.lower() in ("critical", "high", "medium", "info", "low") else "sev_info"
+            tag = self._event_visual_tag(sev, row.get("source", "Defender"), row.get("title", ""), row.get("detail", ""))
             title = str(row.get("title", ""))
             detail = str(row.get("detail", ""))
             if len(title) > 118:
@@ -3873,8 +3906,8 @@ class SentinelApp(tk.Tk):
             if len(detail) > 168:
                 detail = detail[:165] + "..."
 
-            tag = f"sev_{sev}" if sev in ("critical", "high", "medium", "info", "low") else "sev_info"
-            tree.insert("", "end", values=(self._bubble_token(sev, "severity"), src, when, title, detail), tags=(tag,))
+            tag = self._event_visual_tag(sev, src, title, detail)
+            tree.insert("", "end", values=(self._bubble_token(sev, "severity"), self._source_icon_label(src), when, title, detail), tags=(tag,))
 
         if not events:
             tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
@@ -4140,7 +4173,7 @@ class SentinelApp(tk.Tk):
                 detail = str(r.get("detail", ""))
                 ts = short_ts(r.get("timestamp", ""))
                 tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" or status == "ACTIVE" else "info"
-                self.insert_table_row(self.defender_alert_table, [ts, status, sev, src, title, detail], tag=tag)
+                self.insert_table_row(self.defender_alert_table, [ts, status, sev, self._source_icon_label(src), title, detail], tag=tag)
 
             self.clear_table(self.defender_signal_table)
             if events:
@@ -4153,7 +4186,7 @@ class SentinelApp(tk.Tk):
                         self.insert_table_row(self.defender_signal_table, [
                             ts,
                             sev,
-                            src,
+                            self._source_icon_label(src),
                             e.get("title", ""),
                             e.get("detail", ""),
                         ], tag=tag)
@@ -4366,7 +4399,7 @@ class SentinelApp(tk.Tk):
                 status = str(s.get("status", "VISIBLE")).upper()
                 tag = self._unifi_status_tag(status)
                 self.insert_table_row(self.unifi_sites_table, [
-                    "📶 " + str(s.get("name", "UniFi site")),
+                    "⌁  " + str(s.get("name", "UniFi site")),
                     self._decorate_unifi_status(status),
                     int(s.get("total", 0) or 0),
                     self._decorate_count_cell(s.get("online", 0), "online"),
