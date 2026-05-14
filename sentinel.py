@@ -658,6 +658,11 @@ class UniFiConnector:
                 "id": data["id"],
                 "status": status,
                 "detail": detail,
+                "total": data["total"],
+                "online": data["online"],
+                "offline": data["offline"],
+                "degraded": data["degraded"],
+                "unknown": data["unknown"],
             })
 
         healthy_sites = sum(1 for s in site_health if s["status"] == "HEALTHY")
@@ -1175,10 +1180,25 @@ class SentinelApp(tk.Tk):
 
 
         self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
-        self.unifi_site_health_title = tk.Label(self.unifi_site_health_bar, text="UniFi site health", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
-        self.unifi_site_health_title.pack(anchor="w", padx=12, pady=(8, 2))
-        self.unifi_site_health_text = tk.Label(self.unifi_site_health_bar, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=1100)
-        self.unifi_site_health_text.pack(anchor="w", padx=12, pady=(0, 8))
+        site_header = tk.Frame(self.unifi_site_health_bar, bg=PANEL)
+        site_header.pack(fill="x", padx=12, pady=(8, 2))
+        self.unifi_site_health_title = tk.Label(site_header, text="All UniFi sites", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
+        self.unifi_site_health_title.pack(side="left")
+        self.unifi_site_health_summary = tk.Label(site_header, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold"))
+        self.unifi_site_health_summary.pack(side="right")
+
+        self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=108)
+        self.unifi_site_table_scrollbar = tk.Scrollbar(self.unifi_site_health_bar, orient="vertical", command=self.unifi_site_table_canvas.yview, bg=PANEL, troughcolor=BG)
+        self.unifi_site_table_canvas.configure(yscrollcommand=self.unifi_site_table_scrollbar.set)
+        self.unifi_site_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 8))
+        self.unifi_site_table_scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 8))
+
+        self.unifi_site_table = tk.Frame(self.unifi_site_table_canvas, bg=PANEL)
+        self.unifi_site_table_window = self.unifi_site_table_canvas.create_window((0, 0), window=self.unifi_site_table, anchor="nw")
+        self.unifi_site_table.bind("<Configure>", self._on_unifi_site_table_configure)
+        self.unifi_site_table_canvas.bind("<Configure>", self._on_unifi_site_table_canvas_configure)
+        self.unifi_site_table_canvas.bind("<Enter>", self._bind_unifi_site_table_mousewheel)
+        self.unifi_site_table_canvas.bind("<Leave>", self._unbind_unifi_site_table_mousewheel)
 
         self.top_issues_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         self.top_issues_bar.pack(fill="x", pady=(8, 0))
@@ -1322,6 +1342,90 @@ class SentinelApp(tk.Tk):
         return "CLEAR", GREEN
 
 
+
+
+
+    def _on_unifi_site_table_configure(self, event=None):
+        if hasattr(self, "unifi_site_table_canvas"):
+            self.unifi_site_table_canvas.configure(scrollregion=self.unifi_site_table_canvas.bbox("all"))
+
+    def _on_unifi_site_table_canvas_configure(self, event):
+        if hasattr(self, "unifi_site_table_canvas") and hasattr(self, "unifi_site_table_window"):
+            self.unifi_site_table_canvas.itemconfigure(self.unifi_site_table_window, width=event.width)
+
+    def _unifi_site_table_mousewheel(self, event):
+        if hasattr(self, "unifi_site_table_canvas"):
+            delta = -1 * int(event.delta / 120) if event.delta else 0
+            self.unifi_site_table_canvas.yview_scroll(delta, "units")
+
+    def _unifi_site_table_mousewheel_linux_up(self, event):
+        if hasattr(self, "unifi_site_table_canvas"):
+            self.unifi_site_table_canvas.yview_scroll(-3, "units")
+
+    def _unifi_site_table_mousewheel_linux_down(self, event):
+        if hasattr(self, "unifi_site_table_canvas"):
+            self.unifi_site_table_canvas.yview_scroll(3, "units")
+
+    def _bind_unifi_site_table_mousewheel(self, event=None):
+        if hasattr(self, "unifi_site_table_canvas"):
+            self.unifi_site_table_canvas.bind_all("<MouseWheel>", self._unifi_site_table_mousewheel)
+            self.unifi_site_table_canvas.bind_all("<Button-4>", self._unifi_site_table_mousewheel_linux_up)
+            self.unifi_site_table_canvas.bind_all("<Button-5>", self._unifi_site_table_mousewheel_linux_down)
+
+    def _unbind_unifi_site_table_mousewheel(self, event=None):
+        if hasattr(self, "unifi_site_table_canvas"):
+            self.unifi_site_table_canvas.unbind_all("<MouseWheel>")
+            self.unifi_site_table_canvas.unbind_all("<Button-4>")
+            self.unifi_site_table_canvas.unbind_all("<Button-5>")
+
+    def render_unifi_site_table(self, sites):
+        if not hasattr(self, "unifi_site_table"):
+            return
+
+        for child in self.unifi_site_table.winfo_children():
+            child.destroy()
+
+        if not sites:
+            self.unifi_site_health_summary.config(text="No UniFi sites returned")
+            empty = tk.Frame(self.unifi_site_table, bg=PANEL)
+            empty.pack(fill="x", pady=3)
+            tk.Label(empty, text="No UniFi site rows returned yet.", bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=6, pady=6)
+            return
+
+        healthy = sum(1 for s in sites if str(s.get("status", "")).upper() == "HEALTHY")
+        degraded = sum(1 for s in sites if str(s.get("status", "")).upper() == "DEGRADED")
+        critical = sum(1 for s in sites if str(s.get("status", "")).upper() == "CRITICAL")
+        visible = sum(1 for s in sites if str(s.get("status", "")).upper() == "VISIBLE")
+        self.unifi_site_health_summary.config(
+            text=f"{len(sites)} sites • healthy {healthy} • degraded {degraded} • critical {critical} • visible {visible}"
+        )
+
+        header = tk.Frame(self.unifi_site_table, bg="#182136")
+        header.pack(fill="x", pady=(0, 2))
+        for title, width in [
+            ("Site", 28),
+            ("Status", 10),
+            ("Devices", 8),
+            ("Online", 8),
+            ("Offline", 8),
+            ("Degraded", 9),
+            ("Unknown", 9),
+        ]:
+            tk.Label(header, text=title, bg="#182136", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=3, pady=4)
+
+        status_color = {"HEALTHY": GREEN, "DEGRADED": AMBER, "CRITICAL": RED, "VISIBLE": BLUE}
+        for site in sites[:80]:
+            status = str(site.get("status", "VISIBLE")).upper()
+            color = status_color.get(status, BLUE)
+            row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=str(site.get("name", "UniFi site"))[:34], bg=PANEL, fg=TEXT, font=("Segoe UI", 8, "bold"), width=28, anchor="w").pack(side="left", padx=3, pady=4)
+            tk.Label(row, text=status, bg=PANEL, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=3, pady=4)
+            for key, width in [("total", 8), ("online", 8), ("offline", 8), ("degraded", 9), ("unknown", 9)]:
+                tk.Label(row, text=str(site.get(key, 0)), bg=PANEL, fg=MUTED if key != "offline" or int(site.get(key, 0) or 0) == 0 else RED, font=("Segoe UI", 8), width=width, anchor="w").pack(side="left", padx=3, pady=4)
+
+        self.unifi_site_table.update_idletasks()
+        self.unifi_site_table_canvas.configure(scrollregion=self.unifi_site_table_canvas.bbox("all"))
 
 
     def _on_alert_table_configure(self, event=None):
@@ -1595,14 +1699,7 @@ class SentinelApp(tk.Tk):
             else:
                 label.config(text=str(m.get(key, 0)))
 
-        site_lines = []
-        for site in (m.get("unifi_site_health", []) or [])[:12]:
-            status = site.get("status", "VISIBLE")
-            site_lines.append(f"{status}: {site.get('name', 'UniFi site')} ({site.get('detail', '')})")
-        if site_lines and hasattr(self, "unifi_site_health_text"):
-            self.unifi_site_health_text.config(text="  •  ".join(site_lines), fg=TEXT)
-        elif hasattr(self, "unifi_site_health_text"):
-            self.unifi_site_health_text.config(text="No UniFi site health fields returned yet.", fg=MUTED)
+        self.render_unifi_site_table(m.get("unifi_site_health", []) or [])
 
         top_events = [
             e for e in payload["events"]
