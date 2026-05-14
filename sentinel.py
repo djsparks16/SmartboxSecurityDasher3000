@@ -27,20 +27,22 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-APP_NAME = "Smartbox Security Dasher 3000"
+APP_NAME = "Smartbox Security by Marc"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-BG = "#0E1116"
-PANEL = "#141A22"
-PANEL_2 = "#1A2230"
-TEXT = "#F6F7FB"
-MUTED = "#98A2B3"
-BLUE = "#7AB8FF"
+BG = "#0A0C10"
+PANEL = "#141922"
+PANEL_2 = "#1B2430"
+TEXT = "#F7F8FA"
+MUTED = "#9BA6B6"
+BLUE = "#7CC7FF"
 GREEN = "#63E6BE"
-AMBER = "#FFCF66"
+AMBER = "#FFD166"
 RED = "#FF6B81"
-PURPLE = "#C1A8FF"
+PURPLE = "#C7A7FF"
+GLASS = "#10151D"
+HAIRLINE = "#242D3A"
 
 
 def now_iso():
@@ -1348,8 +1350,8 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1240x760")
-        self.minsize(1100, 680)
+        self.geometry("1480x860")
+        self.minsize(1250, 760)
         self.configure(bg=BG)
         self.cfg = Config.load()
         self.q = queue.Queue()
@@ -1383,24 +1385,24 @@ class SentinelApp(tk.Tk):
         style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=8)
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
-        style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("Dasher.TNotebook.Tab", background="#1A2130", foreground=MUTED, padding=(18, 10), font=("Segoe UI", 10, "bold"), borderwidth=0)
+        style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
+        style.configure("Dasher.TNotebook.Tab", background="#121821", foreground=MUTED, padding=(22, 11), font=("Segoe UI Variable Text", 10, "bold"), borderwidth=0)
         style.map("Dasher.TNotebook.Tab",
-                  background=[("selected", PANEL), ("active", "#202A3A")],
+                  background=[("selected", "#202A38"), ("active", "#1A2330")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=22, pady=18)
+        shell.pack(fill="both", expand=True, padx=24, pady=20)
 
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security Dasher 3000", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 28, "bold")).pack(side="left")
-        tk.Label(header, text="Defender priority, Intune estate, and UniFi network health", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(12,0))
-        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1C2740", fg=TEXT, activebackground="#243455", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
-        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162034", fg=TEXT, activebackground="#243455", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
+        tk.Label(header, text="Smartbox Security Dasher 3000", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 30, "bold")).pack(side="left")
+        tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(14,0))
+        tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1A2330", fg=TEXT, activebackground="#263347", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
+        tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#151D29", fg=TEXT, activebackground="#263347", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
 
-        self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
+        self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview.pack(fill="x", pady=(14, 6))
         self.state_badge = tk.Label(self.overview, text="INITIALISING", bg=PANEL, fg=BLUE, font=("Segoe UI", 10, "bold"))
         self.state_badge.pack(side="left", padx=(18, 10), pady=12)
@@ -1424,6 +1426,12 @@ class SentinelApp(tk.Tk):
 
         body = tk.Frame(self.tab_overview, bg=BG)
         body.pack(fill="both", expand=True, pady=(12, 0))
+
+        self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
+        self.overview_focus_bar.pack(fill="x", pady=(0, 12))
+        tk.Label(self.overview_focus_bar, text="Operational summary", bg=GLASS, fg=MUTED, font=("Segoe UI Variable Text", 9, "bold")).pack(anchor="w", padx=14, pady=(10, 2))
+        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=("Segoe UI", 11, "bold"), justify="left")
+        self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 10))
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
         right = tk.Frame(body, bg=BG, width=360)
@@ -1441,7 +1449,7 @@ class SentinelApp(tk.Tk):
         self.card(cards, 1, 1, "High/Critical Defender", "critical", PURPLE)
 
 
-        self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
+        self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         for label, key, color in [
             ("Network status", "unifi_status", BLUE),
             ("UniFi sites", "unifi_sites", GREEN),
@@ -1452,27 +1460,27 @@ class SentinelApp(tk.Tk):
             ("Offline sites", "unifi_critical_sites", RED),
         ]:
             box = tk.Frame(self.unifi_bar, bg=PANEL)
-            box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
+            box.pack(side="left", fill="x", expand=True, padx=14, pady=8)
             tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
             val = tk.Label(box, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 16, "bold"))
             val.pack(anchor="w")
             self.unifi_labels[key] = val
 
 
-        self.network_summary_bar = tk.Frame(left, bg="#121A2A", highlightthickness=1, highlightbackground="#263552")
+        self.network_summary_bar = tk.Frame(left, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.network_summary_bar.pack(fill="x", pady=(8, 0))
-        ns_left = tk.Frame(self.network_summary_bar, bg="#121A2A")
-        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=10)
-        tk.Label(ns_left, text="Network site status", bg="#121A2A", fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        self.network_status_big = tk.Label(ns_left, text="--", bg="#121A2A", fg=BLUE, font=("Segoe UI Variable Display", 18, "bold"))
+        ns_left = tk.Frame(self.network_summary_bar, bg=GLASS)
+        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=12)
+        tk.Label(ns_left, text="Network site status", bg=GLASS, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.network_status_big = tk.Label(ns_left, text="--", bg=GLASS, fg=BLUE, font=("Segoe UI Variable Display", 18, "bold"))
         self.network_status_big.pack(anchor="w")
-        ns_right = tk.Frame(self.network_summary_bar, bg="#121A2A")
-        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=10)
-        tk.Label(ns_right, text="UniFi site health summary", bg="#121A2A", fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        self.network_status_detail = tk.Label(ns_right, text="Waiting for UniFi site data", bg="#121A2A", fg=TEXT, font=("Segoe UI", 10, "bold"), justify="left")
+        ns_right = tk.Frame(self.network_summary_bar, bg=GLASS)
+        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=12)
+        tk.Label(ns_right, text="UniFi site health summary", bg=GLASS, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.network_status_detail = tk.Label(ns_right, text="Waiting for UniFi site data", bg=GLASS, fg=TEXT, font=("Segoe UI", 10, "bold"), justify="left")
         self.network_status_detail.pack(anchor="w")
 
-        self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
+        self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         site_header = tk.Frame(self.unifi_site_health_bar, bg=PANEL)
         site_header.pack(fill="x", padx=12, pady=(8, 2))
         self.unifi_site_health_title = tk.Label(site_header, text="UniFi network sites", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
@@ -1494,7 +1502,7 @@ class SentinelApp(tk.Tk):
         self.unifi_site_table_canvas.bind("<Leave>", self._unbind_unifi_site_table_mousewheel)
 
 
-        self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
+        self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         self.platform_bar.pack(fill="x", pady=(8, 0))
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
@@ -1504,15 +1512,16 @@ class SentinelApp(tk.Tk):
             ("Other OS", "other_os", MUTED),
         ]:
             box = tk.Frame(self.platform_bar, bg=PANEL)
-            box.pack(side="left", fill="x", expand=True, padx=10, pady=10)
+            box.pack(side="left", fill="x", expand=True, padx=14, pady=12)
             tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
             val = tk.Label(box, text="0", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 18, "bold"))
             val.pack(anchor="w")
             self.platform_labels[key] = val
 
 
-        self.alert_table_panel = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
-        self.alert_table_panel.pack(fill="both", expand=True, pady=(12, 0))
+        self.alert_table_panel = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
+        # Overview is intentionally executive: detailed alert rows live on the Defender tab.
+        # self.alert_table_panel.pack(fill="both", expand=True, pady=(12, 0))
 
         table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
         table_header.pack(fill="x", padx=12, pady=(10, 4))
@@ -1535,10 +1544,10 @@ class SentinelApp(tk.Tk):
 
         self.spark = []
 
-        tk.Label(right, text="Signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
+        tk.Label(right, text="Signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 20, "bold")).pack(anchor="w")
 
         self.feed_canvas = tk.Canvas(right, bg=BG, highlightthickness=0, bd=0)
-        self.feed_scrollbar = tk.Scrollbar(right, orient="vertical", command=self.feed_canvas.yview, bg=PANEL, troughcolor=BG, activebackground="#243455")
+        self.feed_scrollbar = tk.Scrollbar(right, orient="vertical", command=self.feed_canvas.yview, bg=PANEL, troughcolor=BG, activebackground="#263347")
         self.feed_canvas.configure(yscrollcommand=self.feed_scrollbar.set)
 
         self.feed_canvas.pack(side="left", fill="both", expand=True, pady=(10, 0))
@@ -1557,10 +1566,10 @@ class SentinelApp(tk.Tk):
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(footer, text="Focused tabs: Overview, Defender, Intune, and UniFi. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune and UniFi tabs. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
-        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#27324A")
+        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground=HAIRLINE)
         if width_pack:
             f.pack(side="left", fill="both", expand=True, padx=6, pady=6)
         else:
@@ -1574,7 +1583,7 @@ class SentinelApp(tk.Tk):
         return f
 
     def text_panel(self, parent, title):
-        wrap = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        wrap = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         wrap.pack(fill="both", expand=True, padx=6, pady=6)
         top = tk.Frame(wrap, bg=PANEL)
         top.pack(fill="x", padx=12, pady=(10, 4))
@@ -1583,14 +1592,14 @@ class SentinelApp(tk.Tk):
         text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         widget = tk.Text(
             text_frame,
-            bg="#111722",
+            bg="#10151D",
             fg=TEXT,
             insertbackground=TEXT,
             relief="flat",
             wrap="word",
-            font=("Consolas", 10),
-            padx=10,
-            pady=10
+            font=("Segoe UI", 10),
+            padx=14,
+            pady=12
         )
         scroll = tk.Scrollbar(text_frame, orient="vertical", command=widget.yview)
         widget.configure(yscrollcommand=scroll.set)
@@ -1633,7 +1642,7 @@ class SentinelApp(tk.Tk):
         self.focus_card(row, "Compliant devices", BLUE, "intune", "compliant_devices")
         self.focus_card(row, "Compliance rate", PURPLE, "intune", "compliance_percent")
 
-        platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         platform.pack(fill="x", padx=6, pady=6)
         tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(anchor="w", padx=14, pady=(10, 8))
         self.intune_platform_focus = {}
@@ -1663,7 +1672,7 @@ class SentinelApp(tk.Tk):
 
         status_shell = tk.Frame(unifi_wrap, bg=BG)
         status_shell.pack(fill="x")
-        left_big = tk.Frame(status_shell, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        left_big = tk.Frame(status_shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         left_big.pack(side="left", fill="both", expand=True, padx=6, pady=6)
         tk.Label(left_big, text="Network site status", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
         self.unifi_tab_status_big = tk.Label(left_big, text="--", bg=PANEL, fg=BLUE, font=("Segoe UI Variable Display", 26, "bold"))
@@ -1687,12 +1696,12 @@ class SentinelApp(tk.Tk):
         self.unifi_text = self.text_panel(unifi_wrap, "UniFi site and connector detail")
 
     def card(self, parent, row, col, title, key, color):
-        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#243149")
+        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground=HAIRLINE)
         f.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(14, 2))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 28, "bold"))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=("Segoe UI Variable Text", 9, "bold")).pack(anchor="w", padx=18, pady=(16, 2))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 30, "bold"))
         val.pack(anchor="w", padx=18, pady=(0, 2))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#7F8AA3", font=("Segoe UI", 8))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8490A3", font=("Segoe UI", 8))
         hint.pack(anchor="w", padx=18, pady=(0, 12))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": f, "value": val, "hint": hint, "base": color}
@@ -1818,7 +1827,7 @@ class SentinelApp(tk.Tk):
             text=f"{len(sites)} rows • healthy {healthy} • degraded {degraded} • critical {critical} • visible {visible}{suffix}"
         )
 
-        header = tk.Frame(self.unifi_site_table, bg="#182136")
+        header = tk.Frame(self.unifi_site_table, bg="#1A2230")
         header.pack(fill="x", pady=(0, 2))
         for title, width in [
             ("Site", 36),
@@ -1829,13 +1838,13 @@ class SentinelApp(tk.Tk):
             ("Degraded", 9),
             ("Unknown", 9),
         ]:
-            tk.Label(header, text=title, bg="#182136", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=3, pady=4)
+            tk.Label(header, text=title, bg="#1A2230", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=3, pady=4)
 
         status_color = {"HEALTHY": GREEN, "DEGRADED": AMBER, "CRITICAL": RED, "VISIBLE": BLUE}
         for site in sites[:80]:
             status = str(site.get("status", "VISIBLE")).upper()
             color = status_color.get(status, BLUE)
-            row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
+            row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
             row.pack(fill="x", pady=1)
             tk.Label(row, text=str(site.get("name", "UniFi site"))[:48], bg=PANEL, fg=TEXT, font=("Segoe UI", 8, "bold"), width=36, anchor="w").pack(side="left", padx=3, pady=4)
             tk.Label(row, text=status, bg=PANEL, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=3, pady=4)
@@ -1889,10 +1898,10 @@ class SentinelApp(tk.Tk):
         self.alert_table_summary.config(text=summary)
 
         headers = [("Connector", 18), ("Severity", 10), ("Status", 14), ("Alert / finding", 42)]
-        header_row = tk.Frame(self.alert_table, bg="#182136")
+        header_row = tk.Frame(self.alert_table, bg="#1A2230")
         header_row.pack(fill="x", pady=(0, 2))
         for title, width in headers:
-            tk.Label(header_row, text=title, bg="#182136", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=4, pady=5)
+            tk.Label(header_row, text=title, bg="#1A2230", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=4, pady=5)
 
         sev_color = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": AMBER, "INFO": BLUE, "LOW": GREEN}
         active_rows = rows[:120]
@@ -1905,7 +1914,7 @@ class SentinelApp(tk.Tk):
             color = sev_color.get(sev, BLUE)
             status = str(row.get("status", "ACTIVE"))
             bg = "#121827" if status != "RESOLVED/CLOSED" else "#101522"
-            r = tk.Frame(self.alert_table, bg=bg, highlightthickness=1, highlightbackground="#243149")
+            r = tk.Frame(self.alert_table, bg=bg, highlightthickness=1, highlightbackground=HAIRLINE)
             r.pack(fill="x", pady=2)
             tk.Label(r, text=row.get("source", ""), bg=bg, fg=TEXT, font=("Segoe UI", 8, "bold"), width=18, anchor="w").pack(side="left", padx=4, pady=5)
             tk.Label(r, text=sev, bg=bg, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=4, pady=5)
@@ -1987,7 +1996,7 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "unifi_site_health_bar"):
             if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
                 if not self.unifi_site_health_bar.winfo_manager():
-                    self.unifi_site_health_bar.pack(fill="x", pady=(8, 0), )
+                    pass  # Detailed UniFi site rows live on the UniFi tab.
             else:
                 if self.unifi_site_health_bar.winfo_manager():
                     self.unifi_site_health_bar.pack_forget()
@@ -2090,7 +2099,7 @@ class SentinelApp(tk.Tk):
             self.restart_engine()
             win.destroy()
 
-        tk.Button(win, text="Save and restart telemetry", command=save, bg="#1C2740", fg=TEXT, activebackground="#243455", relief="flat", padx=14, pady=10, font=("Segoe UI", 10, "bold")).pack(pady=(0, 16))
+        tk.Button(win, text="Save and restart telemetry", command=save, bg="#1A2330", fg=TEXT, activebackground="#263347", relief="flat", padx=14, pady=12, font=("Segoe UI", 10, "bold")).pack(pady=(0, 16))
 
     def start_engine(self):
         self.engine = TelemetryEngine(self.cfg, self.q)
@@ -2199,6 +2208,17 @@ class SentinelApp(tk.Tk):
         self.state_detail.config(text=f"Defender priority: {m.get('priority_reason', 'live counts')} • Defender active {m.get('defender_alerts', 0)} • Defender critical {m.get('defender_critical', 0)} • Intune devices {m.get('devices', 0)} • Intune compliance gap {m.get('noncompliant', 0)} • Graph active context {m.get('graph_alerts', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
+        if hasattr(self, "overview_focus_text"):
+            defender = int(m.get("defender_alerts", 0) or 0)
+            defender_critical = int(m.get("defender_critical", 0) or 0)
+            noncompliant = int(m.get("noncompliant", 0) or 0)
+            intune_devices = int(m.get("devices", 0) or 0)
+            offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
+            total_sites = int(m.get("unifi_sites", 0) or 0)
+            self.overview_focus_text.config(
+                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   UniFi: {total_sites} sites, {offline_sites} offline"
+            )
+
         self.spark.append(m.get("alerts", 0))
         self.spark = self.spark[-80:]
         self.render_alert_table(payload.get("alert_rows", []), m)
@@ -2209,13 +2229,13 @@ class SentinelApp(tk.Tk):
 
         sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         sev_color = {"critical": RED, "high": RED, "medium": AMBER, "info": BLUE, "low": GREEN}
-        sev_bg = {"critical": "#26111A", "high": "#26111A", "medium": "#241E11", "info": "#131C2D", "low": "#102019"}
+        sev_bg = {"critical": "#22141A", "high": "#22141A", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
         events = sorted(payload["events"][:100], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
         for event in events:
             sev = str(event.get("severity", "info")).lower()
             color = sev_color.get(sev, BLUE)
             bg = sev_bg.get(sev, PANEL)
-            f = tk.Frame(self.feed, bg=bg, highlightthickness=1, highlightbackground=color)
+            f = tk.Frame(self.feed, bg=bg, highlightthickness=1, highlightbackground="#2B3545")
             f.pack(fill="x", pady=5)
             top = tk.Frame(f, bg=bg)
             top.pack(fill="x", padx=12, pady=(8, 0))
