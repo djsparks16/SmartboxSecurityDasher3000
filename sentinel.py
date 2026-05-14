@@ -1926,21 +1926,21 @@ class SentinelApp(tk.Tk):
             ("Software", "overview_software", GREEN),
         ]:
             shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-            shell.configure(height=82)
+            shell.configure(height=112)
             shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
+            shell.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=(4, 6))
 
             top = tk.Frame(panel, bg=PANEL)
-            top.pack(fill="x", padx=14, pady=(10, 0))
+            top.pack(fill="x", padx=18, pady=(14, 0))
             dot = tk.Canvas(top, width=14, height=14, bg=PANEL, highlightthickness=0, bd=0)
             dot.pack(side="left", padx=(0, 8))
             dot.create_oval(2, 2, 12, 12, fill=color, outline=color, tags="pulse")
             tk.Label(top, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="left")
 
-            value = tk.Label(panel, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 15, "bold"))
-            value.pack(anchor="w", padx=14, pady=(8, 0))
-            detail = tk.Label(panel, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 8), wraplength=310, justify="left")
-            detail.pack(anchor="w", padx=14, pady=(2, 8))
+            value = tk.Label(panel, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
+            value.pack(anchor="w", padx=18, pady=(12, 0))
+            detail = tk.Label(panel, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 9), wraplength=380, justify="left")
+            detail.pack(anchor="w", padx=18, pady=(6, 12))
 
             self.overview_status[key] = {
                 "shell": shell,
@@ -1990,7 +1990,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
-        self.security_posture_strip.pack(fill="x", pady=(0, 6))
+        self.security_posture_strip.pack(fill="x", pady=(2, 10))
         self.posture_labels = {}
         for label, key, color in [
             ("Stale 30+ days", "stale_30_count", ORANGE),
@@ -1999,12 +1999,12 @@ class SentinelApp(tk.Tk):
             ("Degraded sites", "unifi_degraded_sites", AMBER),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=16, padding=1)
-            shell.configure(height=48)
+            shell.configure(height=76)
             shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            tk.Label(panel, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
-            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 16, "bold"))
-            val.pack(anchor="w", padx=12, pady=(0, 5))
+            shell.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=(0, 2))
+            tk.Label(panel, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 0))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 20, "bold"))
+            val.pack(anchor="w", padx=16, pady=(8, 12))
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
@@ -2682,14 +2682,14 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=76)
-        shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=5)
+        shell.configure(height=96)
+        shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=6)
         shell.grid_propagate(False)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(6, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
-        val.pack(anchor="w", padx=16, pady=(0, 1))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 8))
-        hint.pack(anchor="w", padx=12, pady=(0, 5))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 1))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"))
+        val.pack(anchor="w", padx=16, pady=(5, 1))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 9))
+        hint.pack(anchor="w", padx=16, pady=(2, 10))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
 
