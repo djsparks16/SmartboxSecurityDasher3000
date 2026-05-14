@@ -535,6 +535,23 @@ class TelemetryEngine(threading.Thread):
             "events": events,
         }
 
+
+    def priority_from_counts(self, metrics):
+        """Return a plain-language state from real counts only. No artificial score."""
+        critical = int(metrics.get("critical", 0) or 0)
+        defender = int(metrics.get("defender_alerts", 0) or 0)
+        graph = int(metrics.get("graph_alerts", 0) or 0)
+        noncompliant = int(metrics.get("noncompliant", 0) or 0)
+
+        if critical > 0:
+            return "CRITICAL", 4, "critical alerts present"
+        if defender >= 10 or graph >= 25 or noncompliant >= 100:
+            return "HIGH", 3, "large alert/compliance volume"
+        if defender > 0 or graph > 0 or noncompliant > 0:
+            return "ACTION", 2, "investigation required"
+        return "CLEAR", 0, "no active findings"
+
+
     def correlate(self, results, errors):
         if not results:
             return {
