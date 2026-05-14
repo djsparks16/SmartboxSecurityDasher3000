@@ -416,16 +416,60 @@ class UniFiConnector:
         c = self.cfg["unifi"]
         return c.get("enabled") and c.get("base_url") and c.get("api_key")
 
-    def _items_from_response(self, data):
+    def _extract_items(self, data):
         if isinstance(data, list):
             return data
         if not isinstance(data, dict):
             return []
-        for key in ("data", "value", "events", "alerts", "alarms", "items", "results", "sites"):
+        val = data.get("data")
+        if isinstance(val, list):
+            return val
+        if isinstance(val, dict):
+            # Some endpoints return an object containing nested lists.
+            for key in ("items", "results", "sites", "devices", "alerts", "events", "alarms"):
+                nested = val.get(key)
+                if isinstance(nested, list):
+                    return nested
+            return [val]
+        for key in ("value", "events", "alerts", "alarms", "items", "results", "sites", "devices"):
             val = data.get(key)
             if isinstance(val, list):
                 return val
         return []
+
+    def _get_paged(self, base_url, headers, path, page_size=500, max_pages=50):
+        """Read UniFi Site Manager v1 pages using pageSize and nextToken."""
+        if path.startswith("http://") or path.startswith("https://"):
+            url = path
+        else:
+            if not path.startswith("/"):
+                path = "/" + path
+            url = base_url + path
+
+        items = []
+        trace_ids = []
+        next_token = None
+        pages = 0
+
+        while pages < max_pages:
+            sep = "&" if "?" in url else "?"
+            paged_url = f"{url}{sep}pageSize={page_size}"
+            if next_token:
+                paged_url += "&nextToken=" + urllib.parse.quote(str(next_token), safe="")
+
+            data = Http.request("GET", paged_url, headers=headers)
+            if isinstance(data, dict) and data.get("traceId"):
+                trace_ids.append(str(data.get("traceId")))
+
+            batch = self._extract_items(data)
+            items.extend(batch)
+
+            next_token = data.get("nextToken") if isinstance(data, dict) else None
+            pages += 1
+            if not next_token:
+                break
+
+        return items, trace_ids
 
     def _severity_from_alert(self, alert):
         raw = str(
@@ -434,13 +478,27 @@ class UniFiConnector:
             or alert.get("priority")
             or alert.get("type")
             or alert.get("category")
+            or alert.get("status")
+            or alert.get("state")
             or ""
         ).lower()
-        if any(x in raw for x in ("critical", "error", "wan", "offline", "down", "fail")):
+        if any(x in raw for x in ("critical", "error", "wan", "offline", "down", "fail", "disconnected")):
             return "critical"
-        if any(x in raw for x in ("warn", "medium", "blocked", "threat", "rogue")):
+        if any(x in raw for x in ("warn", "medium", "blocked", "threat", "rogue", "degraded")):
             return "medium"
         return "info"
+
+    def is_unifi_alert_active(self, alert):
+        raw = " ".join([
+            str(alert.get("status") or ""),
+            str(alert.get("state") or ""),
+            str(alert.get("archived") or ""),
+            str(alert.get("resolved") or ""),
+            str(alert.get("cleared") or ""),
+        ]).lower()
+        if "true" in raw and ("resolved" in raw or "archived" in raw or "cleared" in raw):
+            return False
+        return not any(word in raw for word in ("resolved", "closed", "archived", "cleared"))
 
     def _alert_title(self, alert):
         return (
@@ -449,99 +507,61 @@ class UniFiConnector:
             or alert.get("name")
             or alert.get("event")
             or alert.get("type")
-            or "UniFi alert"
+            or alert.get("category")
+            or "UniFi alert/event"
         )
 
     def _alert_detail(self, alert):
         parts = []
-        for key in ("siteName", "site_id", "deviceName", "hostname", "clientName", "mac", "ip", "timestamp", "datetime", "time"):
+        for key in ("siteName", "siteId", "site_id", "deviceName", "hostName", "hostname", "clientName", "mac", "ip", "timestamp", "datetime", "time"):
             if alert.get(key):
                 parts.append(str(alert.get(key)))
-        return " | ".join(parts[:4]) or "UniFi event returned by API"
+        return " | ".join(parts[:4]) or "UniFi item returned by Site Manager API"
 
     def _site_id(self, site):
         return str(site.get("id") or site.get("_id") or site.get("siteId") or site.get("site_id") or site.get("name") or "")
 
     def _site_name(self, site):
-        return str(site.get("name") or site.get("displayName") or site.get("siteName") or site.get("desc") or self._site_id(site) or "UniFi site")
+        return str(site.get("name") or site.get("displayName") or site.get("siteName") or site.get("description") or site.get("desc") or self._site_id(site) or "UniFi site")
 
-    def _site_status(self, site):
+    def _device_site_id(self, device):
+        return str(device.get("siteId") or device.get("site_id") or device.get("site") or device.get("siteName") or "")
+
+    def _device_status(self, device):
         raw = str(
-            site.get("status")
-            or site.get("state")
-            or site.get("health")
-            or site.get("connectionState")
-            or site.get("wanStatus")
-            or site.get("availability")
+            device.get("status")
+            or device.get("state")
+            or device.get("connectionState")
+            or device.get("health")
+            or device.get("availability")
             or ""
         ).lower()
+        if any(x in raw for x in ("offline", "down", "disconnected", "failed", "critical")):
+            return "offline"
+        if any(x in raw for x in ("adopting", "pending", "updating", "warning", "degraded")):
+            return "degraded"
+        if any(x in raw for x in ("online", "connected", "active", "healthy", "ok")):
+            return "online"
+        return "unknown"
 
-        if any(x in raw for x in ("critical", "offline", "down", "failed", "disconnected", "bad")):
+    def _site_status_from_counts(self, total, offline, degraded):
+        if total <= 0:
+            return "VISIBLE"
+        if offline > 0:
             return "CRITICAL"
-        if any(x in raw for x in ("warning", "degraded", "poor", "limited", "attention")):
+        if degraded > 0:
             return "DEGRADED"
-        if any(x in raw for x in ("online", "active", "healthy", "good", "ok", "connected")):
-            return "HEALTHY"
+        return "HEALTHY"
 
-        # Official site listings may not include health. Treat as visible, not healthy.
-        return "VISIBLE"
-
-    def _site_detail(self, site):
-        parts = []
-        for key in ("status", "state", "health", "wanStatus", "connectionState", "deviceCount", "devices", "clients", "clientCount"):
-            if site.get(key) not in (None, ""):
-                parts.append(f"{key}: {site.get(key)}")
-        return ", ".join(parts[:4]) or "site object visible; health fields not returned"
-
-    def _alert_paths(self, base, site_id, configured_path):
-        if configured_path:
-            path = configured_path.strip()
-            if path.startswith("http://") or path.startswith("https://"):
-                return [path]
-            if not path.startswith("/"):
-                path = "/" + path
-            return [base + path]
-
-        if not site_id:
-            return []
-
-        safe_site = urllib.parse.quote(site_id.strip(), safe="")
-        return [
-            f"{base}/proxy/network/integration/v1/sites/{safe_site}/alerts",
-            f"{base}/proxy/network/integration/v1/sites/{safe_site}/events",
-            f"{base}/proxy/network/integration/v1/sites/{safe_site}/alarms",
-        ]
-
-    def _site_health_paths(self, base, site_id, configured_path):
-        if configured_path:
-            path = configured_path.strip()
-            if path.startswith("http://") or path.startswith("https://"):
-                return [path]
-            if not path.startswith("/"):
-                path = "/" + path
-            return [base + path]
-
-        paths = []
-        if site_id:
-            safe_site = urllib.parse.quote(site_id.strip(), safe="")
-            paths.extend([
-                f"{base}/proxy/network/integration/v1/sites/{safe_site}/health",
-                f"{base}/proxy/network/integration/v1/sites/{safe_site}/devices",
-            ])
-        return paths
-
-
-    def is_unifi_alert_active(self, alert):
-        raw = " ".join([
-            str(alert.get("status") or ""),
-            str(alert.get("state") or ""),
-            str(alert.get("archived") or ""),
-            str(alert.get("resolved") or ""),
-        ]).lower()
-        if "true" in raw and ("resolved" in raw or "archived" in raw):
-            return False
-        return not any(word in raw for word in ("resolved", "closed", "archived", "cleared"))
-
+    def _configured_path(self, base, path):
+        if not path:
+            return ""
+        path = path.strip()
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        if not path.startswith("/"):
+            path = "/" + path
+        return base + path
 
     def fetch(self):
         if not self.enabled():
@@ -551,33 +571,93 @@ class UniFiConnector:
         base = c["base_url"].rstrip("/")
         headers = {"X-API-KEY": c["api_key"], "Accept": "application/json"}
 
-        site_path = "/proxy/network/integration/v1/sites"
-        sites_response = Http.request("GET", base + site_path, headers=headers)
-        sites = self._items_from_response(sites_response)
-        site_count = len(sites) if isinstance(sites, list) else 0
+        events = []
+        site_errors = []
+        device_errors = []
+        alert_errors = []
 
-        # Try optional health endpoint. If unavailable, use the site listing objects as the health source.
-        health_items = []
-        health_errors = []
-        for url in self._site_health_paths(base, c.get("site_id", ""), c.get("site_health_path", "")):
-            try:
-                data = Http.request("GET", url, headers=headers)
-                health_items = self._items_from_response(data)
-                if health_items:
-                    break
-            except Exception as e:
-                health_errors.append(str(e)[:120])
+        # Correct Site Manager API shape per UniFi docs: /v1/sites and /v1/devices with nextToken pagination.
+        sites = []
+        site_trace_ids = []
+        try:
+            sites, site_trace_ids = self._get_paged(base, headers, "/v1/sites", page_size=500, max_pages=20)
+        except Exception as e:
+            site_errors.append(str(e)[:180])
+            events.append({
+                "severity": "critical",
+                "title": "UniFi sites query failed",
+                "detail": str(e)[:180],
+                "source": "UniFi",
+            })
 
-        site_health_source = health_items if health_items else sites
+        devices = []
+        device_trace_ids = []
+        try:
+            devices, device_trace_ids = self._get_paged(base, headers, "/v1/devices", page_size=500, max_pages=50)
+        except Exception as e:
+            device_errors.append(str(e)[:180])
+            events.append({
+                "severity": "medium",
+                "title": "UniFi devices query failed",
+                "detail": str(e)[:180],
+                "source": "UniFi",
+            })
+
+        site_count = len(sites)
+        device_count = len(devices)
+
+        # Build per-site health from real site/device objects.
         site_health = []
-        for site in site_health_source[:25]:
+        site_index = {}
+        for site in sites:
             if not isinstance(site, dict):
                 continue
+            sid = self._site_id(site)
+            name = self._site_name(site)
+            site_index[sid] = {
+                "name": name,
+                "id": sid,
+                "total": 0,
+                "online": 0,
+                "offline": 0,
+                "degraded": 0,
+                "unknown": 0,
+                "raw": site,
+            }
+
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            sid = self._device_site_id(device)
+            if sid not in site_index:
+                # Some API responses may use site name instead of ID.
+                sid = str(device.get("siteName") or device.get("site") or "")
+            if sid not in site_index:
+                site_index[sid] = {
+                    "name": sid or "Unknown site",
+                    "id": sid,
+                    "total": 0,
+                    "online": 0,
+                    "offline": 0,
+                    "degraded": 0,
+                    "unknown": 0,
+                    "raw": {},
+                }
+
+            status = self._device_status(device)
+            site_index[sid]["total"] += 1
+            site_index[sid][status] = site_index[sid].get(status, 0) + 1
+
+        for sid, data in list(site_index.items())[:30]:
+            status = self._site_status_from_counts(data["total"], data["offline"], data["degraded"])
+            detail = f"devices {data['total']}, online {data['online']}, offline {data['offline']}, degraded {data['degraded']}, unknown {data['unknown']}"
+            if data["total"] == 0:
+                detail = "site visible; no devices returned for this site"
             site_health.append({
-                "name": self._site_name(site),
-                "id": self._site_id(site),
-                "status": self._site_status(site),
-                "detail": self._site_detail(site),
+                "name": data["name"],
+                "id": data["id"],
+                "status": status,
+                "detail": detail,
             })
 
         healthy_sites = sum(1 for s in site_health if s["status"] == "HEALTHY")
@@ -585,63 +665,70 @@ class UniFiConnector:
         critical_sites = sum(1 for s in site_health if s["status"] == "CRITICAL")
         visible_sites = sum(1 for s in site_health if s["status"] == "VISIBLE")
 
+        # Alert endpoints are not guaranteed in every Site Manager API tenant. Try configured path first,
+        # otherwise try /v1/alerts and /v1/events. If those fail, show a clear diagnostic.
         alerts = []
-        for url in self._alert_paths(base, c.get("site_id", ""), c.get("alerts_path", "")):
-            try:
-                data = Http.request("GET", url, headers=headers)
-                alerts = self._items_from_response(data)
-                break
-            except Exception:
-                pass
+        alert_paths = []
+        configured_alert_path = self._configured_path(base, c.get("alerts_path", ""))
+        if configured_alert_path:
+            alert_paths.append(configured_alert_path)
+        alert_paths.extend([base + "/v1/alerts", base + "/v1/events"])
 
-        events = [{
-            "severity": "info",
-            "title": "UniFi API reachable",
-            "detail": f"{site_count} site object(s) returned.",
-            "source": "UniFi",
-        }]
+        for url in alert_paths:
+            try:
+                alerts, _ = self._get_paged(base, headers, url, page_size=500, max_pages=20)
+                if alerts:
+                    break
+            except Exception as e:
+                alert_errors.append(str(e)[:140])
+
+        active_unifi_alerts = [a for a in alerts if isinstance(a, dict) and self.is_unifi_alert_active(a)]
+        resolved_unifi_alerts = max(0, len(alerts) - len(active_unifi_alerts))
+        critical_alerts = sum(1 for a in active_unifi_alerts if self._severity_from_alert(a) == "critical")
+        critical_total = critical_alerts + critical_sites
+
+        if sites:
+            trace_bit = f" trace {site_trace_ids[0]}" if site_trace_ids else ""
+            events.append({
+                "severity": "info",
+                "title": "UniFi Site Manager API live",
+                "detail": f"{site_count} site(s), {device_count} device(s) returned via /v1/sites and /v1/devices.{trace_bit}",
+                "source": "UniFi",
+            })
 
         if site_health:
             events.append({
                 "severity": "critical" if critical_sites else "medium" if degraded_sites else "info",
-                "title": "UniFi site health loaded",
+                "title": "UniFi site health calculated",
                 "detail": f"{len(site_health)} site(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
                 "source": "UniFi",
             })
 
-        if alerts:
+        if active_unifi_alerts:
             events.insert(0, {
-                "severity": "critical" if any(self._severity_from_alert(a) == "critical" for a in alerts) else "medium",
+                "severity": "critical" if critical_alerts else "medium",
                 "title": "UniFi alerts live",
-                "detail": f"{len(alerts)} alert/event item(s) returned.",
+                "detail": f"{len(active_unifi_alerts)} active UniFi alert/event item(s), {resolved_unifi_alerts} resolved/closed returned.",
                 "source": "UniFi",
             })
-            for alert in alerts[:25]:
+            for alert in active_unifi_alerts[:25]:
                 events.append({
                     "severity": self._severity_from_alert(alert),
                     "title": self._alert_title(alert),
                     "detail": self._alert_detail(alert),
                     "source": "UniFi",
                 })
-        elif c.get("site_id") or c.get("alerts_path"):
+        elif alert_errors:
             events.append({
                 "severity": "medium",
-                "title": "UniFi alert endpoint returned no items",
-                "detail": "No UniFi alerts/events found, or endpoint shape did not contain a list.",
-                "source": "UniFi",
-            })
-        else:
-            events.append({
-                "severity": "info",
-                "title": "UniFi alerts not configured",
-                "detail": "Add Site ID or Alerts path in Setup to query UniFi alerts/events.",
+                "title": "UniFi alert/event endpoint not confirmed",
+                "detail": "Sites/devices worked, but /v1/alerts or /v1/events did not return alert items. Add Alerts path if your tenant uses another endpoint.",
                 "source": "UniFi",
             })
 
-        active_unifi_alerts = [a for a in alerts if self.is_unifi_alert_active(a)]
-        resolved_unifi_alerts = max(0, len(alerts) - len(active_unifi_alerts))
-        critical_alerts = sum(1 for a in active_unifi_alerts if self._severity_from_alert(a) == "critical")
-        critical_total = critical_alerts + critical_sites
+        if site_errors and not sites:
+            # No point pretending UniFi is live if the core site query failed.
+            raise RuntimeError(f"UniFi /v1/sites failed: {site_errors[0]}")
 
         return {
             "source": "UniFi",
@@ -649,6 +736,7 @@ class UniFiConnector:
             "unifi_connected": 1,
             "unifi_sites": site_count,
             "unifi_status": "LIVE",
+            "unifi_devices": device_count,
             "unifi_alerts": len(active_unifi_alerts),
             "unifi_returned_alerts": len(alerts),
             "unifi_resolved_alerts": resolved_unifi_alerts,
@@ -827,6 +915,7 @@ class TelemetryEngine(threading.Thread):
                     "wan_health": 0,
                     "unifi_connected": 0,
                     "unifi_sites": 0,
+                    "unifi_devices": 0,
                     "unifi_alerts": 0,
                     "unifi_returned_alerts": 0,
                     "unifi_resolved_alerts": 0,
@@ -877,6 +966,7 @@ class TelemetryEngine(threading.Thread):
         critical = sum(int(r.get("critical", 0)) for r in results)
         unifi_connected = sum(int(r.get("unifi_connected", 0)) for r in results)
         unifi_sites = sum(int(r.get("unifi_sites", 0)) for r in results)
+        unifi_devices = sum(int(r.get("unifi_devices", 0)) for r in results)
         unifi_alerts = sum(int(r.get("unifi_alerts", 0)) for r in results)
         unifi_returned_alerts = sum(int(r.get("unifi_returned_alerts", r.get("unifi_alerts", 0))) for r in results)
         unifi_resolved_alerts = sum(int(r.get("unifi_resolved_alerts", 0)) for r in results)
@@ -929,6 +1019,7 @@ class TelemetryEngine(threading.Thread):
                 "wan_health": wan_health,
                 "unifi_connected": unifi_connected,
                 "unifi_sites": unifi_sites,
+                "unifi_devices": unifi_devices,
                 "unifi_alerts": unifi_alerts,
                 "unifi_returned_alerts": unifi_returned_alerts,
                 "unifi_resolved_alerts": unifi_resolved_alerts,
@@ -1031,6 +1122,7 @@ class SentinelApp(tk.Tk):
         for label, key, color in [
             ("UniFi", "unifi_status", BLUE),
             ("UniFi sites", "unifi_sites", GREEN),
+            ("UniFi devices", "unifi_devices", BLUE),
             ("Active UniFi alerts", "unifi_alerts", AMBER),
             ("Healthy sites", "unifi_healthy_sites", GREEN),
             ("Degraded sites", "unifi_degraded_sites", AMBER),
@@ -1389,7 +1481,7 @@ class SentinelApp(tk.Tk):
         state_text, state_color = self.overall_state(m)
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
-        unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
+        unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi devices {m.get('unifi_devices', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
         self.state_detail.config(text=f"{m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Active {m.get('active_alerts', m.get('alerts', 0))} • Returned {m.get('returned_alerts', 0)} • Resolved/closed {m.get('resolved_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
