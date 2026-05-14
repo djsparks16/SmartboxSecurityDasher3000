@@ -1099,6 +1099,41 @@ class SentinelApp(tk.Tk):
         return "CLEAR", GREEN
 
 
+
+    def _on_feed_configure(self, event=None):
+        if hasattr(self, "feed_canvas"):
+            self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
+
+    def _on_feed_canvas_configure(self, event):
+        if hasattr(self, "feed_canvas") and hasattr(self, "feed_window"):
+            self.feed_canvas.itemconfigure(self.feed_window, width=event.width)
+
+    def _feed_mousewheel(self, event):
+        if hasattr(self, "feed_canvas"):
+            delta = -1 * int(event.delta / 120) if event.delta else 0
+            self.feed_canvas.yview_scroll(delta, "units")
+
+    def _feed_mousewheel_linux_up(self, event):
+        if hasattr(self, "feed_canvas"):
+            self.feed_canvas.yview_scroll(-3, "units")
+
+    def _feed_mousewheel_linux_down(self, event):
+        if hasattr(self, "feed_canvas"):
+            self.feed_canvas.yview_scroll(3, "units")
+
+    def _bind_feed_mousewheel(self, event=None):
+        if hasattr(self, "feed_canvas"):
+            self.feed_canvas.bind_all("<MouseWheel>", self._feed_mousewheel)
+            self.feed_canvas.bind_all("<Button-4>", self._feed_mousewheel_linux_up)
+            self.feed_canvas.bind_all("<Button-5>", self._feed_mousewheel_linux_down)
+
+    def _unbind_feed_mousewheel(self, event=None):
+        if hasattr(self, "feed_canvas"):
+            self.feed_canvas.unbind_all("<MouseWheel>")
+            self.feed_canvas.unbind_all("<Button-4>")
+            self.feed_canvas.unbind_all("<Button-5>")
+
+
     def connector_enabled(self, section):
         return bool(self.cfg.get(section, {}).get("enabled", False))
 
