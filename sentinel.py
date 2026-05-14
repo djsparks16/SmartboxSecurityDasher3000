@@ -27,7 +27,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-APP_NAME = "Smartbox Security by Marc"
+APP_NAME = "Smartbox Security Dasher 3000"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -690,11 +690,21 @@ class UniFiConnector:
         return "unknown"
 
     def _site_status_from_counts(self, total, offline, degraded):
+        """Classify a UniFi site without exaggerating partial device failures.
+
+        CRITICAL means the whole site appears offline.
+        DEGRADED means the site is reachable but has offline/degraded devices.
+        HEALTHY means all mapped devices look online.
+        """
+        total = int(total or 0)
+        offline = int(offline or 0)
+        degraded = int(degraded or 0)
+
         if total <= 0:
             return "VISIBLE"
-        if offline > 0:
+        if offline >= total:
             return "CRITICAL"
-        if degraded > 0:
+        if offline > 0 or degraded > 0:
             return "DEGRADED"
         return "HEALTHY"
 
@@ -926,7 +936,7 @@ class UniFiConnector:
             events.append({
                 "severity": "info",
                 "title": "UniFi Site Manager API live",
-                "detail": f"{site_count} site(s), {device_count} nested device(s), {host_group_count} device group(s), {host_count} host(s).{trace_bit}",
+                "detail": f"Polled /v1/sites, /v1/devices, /v1/hosts. Joined sites to device groups by hostId. {site_count} site(s), {device_count} nested device(s), {host_group_count} device group(s), {host_count} host(s).{trace_bit}",
                 "source": "UniFi",
             })
 
@@ -1456,7 +1466,7 @@ class SentinelApp(tk.Tk):
             ("UniFi devices", "unifi_devices", BLUE),
             ("UniFi alerts", "unifi_alerts", AMBER),
             ("Healthy", "unifi_healthy_sites", GREEN),
-            ("Degraded", "unifi_degraded_sites", AMBER),
+            ("Degraded sites", "unifi_degraded_sites", AMBER),
             ("Offline sites", "unifi_critical_sites", RED),
         ]:
             box = tk.Frame(self.unifi_bar, bg=PANEL)
@@ -2182,7 +2192,7 @@ class SentinelApp(tk.Tk):
                 network_state, network_color = "GOOD", GREEN
             self.network_status_big.config(text=network_state, fg=network_color)
             self.network_status_detail.config(
-                text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} offline • {degraded_sites} degraded • {network_devices} network devices",
+                text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} site offline • {degraded_sites} site degraded • {network_devices} network devices",
                 fg=network_color if network_state != "GOOD" else TEXT
             )
 
@@ -2416,15 +2426,15 @@ class SentinelApp(tk.Tk):
             network_state, network_color = "GOOD", GREEN
         self.unifi_tab_status_big.config(text=network_state, fg=network_color)
         self.unifi_tab_status_hint.config(
-            text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} offline • {degraded_sites} degraded • {network_devices} devices",
+            text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} site offline • {degraded_sites} site degraded • {network_devices} devices",
             fg=network_color if network_state != "GOOD" else "#8FD7B9"
         )
         sites = m.get("unifi_site_health", []) or []
         uni_lines = [
             f"Network site status: {network_state}",
-            f"UniFi sites: {total_sites} | devices: {network_devices} | offline sites: {offline_sites} | degraded sites: {degraded_sites} | alerts: {m.get('unifi_alerts', 0)}",
+            f"UniFi sites: {total_sites} | devices: {network_devices} | fully offline sites: {offline_sites} | degraded sites: {degraded_sites} | alerts: {m.get('unifi_alerts', 0)}",
             "",
-            "Site inventory",
+            "Site inventory. CRITICAL = all devices offline. DEGRADED = partial device issue.",
             "-" * 110,
         ]
         if not sites:
