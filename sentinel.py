@@ -30,6 +30,7 @@ from tkinter import ttk, messagebox, filedialog
 APP_NAME = "Smartbox Security Dasher 3000"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
 BG = "#0A0C10"
 PANEL = "#141922"
@@ -67,6 +68,31 @@ def compact_json_sample(obj, limit=2):
     if isinstance(obj, dict):
         return obj
     return obj
+
+
+def parse_dt_safe(value):
+    if not value:
+        return None
+    try:
+        raw = str(value).replace("Z", "+00:00")
+        return dt.datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def days_since(value):
+    parsed = parse_dt_safe(value)
+    if not parsed:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return (dt.datetime.now(dt.timezone.utc) - parsed).days
+
+
+def short_ts(value):
+    if not value:
+        return ""
+    return str(value).replace("T", " ").replace("Z", "")[:19]
 
 
 class SecretBox:
@@ -263,6 +289,55 @@ class MicrosoftGraphConnector:
         return not any(word in raw for word in resolved_words)
 
 
+
+    def device_row(self, device):
+        last_sync = device.get("lastSyncDateTime") or ""
+        return {
+            "name": device.get("deviceName") or device.get("azureADDeviceId") or device.get("id") or "unknown device",
+            "user": device.get("userPrincipalName") or device.get("emailAddress") or "",
+            "os": device.get("operatingSystem") or "",
+            "model": device.get("model") or "",
+            "manufacturer": device.get("manufacturer") or "",
+            "compliance": device.get("complianceState") or "",
+            "last_sync": last_sync,
+            "last_sync_days": days_since(last_sync),
+            "encrypted": device.get("isEncrypted"),
+            "jailbroken": device.get("jailBroken"),
+            "management_agent": device.get("managementAgent") or "",
+            "ownership": device.get("managedDeviceOwnerType") or device.get("ownerType") or "",
+        }
+
+    def alert_time(self, alert):
+        for key in ("createdDateTime", "lastUpdateDateTime", "lastUpdatedDateTime", "firstActivityDateTime", "lastActivityDateTime", "eventDateTime", "createdTime", "lastUpdateTime"):
+            if alert.get(key):
+                return alert.get(key)
+        return ""
+
+    def app_key(self, app):
+        return "|".join([
+            str(app.get("displayName") or app.get("name") or "").strip().lower(),
+            str(app.get("version") or "").strip().lower(),
+            str(app.get("publisher") or "").strip().lower(),
+        ])
+
+    def load_software_cache(self):
+        try:
+            if SOFTWARE_CACHE_FILE.exists():
+                data = json.loads(SOFTWARE_CACHE_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return set(data.get("keys", []))
+        except Exception:
+            pass
+        return set()
+
+    def save_software_cache(self, keys):
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            SOFTWARE_CACHE_FILE.write_text(json.dumps({"updated": now_iso(), "keys": sorted(keys)}, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+
     def fetch(self):
         if not self.enabled():
             return None
@@ -273,6 +348,7 @@ class MicrosoftGraphConnector:
         # Full paged Intune inventory and Graph security alerts.
         devices_url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=100"
         graph_alerts_url = "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=100"
+        detected_apps_url = "https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$top=100"
 
         # Dedicated Defender for Endpoint API. This normally needs Defender API permissions on the app:
         # Alert.Read.All and optionally Machine.Read.All for deeper enrichment later.
@@ -282,11 +358,13 @@ class MicrosoftGraphConnector:
         devices = []
         graph_alerts = []
         defender_alerts = []
+        detected_apps = []
         events = []
 
         device_error = None
         graph_alert_error = None
         defender_alert_error = None
+        detected_apps_error = None
 
         try:
             devices = self.graph_get_all(devices_url, headers=graph_headers, max_pages=100)
@@ -308,6 +386,17 @@ class MicrosoftGraphConnector:
                 "title": "Microsoft Graph security alerts query failed",
                 "detail": graph_alert_error[:180],
                 "source": "Graph Security",
+            })
+
+        try:
+            detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=50)
+        except Exception as e:
+            detected_apps_error = str(e)
+            events.append({
+                "severity": "info",
+                "title": "Detected apps inventory unavailable",
+                "detail": detected_apps_error[:180],
+                "source": "Microsoft Graph",
             })
 
         try:
@@ -339,6 +428,38 @@ class MicrosoftGraphConnector:
             d for d in devices
             if str(d.get("complianceState", "")).lower() not in ("compliant", "unknown", "")
         ]
+        stale_30 = [
+            d for d in devices
+            if (days_since(d.get("lastSyncDateTime")) is not None and days_since(d.get("lastSyncDateTime")) >= 30)
+        ]
+        unencrypted = [
+            d for d in devices
+            if d.get("isEncrypted") is False
+        ]
+        jailbroken = [
+            d for d in devices
+            if str(d.get("jailBroken") or "").strip().lower() not in ("", "false", "no", "0", "unknown")
+        ]
+        no_user = [
+            d for d in devices
+            if not (d.get("userPrincipalName") or d.get("emailAddress"))
+        ]
+
+        app_keys = {self.app_key(a) for a in detected_apps if self.app_key(a)}
+        previous_app_keys = self.load_software_cache()
+        newly_seen_keys = app_keys - previous_app_keys if previous_app_keys else set()
+        new_software = [
+            {
+                "displayName": a.get("displayName") or a.get("name") or "Unknown app",
+                "version": a.get("version") or "",
+                "publisher": a.get("publisher") or "",
+                "deviceCount": a.get("deviceCount") or 0,
+                "sizeInByte": a.get("sizeInByte") or 0,
+            }
+            for a in detected_apps
+            if self.app_key(a) in newly_seen_keys
+        ][:100]
+        self.save_software_cache(app_keys)
 
         graph_active = [a for a in graph_alerts if self.is_alert_active(a)]
         defender_active = [a for a in defender_alerts if self.is_alert_active(a)]
@@ -359,18 +480,22 @@ class MicrosoftGraphConnector:
             sev = str(a.get("severity", "medium")).lower()
             status = a.get("status") or a.get("classification") or "unknown"
             device = a.get("computerDnsName") or a.get("machineId") or "unknown device"
+            alert_ts = self.alert_time(a)
             events.append({
                 "severity": "critical" if sev in ("high", "critical") else "medium" if sev == "medium" else "info",
                 "title": a.get("title", "Microsoft Defender alert"),
-                "detail": f"{device} | {status} | {a.get('category', 'Defender')}",
+                "detail": f"{short_ts(alert_ts)} | {device} | {status} | {a.get('category', 'Defender')}",
+                "timestamp": alert_ts,
                 "source": "Defender for Endpoint",
             })
 
         for a in graph_active[:10]:
+            alert_ts = self.alert_time(a)
             events.append({
                 "severity": "critical" if str(a.get("severity", "")).lower() in ("high", "critical") else "medium",
                 "title": a.get("title", "Microsoft security alert"),
-                "detail": f"{a.get('serviceSource', 'Graph')} | {a.get('status', 'unknown')}",
+                "detail": f"{short_ts(alert_ts)} | {a.get('serviceSource', 'Graph')} | {a.get('status', 'unknown')}",
+                "timestamp": alert_ts,
                 "source": "Graph Security",
             })
 
@@ -380,6 +505,19 @@ class MicrosoftGraphConnector:
             "detail": f"{len(devices)} devices: Windows {os_counts['windows']}, iOS/iPadOS {os_counts['ios']}, macOS {os_counts['macos']}, Android {os_counts['android']}, Other {os_counts['other']}",
             "source": "Microsoft Graph",
         })
+        events.insert(1, {
+            "severity": "info" if len(stale_30) == 0 and len(unencrypted) == 0 else "medium",
+            "title": "Intune device posture summary",
+            "detail": f"{len(noncompliant)} non-compliant, {len(stale_30)} not contacted 30+ days, {len(unencrypted)} unencrypted, {len(jailbroken)} jailbroken/rooted flags.",
+            "source": "Microsoft Graph",
+        })
+        if detected_apps:
+            events.insert(2, {
+                "severity": "info" if not new_software else "medium",
+                "title": "Detected software inventory loaded",
+                "detail": f"{len(detected_apps)} detected apps. {len(new_software)} newly observed since local baseline.",
+                "source": "Microsoft Graph",
+            })
 
         if defender_alerts:
             events.insert(1, {
@@ -404,6 +542,25 @@ class MicrosoftGraphConnector:
             "android": os_counts["android"],
             "other_os": os_counts["other"],
             "noncompliant": len(noncompliant),
+            "stale_30_count": len(stale_30),
+            "unencrypted_count": len(unencrypted),
+            "jailbroken_count": len(jailbroken),
+            "no_user_count": len(no_user),
+            "noncompliant_devices": [self.device_row(d) for d in noncompliant[:200]],
+            "stale_devices": [self.device_row(d) for d in stale_30[:200]],
+            "unencrypted_devices": [self.device_row(d) for d in unencrypted[:200]],
+            "jailbroken_devices": [self.device_row(d) for d in jailbroken[:100]],
+            "detected_app_count": len(detected_apps),
+            "new_software_count": len(new_software),
+            "new_software": new_software,
+            "detected_apps": [
+                {
+                    "displayName": a.get("displayName") or a.get("name") or "Unknown app",
+                    "version": a.get("version") or "",
+                    "publisher": a.get("publisher") or "",
+                    "deviceCount": a.get("deviceCount") or 0,
+                } for a in detected_apps[:300]
+            ],
             "alerts": total_active_alerts,
             "active_alerts": total_active_alerts,
             "returned_alerts": total_alerts_returned,
@@ -760,6 +917,25 @@ class UniFiConnector:
         except Exception:
             hosts = []
 
+        clients = []
+        traffic_items = []
+        client_endpoint_note = "client endpoint not exposed by this Site Manager API"
+        traffic_endpoint_note = "traffic endpoint not exposed by this Site Manager API"
+        for path in ("/v1/clients", "/v1/client-devices"):
+            try:
+                clients, _ = self._get_paged(base, headers, path, page_size=500, max_pages=20)
+                client_endpoint_note = f"{path} returned {len(clients)} item(s)"
+                break
+            except Exception:
+                clients = []
+        for path in ("/v1/traffic", "/v1/traffic-stats", "/v1/insights/traffic"):
+            try:
+                traffic_items, _ = self._get_paged(base, headers, path, page_size=500, max_pages=10)
+                traffic_endpoint_note = f"{path} returned {len(traffic_items)} item(s)"
+                break
+            except Exception:
+                traffic_items = []
+
         site_count = len(sites)
         host_group_count = len(device_groups)
         host_count = len(hosts)
@@ -940,6 +1116,13 @@ class UniFiConnector:
                 "source": "UniFi",
             })
 
+        events.append({
+            "severity": "info",
+            "title": "UniFi client and traffic probe",
+            "detail": f"{client_endpoint_note}; {traffic_endpoint_note}.",
+            "source": "UniFi",
+        })
+
         if unmatched_groups:
             events.append({
                 "severity": "medium",
@@ -1002,6 +1185,10 @@ class UniFiConnector:
             "unifi_sites": site_count,
             "unifi_status": "LIVE",
             "unifi_devices": device_count,
+            "unifi_clients": len(clients),
+            "unifi_traffic_items": len(traffic_items),
+            "unifi_client_note": client_endpoint_note,
+            "unifi_traffic_note": traffic_endpoint_note,
             "unifi_alerts": len(active_unifi_alerts),
             "unifi_returned_alerts": len(alerts),
             "unifi_resolved_alerts": resolved_unifi_alerts,
@@ -1185,6 +1372,7 @@ class TelemetryEngine(threading.Thread):
             "title": title,
             "status": status,
             "detail": detail,
+            "timestamp": event.get("timestamp", ""),
         }
 
 
@@ -1197,6 +1385,18 @@ class TelemetryEngine(threading.Thread):
                     "noncompliant": 0,
                     "compliant_devices": 0,
                     "compliance_percent": 0,
+                    "stale_30_count": 0,
+                    "unencrypted_count": 0,
+                    "jailbroken_count": 0,
+                    "no_user_count": 0,
+                    "noncompliant_devices": [],
+                    "stale_devices": [],
+                    "unencrypted_devices": [],
+                    "jailbroken_devices": [],
+                    "detected_app_count": 0,
+                    "new_software_count": 0,
+                    "new_software": [],
+                    "detected_apps": [],
                     "alerts": 0,
                     "active_alerts": 0,
                     "returned_alerts": 0,
@@ -1213,6 +1413,10 @@ class TelemetryEngine(threading.Thread):
                     "unifi_connected": 0,
                     "unifi_sites": 0,
                     "unifi_devices": 0,
+                    "unifi_clients": 0,
+                    "unifi_traffic_items": 0,
+                    "unifi_client_note": "",
+                    "unifi_traffic_note": "",
                     "unifi_alerts": 0,
                     "unifi_returned_alerts": 0,
                     "unifi_resolved_alerts": 0,
@@ -1253,6 +1457,25 @@ class TelemetryEngine(threading.Thread):
         noncompliant = sum(int(r.get("noncompliant", 0)) for r in results)
         compliant_devices = max(0, devices - noncompliant)
         compliance_percent = int((compliant_devices / max(devices, 1)) * 100) if devices else 0
+        stale_30_count = sum(int(r.get("stale_30_count", 0)) for r in results)
+        unencrypted_count = sum(int(r.get("unencrypted_count", 0)) for r in results)
+        jailbroken_count = sum(int(r.get("jailbroken_count", 0)) for r in results)
+        no_user_count = sum(int(r.get("no_user_count", 0)) for r in results)
+        noncompliant_devices = []
+        stale_devices = []
+        unencrypted_devices = []
+        jailbroken_devices = []
+        detected_apps = []
+        new_software = []
+        for r in results:
+            noncompliant_devices.extend(r.get("noncompliant_devices", []) or [])
+            stale_devices.extend(r.get("stale_devices", []) or [])
+            unencrypted_devices.extend(r.get("unencrypted_devices", []) or [])
+            jailbroken_devices.extend(r.get("jailbroken_devices", []) or [])
+            detected_apps.extend(r.get("detected_apps", []) or [])
+            new_software.extend(r.get("new_software", []) or [])
+        detected_app_count = sum(int(r.get("detected_app_count", 0)) for r in results)
+        new_software_count = sum(int(r.get("new_software_count", 0)) for r in results)
         alerts = sum(int(r.get("alerts", 0)) for r in results)
         active_alerts = sum(int(r.get("active_alerts", r.get("alerts", 0))) for r in results)
         returned_alerts = sum(int(r.get("returned_alerts", r.get("alerts", 0))) for r in results)
@@ -1272,6 +1495,10 @@ class TelemetryEngine(threading.Thread):
         unifi_connected = sum(int(r.get("unifi_connected", 0)) for r in results)
         unifi_sites = sum(int(r.get("unifi_sites", 0)) for r in results)
         unifi_devices = sum(int(r.get("unifi_devices", 0)) for r in results)
+        unifi_clients = sum(int(r.get("unifi_clients", 0)) for r in results)
+        unifi_traffic_items = sum(int(r.get("unifi_traffic_items", 0)) for r in results)
+        unifi_client_note = "; ".join([str(r.get("unifi_client_note", "")) for r in results if r.get("unifi_client_note")])
+        unifi_traffic_note = "; ".join([str(r.get("unifi_traffic_note", "")) for r in results if r.get("unifi_traffic_note")])
         unifi_alerts = sum(int(r.get("unifi_alerts", 0)) for r in results)
         unifi_returned_alerts = sum(int(r.get("unifi_returned_alerts", r.get("unifi_alerts", 0))) for r in results)
         unifi_resolved_alerts = sum(int(r.get("unifi_resolved_alerts", 0)) for r in results)
@@ -1315,6 +1542,18 @@ class TelemetryEngine(threading.Thread):
                 "noncompliant": noncompliant,
                 "compliant_devices": compliant_devices,
                 "compliance_percent": compliance_percent,
+                "stale_30_count": stale_30_count,
+                "unencrypted_count": unencrypted_count,
+                "jailbroken_count": jailbroken_count,
+                "no_user_count": no_user_count,
+                "noncompliant_devices": noncompliant_devices[:500],
+                "stale_devices": stale_devices[:500],
+                "unencrypted_devices": unencrypted_devices[:500],
+                "jailbroken_devices": jailbroken_devices[:200],
+                "detected_app_count": detected_app_count,
+                "new_software_count": new_software_count,
+                "new_software": new_software[:300],
+                "detected_apps": detected_apps[:500],
                 "alerts": active_alerts,
                 "active_alerts": active_alerts,
                 "returned_alerts": returned_alerts,
@@ -1332,6 +1571,10 @@ class TelemetryEngine(threading.Thread):
                 "unifi_connected": unifi_connected,
                 "unifi_sites": unifi_sites,
                 "unifi_devices": unifi_devices,
+                "unifi_clients": unifi_clients,
+                "unifi_traffic_items": unifi_traffic_items,
+                "unifi_client_note": unifi_client_note,
+                "unifi_traffic_note": unifi_traffic_note,
                 "unifi_alerts": unifi_alerts,
                 "unifi_returned_alerts": unifi_returned_alerts,
                 "unifi_resolved_alerts": unifi_resolved_alerts,
@@ -1372,8 +1615,11 @@ class SentinelApp(tk.Tk):
         self.alert_breakdown_labels = {}
         self.unifi_labels = {}
         self.connector_widgets = {}
-        self.focus_cards = {"defender": {}, "intune": {}, "unifi": {}}
+        self.focus_cards = {"defender": {}, "intune": {}, "unifi": {}, "software": {}}
         self.last_payload = None
+        self.trend_history = {"defender": [], "compliance": [], "network": []}
+        self.trend_canvases = {}
+        self.trend_labels = {}
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
@@ -1428,11 +1674,13 @@ class SentinelApp(tk.Tk):
         self.tab_defender = tk.Frame(self.main_tabs, bg=BG)
         self.tab_intune = tk.Frame(self.main_tabs, bg=BG)
         self.tab_unifi = tk.Frame(self.main_tabs, bg=BG)
+        self.tab_software = tk.Frame(self.main_tabs, bg=BG)
 
         self.main_tabs.add(self.tab_overview, text="Overview")
         self.main_tabs.add(self.tab_defender, text="Defender")
         self.main_tabs.add(self.tab_intune, text="Intune")
         self.main_tabs.add(self.tab_unifi, text="UniFi")
+        self.main_tabs.add(self.tab_software, text="Software")
 
         body = tk.Frame(self.tab_overview, bg=BG)
         body.pack(fill="both", expand=True, pady=(12, 0))
@@ -1442,6 +1690,24 @@ class SentinelApp(tk.Tk):
         tk.Label(self.overview_focus_bar, text="Operational summary", bg=GLASS, fg=MUTED, font=("Segoe UI Variable Text", 9, "bold")).pack(anchor="w", padx=14, pady=(10, 2))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=("Segoe UI", 11, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 10))
+
+        self.trend_strip = tk.Frame(body, bg=BG)
+        self.trend_strip.pack(fill="x", pady=(0, 12))
+        for title, key, color in [
+            ("Defender active trend", "defender", AMBER),
+            ("Compliance gap trend", "compliance", BLUE),
+            ("Offline site trend", "network", PURPLE),
+        ]:
+            panel = tk.Frame(self.trend_strip, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
+            panel.pack(side="left", fill="x", expand=True, padx=(0, 8))
+            tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=("Segoe UI Variable Display", 18, "bold"))
+            val.pack(anchor="w", padx=12)
+            c = tk.Canvas(panel, height=52, bg=GLASS, highlightthickness=0)
+            c.pack(fill="x", padx=10, pady=(0, 8))
+            self.trend_labels[key] = val
+            self.trend_canvases[key] = (c, color)
+
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
         right = tk.Frame(body, bg=BG, width=360)
@@ -1576,7 +1842,7 @@ class SentinelApp(tk.Tk):
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune and UniFi tabs. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software tabs. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground=HAIRLINE)
@@ -1704,6 +1970,22 @@ class SentinelApp(tk.Tk):
         self.focus_card(row_b, "UniFi alerts", AMBER, "unifi", "unifi_alerts")
 
         self.unifi_text = self.text_panel(unifi_wrap, "UniFi site and connector detail")
+
+
+        # Software tab
+        software_wrap = tk.Frame(self.tab_software, bg=BG)
+        software_wrap.pack(fill="both", expand=True, padx=6, pady=6)
+        tk.Label(software_wrap, text="Software change view", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=8, pady=(0, 12))
+
+        sw_row = tk.Frame(software_wrap, bg=BG)
+        sw_row.pack(fill="x")
+        self.focus_card(sw_row, "Detected apps", BLUE, "software", "detected_app_count")
+        self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
+        self.focus_card(sw_row, "Stale Intune devices", PURPLE, "software", "stale_30_count")
+        self.focus_card(sw_row, "Unencrypted devices", RED, "software", "unencrypted_count")
+        self.software_text = self.text_panel(software_wrap, "Software and device-change inventory")
+
 
     def card(self, parent, row, col, title, key, color):
         f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground=HAIRLINE)
@@ -2226,7 +2508,7 @@ class SentinelApp(tk.Tk):
             offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
             total_sites = int(m.get("unifi_sites", 0) or 0)
             self.overview_focus_text.config(
-                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   UniFi: {total_sites} sites, {offline_sites} offline"
+                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   Software: {m.get('new_software_count', 0)} newly observed   •   UniFi: {total_sites} sites, {offline_sites} offline"
             )
 
         self.spark.append(m.get("alerts", 0))
@@ -2260,10 +2542,43 @@ class SentinelApp(tk.Tk):
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
         self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | Intune devices: {m.get('devices', 0)} | compliance gap: {m.get('noncompliant', 0)}")
 
+    def draw_trend(self, key, values, color):
+        if key not in self.trend_canvases:
+            return
+        canvas, _ = self.trend_canvases[key]
+        canvas.delete("all")
+        w = max(canvas.winfo_width(), 160)
+        h = max(canvas.winfo_height(), 52)
+        canvas.create_line(0, h - 6, w, h - 6, fill="#263142")
+        if len(values) < 2:
+            return
+        vmax = max(max(values), 1)
+        points = []
+        for i, value in enumerate(values[-40:]):
+            x = (i / max(len(values[-40:]) - 1, 1)) * (w - 8) + 4
+            y = h - 8 - ((value / vmax) * (h - 16))
+            points.append((x, y))
+        for i in range(1, len(points)):
+            canvas.create_line(points[i-1][0], points[i-1][1], points[i][0], points[i][1], fill=color, width=2, smooth=True)
+        canvas.create_oval(points[-1][0]-3, points[-1][1]-3, points[-1][0]+3, points[-1][1]+3, fill=color, outline=color)
+
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
         rows = payload.get("alert_rows", []) or []
         events = payload.get("events", []) or []
+
+        self.trend_history["defender"].append(int(m.get("defender_alerts", 0) or 0))
+        self.trend_history["compliance"].append(int(m.get("noncompliant", 0) or 0))
+        self.trend_history["network"].append(int(m.get("unifi_critical_sites", 0) or 0))
+        for k in self.trend_history:
+            self.trend_history[k] = self.trend_history[k][-80:]
+        if "defender" in self.trend_labels:
+            self.trend_labels["defender"].config(text=str(m.get("defender_alerts", 0)))
+            self.trend_labels["compliance"].config(text=str(m.get("noncompliant", 0)))
+            self.trend_labels["network"].config(text=str(m.get("unifi_critical_sites", 0)))
+            self.draw_trend("defender", self.trend_history["defender"], AMBER)
+            self.draw_trend("compliance", self.trend_history["compliance"], BLUE)
+            self.draw_trend("network", self.trend_history["network"], PURPLE)
 
         # Defender focused cards
         for key, card in self.focus_cards["defender"].items():
@@ -2311,7 +2626,9 @@ class SentinelApp(tk.Tk):
             src = str(r.get("source", ""))
             title = str(r.get("title", ""))
             detail = str(r.get("detail", ""))
-            line = f"[{status:<15}] {sev:<8} | {src:<22} | {title}"
+            ts = short_ts(r.get("timestamp", ""))
+            prefix = f"{ts:<19} | " if ts else " " * 22
+            line = f"{prefix}{status:<15} | {sev:<8} | {src:<22} | {title}"
             if detail:
                 line += f"\n    {detail}"
             def_lines.append(line)
@@ -2353,11 +2670,19 @@ class SentinelApp(tk.Tk):
         noncompliant = int(m.get("noncompliant", 0) or 0)
         compliant = int(m.get("compliant_devices", max(0, total - noncompliant)) or 0)
         pct = int(m.get("compliance_percent", 0) or 0)
+        stale = int(m.get("stale_30_count", 0) or 0)
+        unencrypted = int(m.get("unencrypted_count", 0) or 0)
+        jailbroken = int(m.get("jailbroken_count", 0) or 0)
+        no_user = int(m.get("no_user_count", 0) or 0)
         int_lines = [
             f"Total Intune devices : {total}",
             f"Compliant devices    : {compliant}",
             f"Non-compliant devices: {noncompliant}",
             f"Compliance rate      : {pct}%",
+            f"Not contacted 30+ days: {stale}",
+            f"Unencrypted devices  : {unencrypted}",
+            f"Jailbreak/root flags : {jailbroken}",
+            f"No primary user/email : {no_user}",
             "",
             "Platform breakdown",
             "-" * 90,
@@ -2366,6 +2691,30 @@ class SentinelApp(tk.Tk):
             f"Mac          : {m.get('macos', 0)}",
             f"Android      : {m.get('android', 0)}",
             f"Other OS     : {m.get('other_os', 0)}",
+            "",
+            "Non-compliant devices",
+            "-" * 90,
+        ]
+        if not m.get("noncompliant_devices"):
+            int_lines.append("No non-compliant device sample returned.")
+        for d in (m.get("noncompliant_devices", []) or [])[:80]:
+            int_lines.append(f"{d.get('name','unknown'):<32} | {d.get('os',''):<10} | {d.get('user',''):<34} | {d.get('compliance','')} | last sync {short_ts(d.get('last_sync',''))}")
+        int_lines += [
+            "",
+            "Devices not contacted for 30+ days",
+            "-" * 90,
+        ]
+        if not m.get("stale_devices"):
+            int_lines.append("No stale device sample returned.")
+        for d in (m.get("stale_devices", []) or [])[:80]:
+            days = d.get("last_sync_days")
+            int_lines.append(f"{d.get('name','unknown'):<32} | {d.get('os',''):<10} | {days if days is not None else '?'} days | {d.get('user','')} | last sync {short_ts(d.get('last_sync',''))}")
+        int_lines += [
+            "",
+            "Device security posture flags",
+            "-" * 90,
+            f"Unencrypted sample count: {len(m.get('unencrypted_devices', []) or [])}",
+            f"Jailbreak/root sample count: {len(m.get('jailbroken_devices', []) or [])}",
             "",
             "Context",
             "-" * 90,
@@ -2433,6 +2782,8 @@ class SentinelApp(tk.Tk):
         uni_lines = [
             f"Network site status: {network_state}",
             f"UniFi sites: {total_sites} | devices: {network_devices} | fully offline sites: {offline_sites} | degraded sites: {degraded_sites} | alerts: {m.get('unifi_alerts', 0)}",
+            f"Client probe: {m.get('unifi_client_note', 'not checked')}",
+            f"Traffic probe: {m.get('unifi_traffic_note', 'not checked')}",
             "",
             "Site inventory. CRITICAL = all devices offline. DEGRADED = partial device issue.",
             "-" * 110,
@@ -2455,6 +2806,50 @@ class SentinelApp(tk.Tk):
                     line += f"\n    {detail}"
                 uni_lines.append(line)
         self.set_text_widget(self.unifi_text, "\n".join(uni_lines))
+
+        # Software / change focused cards
+        for key, card in self.focus_cards["software"].items():
+            val = m.get(key, 0)
+            color = card["base"]
+            hint = "live"
+            if key == "new_software_count":
+                color = AMBER if int(val or 0) > 0 else GREEN
+                hint = "new to this local dashboard baseline"
+            elif key == "detected_app_count":
+                color = BLUE if int(val or 0) > 0 else MUTED
+                hint = "Intune detected apps inventory"
+            elif key == "stale_30_count":
+                color = AMBER if int(val or 0) > 0 else GREEN
+                hint = "devices not contacted 30+ days"
+            elif key == "unencrypted_count":
+                color = RED if int(val or 0) > 0 else GREEN
+                hint = "devices reporting not encrypted"
+            card["value"].config(text=str(val), fg=color)
+            card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
+            card["frame"].config(highlightbackground=color)
+
+        sw_lines = [
+            "Software detection source: Microsoft Graph deviceManagement/detectedApps",
+            "Important: Graph detectedApps usually does not include install timestamp.",
+            "Newly observed means: app/version/publisher was not present in this dashboard's previous local baseline.",
+            "",
+            f"Detected apps: {m.get('detected_app_count', 0)}",
+            f"Newly observed apps: {m.get('new_software_count', 0)}",
+            "",
+            "Newly observed software",
+            "-" * 100,
+        ]
+        if not m.get("new_software"):
+            sw_lines.append("No newly observed apps since the local baseline was created.")
+        for app in (m.get("new_software", []) or [])[:150]:
+            sw_lines.append(f"{app.get('displayName','Unknown app'):<45} | {app.get('version',''):<18} | {app.get('publisher',''):<28} | devices {app.get('deviceCount', 0)}")
+        sw_lines += ["", "Detected software inventory sample", "-" * 100]
+        if not m.get("detected_apps"):
+            sw_lines.append("No detected app inventory returned. Check Graph DeviceManagementManagedDevices.Read.All / DeviceManagementApps.Read.All permissions if needed.")
+        for app in (m.get("detected_apps", []) or [])[:250]:
+            sw_lines.append(f"{app.get('displayName','Unknown app'):<45} | {app.get('version',''):<18} | {app.get('publisher',''):<28} | devices {app.get('deviceCount', 0)}")
+        self.set_text_widget(self.software_text, "\n".join(sw_lines))
+
 
     def draw_spark(self):
         if not hasattr(self, "canvas"):
