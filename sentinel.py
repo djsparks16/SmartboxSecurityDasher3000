@@ -1884,24 +1884,24 @@ class SentinelApp(tk.Tk):
         self.hero_strip.pack(fill="x", pady=(0, 8))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
-        self.hero_priority_shell.configure(height=128)
+        self.hero_priority_shell.configure(height=164)
         self.hero_priority_shell.pack_propagate(False)
         self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
         hero_top = tk.Frame(self.hero_priority_panel, bg=PANEL)
         hero_top.pack(fill="x", padx=16, pady=(12, 0))
-        tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="left")
+        tk.Label(hero_top, text="Critical focus", bg=PANEL, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(side="left")
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
-        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 24, "bold"))
-        self.hero_priority_value.pack(anchor="w", padx=16, pady=(10, 0))
-        self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), justify="left")
-        self.hero_priority_detail.pack(anchor="w", padx=16, pady=(4, 0))
-        self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="", bg=PANEL, fg="#7BE7C8", font=(self.font_ui, 9, "bold"), justify="left")
-        self.hero_priority_meta.pack(anchor="w", padx=16, pady=(6, 10))
+        self.hero_priority_value = tk.Label(self.hero_priority_panel, text="Awaiting telemetry", bg=PANEL, fg=TEXT, font=(self.font_display, 34, "bold"))
+        self.hero_priority_value.pack(anchor="w", padx=18, pady=(14, 0))
+        self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="Waiting for first live read.", bg=PANEL, fg=MUTED, font=(self.font_ui, 12, "bold"), justify="left")
+        self.hero_priority_detail.pack(anchor="w", padx=18, pady=(6, 0))
+        self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="", bg=PANEL, fg="#7BE7C8", font=(self.font_ui, 10, "bold"), justify="left")
+        self.hero_priority_meta.pack(anchor="w", padx=18, pady=(8, 10))
 
         self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
-        self.heartbeat_shell.configure(height=128)
+        self.heartbeat_shell.configure(height=164)
         self.heartbeat_shell.pack_propagate(False)
         self.heartbeat_shell.pack(side="left", fill="x", expand=True, padx=(0, 0), pady=2)
 
@@ -1912,7 +1912,7 @@ class SentinelApp(tk.Tk):
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
-        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=72, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=104, bg=GLASS, highlightthickness=0, bd=0)
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
@@ -2001,7 +2001,8 @@ class SentinelApp(tk.Tk):
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
-        cards.pack(fill="x")
+        # Legacy KPI grid hidden on Overview. Status cards + graphs now carry the front page.
+        # cards.pack(fill="x")
         for i in range(4):
             cards.grid_columnconfigure(i, weight=1)
         self.card(cards, 0, 0, "Defender priority", "priority_state", ORANGE)
@@ -2242,6 +2243,45 @@ class SentinelApp(tk.Tk):
                 fid = ""
             parts["draw"](active=(fid == current))
 
+    def _tree_sort_value(self, raw):
+        value = "" if raw is None else str(raw).strip()
+        if value == "":
+            return (2, "")
+
+        # Numeric sort first.
+        try:
+            cleaned = value.replace(",", "").replace("%", "")
+            return (0, float(cleaned))
+        except Exception:
+            pass
+
+        # ISO-ish dates and common timestamp strings sort acceptably as text
+        # once normalized to lowercase.
+        return (1, value.lower())
+
+    def sort_treeview(self, tree, column, reverse=False):
+        try:
+            rows = []
+            for item in tree.get_children(""):
+                rows.append((self._tree_sort_value(tree.set(item, column)), item))
+            rows.sort(reverse=reverse)
+            for index, (_, item) in enumerate(rows):
+                tree.move(item, "", index)
+
+            # Toggle sort direction on next click.
+            for col in tree["columns"]:
+                heading = tree.heading(col).get("text", col)
+                heading = heading.replace(" ▲", "").replace(" ▼", "")
+                if col == column:
+                    heading += " ▼" if not reverse else " ▲"
+                tree.heading(
+                    col,
+                    text=heading,
+                    command=lambda c=col, r=(not reverse): self.sort_treeview(tree, c, r),
+                )
+        except Exception:
+            pass
+
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
@@ -2253,7 +2293,7 @@ class SentinelApp(tk.Tk):
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
         for key, label, width in columns:
-            tree.heading(key, text=label)
+            tree.heading(key, text=label, command=lambda c=key: self.sort_treeview(tree, c, False))
             tree.column(key, width=width, anchor="w", stretch=True)
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
@@ -3102,8 +3142,8 @@ class SentinelApp(tk.Tk):
                     RED if offline else AMBER if degraded else GREEN,
                 ),
                 "overview_software": (
-                    "CACHED" if "429" in software_state or "backoff" in software_state else "WATCHING",
-                    f"{m.get('detected_app_count', 0)} detected apps, {software_new} newly observed",
+                    "GRAPH THROTTLED" if "429" in software_state or "backoff" in software_state else "WATCHING",
+                    f"{m.get('detected_app_count', 0)} detected apps returned this run, {software_new} newly observed",
                     ORANGE if "429" in software_state or "backoff" in software_state else BLUE,
                 ),
             }
@@ -3713,12 +3753,15 @@ class SentinelApp(tk.Tk):
             elif key == "detected_apps_source":
                 color = BLUE if str(val or "").lower() not in ("", "unavailable") else AMBER
                 hint = "Graph source: v1.0, beta, cache, empty or unavailable"
+                if str(val or "").lower() == "unavailable":
+                    color = ORANGE
+                    hint = "detectedApps did not return usable data this run"
             elif key == "software_issue_state":
                 raw = str(val or "ok").lower()
                 if "429" in raw or "backoff" in raw:
-                    val = "Cached"
+                    val = "Throttled"
                     color = ORANGE
-                    hint = "Microsoft throttled detectedApps; cached inventory is being shown"
+                    hint = "Microsoft Graph returned 429 for detectedApps"
                 elif raw == "ok":
                     val = "OK"
                     color = GREEN
@@ -3757,7 +3800,8 @@ class SentinelApp(tk.Tk):
             f"Detected apps returned/cached this run: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
             f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
-            "429 means Microsoft Graph is throttling detectedApps. This is expected on heavy tenants; cached inventory is shown and the app backs off for 30 minutes.",
+            "429 means Microsoft Graph is throttling detectedApps. This is a real Microsoft Graph response, not simulated dashboard data.",
+            "If detected apps is 0 with a 429, this run did not get usable detectedApps data and no usable local cache was available.",
             "If count is exactly 1000, Graph may be returning a page/window or cached sample. This is not necessarily broken.",
             "",
             "Newly observed software",
