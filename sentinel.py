@@ -1931,12 +1931,12 @@ class SentinelApp(tk.Tk):
             ("Software", "overview_software", GREEN),
         ]:
             shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-            shell.configure(height=162)
+            shell.configure(height=178)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(6, 10))
 
             card_body = tk.Frame(panel, bg=PANEL)
-            card_body.pack(fill="both", expand=True, padx=22, pady=14)
+            card_body.pack(fill="both", expand=True, padx=22, pady=16)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
@@ -1954,7 +1954,7 @@ class SentinelApp(tk.Tk):
             tk.Label(title_col, text=micro_text, bg=PANEL, fg="#58C7FF", font=(self.font_ui, 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
 
             value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"), anchor="w")
-            value.pack(fill="x", pady=(12, 4))
+            value.pack(fill="x", pady=(14, 4))
             detail = tk.Label(card_body, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 9), wraplength=520, justify="left", anchor="w")
             detail.pack(fill="x")
 
@@ -2284,8 +2284,8 @@ class SentinelApp(tk.Tk):
             sizes = {
                 "hero_priority_shell": 142 if compact else 150,
                 "heartbeat_shell": 142 if compact else 150,
-                "overview_defender_feed_shell": 224 if compact else 238,
-                "overview_full_feed_shell": (220 if compact else 246) + extra,
+                "overview_defender_feed_shell": 214 if compact else 232,
+                "overview_full_feed_shell": (214 if compact else 240) + extra,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2336,17 +2336,17 @@ class SentinelApp(tk.Tk):
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FF7D97", background="#23172A")
-                tree.tag_configure("high", foreground="#FFB96C", background="#211E2E")
-                tree.tag_configure("warn", foreground="#FFE16A", background="#17263A")
-                tree.tag_configure("good", foreground="#80FF88", background="#0A2A28")
-                tree.tag_configure("info", foreground="#67D7FF", background="#09243A")
+                tree.tag_configure("bad", foreground="#FF7D97", background="#241526")
+                tree.tag_configure("high", foreground="#FFB96C", background="#221D25")
+                tree.tag_configure("warn", foreground="#FFE16A", background="#1D2531")
+                tree.tag_configure("good", foreground="#88FF8A", background="#0B2A25")
+                tree.tag_configure("info", foreground="#65D6FF", background="#09243A")
                 tree.tag_configure("alt", foreground="#DCEBFA", background="#0B2033")
-                tree.tag_configure("sev_critical", foreground="#FF7895", background="#1A182C")
-                tree.tag_configure("sev_high", foreground="#FFB66B", background="#171E30")
-                tree.tag_configure("sev_medium", foreground="#FFE36E", background="#16243A")
+                tree.tag_configure("sev_critical", foreground="#FF7895", background="#241526")
+                tree.tag_configure("sev_high", foreground="#FFB66B", background="#221D25")
+                tree.tag_configure("sev_medium", foreground="#FFE36E", background="#1D2531")
                 tree.tag_configure("sev_info", foreground="#65D1FF", background="#092235")
-                tree.tag_configure("sev_low", foreground="#8DFF82", background="#0A2730")
+                tree.tag_configure("sev_low", foreground="#8DFF82", background="#0B2A25")
             except Exception:
                 pass
 
@@ -2592,10 +2592,10 @@ class SentinelApp(tk.Tk):
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
-        tree.tag_configure("bad", foreground="#FF7895", background="#1A182C")
-        tree.tag_configure("warn", foreground="#FFE36E", background="#16243A")
-        tree.tag_configure("high", foreground="#FFB66B", background="#171E30")
-        tree.tag_configure("good", foreground="#8DFF82", background="#0A2730")
+        tree.tag_configure("bad", foreground="#FF7895", background="#241526")
+        tree.tag_configure("warn", foreground="#FFE36E", background="#1D2531")
+        tree.tag_configure("high", foreground="#FFB66B", background="#221D25")
+        tree.tag_configure("good", foreground="#8DFF82", background="#0B2A25")
         tree.tag_configure("info", foreground="#65D1FF", background="#092235")
         tree.tag_configure("alt", foreground="#DCEBFA", background="#0B1F31")
         tree.pack(side="left", fill="both", expand=True)
@@ -2711,6 +2711,23 @@ class SentinelApp(tk.Tk):
 
     def _event_visual_tag(self, severity, source, title, detail):
         text = " ".join(str(x).lower() for x in (severity, source, title, detail))
+        src = str(source or "").lower()
+        title_l = str(title or "").lower()
+
+        # UniFi health rows mention healthy/degraded/critical counts in one sentence.
+        # Do not turn every UniFi row red just because the detail contains the word
+        # critical; reserve red for true offline/down/failure rows.
+        if "unifi" in src:
+            if any(x in text for x in ("offline", " down", "failed", "failure")):
+                return "bad"
+            if "site health calculated" in title_l:
+                return "warn" if any(x in text for x in ("degraded", "critical 1", "critical 2", "critical 3", "critical 4", "critical 5")) else "good"
+            if any(x in text for x in ("degraded", "warning", "mapping incomplete")):
+                return "warn"
+            if any(x in text for x in ("api live", "healthy", "connected", "not configured", "returned no active", "calculated")):
+                return "good"
+            return "info"
+
         if any(x in text for x in ("offline", "critical", " down", "failed")):
             return "bad"
         if any(x in text for x in ("degraded", "medium", "non-compliant", "noncompliant", "unencrypted", "stale", "throttled", "warning")):
@@ -2727,20 +2744,23 @@ class SentinelApp(tk.Tk):
 
     def _table_tag_from_values(self, values, fallback=None):
         text = " ".join(str(v).lower() for v in values)
+        # Respect explicit calculated tags first. This keeps UniFi healthy/degraded/
+        # offline rows correctly green/yellow/red instead of being hijacked by
+        # detail text like "offline 0".
+        if fallback in ("bad", "high", "warn", "good", "info", "sev_critical", "sev_high", "sev_medium", "sev_info", "sev_low"):
+            return fallback
         # Colour the data, not the whole dashboard. Tags use dark glass backgrounds
         # with brighter foregrounds so rows read like signal lanes instead of slabs.
-        if any(x in text for x in ("critical", " crit ", "unencrypted", "jailbreak/root", "offline")):
+        if any(x in text for x in ("offline", "critical", " crit ", "unencrypted", "jailbreak/root")):
             return "bad"
         if any(x in text for x in (" high ", "high / critical")):
             return "high"
         if any(x in text for x in ("medium", " med ", "noncompliant", "non-compliant", "stale", "degraded", "throttled", "no primary")):
             return "warn"
-        if any(x in text for x in ("active", "healthy", "compliant", " ok ", "clear", "connected")):
+        if any(x in text for x in ("active", "healthy", "compliant", " ok ", "clear", "connected", "loaded")):
             return "good"
         if any(x in text for x in ("info", "graph", "microsoft", "unifi", "intune")):
             return "info"
-        if fallback in ("bad", "high", "warn", "good", "info", "sev_critical", "sev_high", "sev_medium", "sev_info", "sev_low"):
-            return fallback
         return None
 
     def insert_table_row(self, tree, values, tag=None):
@@ -4316,7 +4336,7 @@ class SentinelApp(tk.Tk):
             self.clear_table(self.intune_noncompliant_table)
             for d in (m.get("noncompliant_devices", []) or [])[:500]:
                 self.insert_table_row(self.intune_noncompliant_table, [
-                    d.get("name", "unknown"),
+                    "👤  " + str(d.get("name", "unknown")),
                     d.get("os", ""),
                     d.get("user", ""),
                     d.get("compliance", ""),
@@ -4326,7 +4346,7 @@ class SentinelApp(tk.Tk):
             self.clear_table(self.intune_stale_table)
             for d in (m.get("stale_devices", []) or [])[:500]:
                 self.insert_table_row(self.intune_stale_table, [
-                    d.get("name", "unknown"),
+                    "🥖  " + str(d.get("name", "unknown")),
                     d.get("os", ""),
                     d.get("last_sync_days", ""),
                     d.get("user", ""),
@@ -4336,16 +4356,16 @@ class SentinelApp(tk.Tk):
             self.clear_table(self.intune_posture_table)
             for d in (m.get("unencrypted_devices", []) or [])[:300]:
                 self.insert_table_row(self.intune_posture_table, [
-                    "Unencrypted",
-                    d.get("name", "unknown"),
+                    "🔑  Unencrypted",
+                    "👤  " + str(d.get("name", "unknown")),
                     d.get("os", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
                 ], tag="bad")
             for d in (m.get("jailbroken_devices", []) or [])[:200]:
                 self.insert_table_row(self.intune_posture_table, [
-                    "Jailbreak/root flag",
-                    d.get("name", "unknown"),
+                    "⚠  Jailbreak/root flag",
+                    "👤  " + str(d.get("name", "unknown")),
                     d.get("os", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
@@ -4424,10 +4444,10 @@ class SentinelApp(tk.Tk):
             if uni_rows:
                 for r in uni_rows[:250]:
                     sev = str(r.get("severity", "INFO")).upper()
-                    tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" else "info"
+                    tag = self._event_visual_tag(sev, "UniFi", r.get("title", ""), r.get("detail", ""))
                     self.insert_table_row(self.unifi_notes_table, [
                         sev,
-                        r.get("title", ""),
+                        "📶  " + str(r.get("title", "")),
                         r.get("detail", ""),
                     ], tag=tag)
             else:
