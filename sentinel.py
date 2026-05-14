@@ -374,7 +374,7 @@ class MicrosoftGraphConnector:
             events.insert(1, {
                 "severity": "critical" if defender_high else "medium",
                 "title": "Microsoft Defender alerts live",
-                "detail": f"{len(defender_active)} active Defender alert(s), {len(defender_resolved)} resolved/closed returned, {len(defender_high)} high/critical active.",
+                "detail": f"{len(defender_active)} active Defender alert(s), {defender_resolved} resolved/closed returned, {len(defender_high)} high/critical active.",
                 "source": "Defender for Endpoint",
             })
 
@@ -894,6 +894,27 @@ class TelemetryEngine(threading.Thread):
         return "CLEAR", 0, "no active findings"
 
 
+
+    def event_to_alert_row(self, event):
+        source = str(event.get("source", "Unknown"))
+        severity = str(event.get("severity", "info")).upper()
+        title = str(event.get("title", ""))
+        detail = str(event.get("detail", ""))
+        status = "ACTIVE"
+        lowered = (title + " " + detail).lower()
+        if any(word in lowered for word in ("resolved", "closed", "dismissed", "remediated", "cleared", "archived")):
+            status = "RESOLVED/CLOSED"
+        if "inventory loaded" in lowered or "api live" in lowered or "site health calculated" in lowered:
+            status = "INFO"
+        return {
+            "source": source,
+            "severity": severity,
+            "title": title,
+            "status": status,
+            "detail": detail,
+        }
+
+
     def correlate(self, results, errors):
         if not results:
             return {
@@ -948,6 +969,7 @@ class TelemetryEngine(threading.Thread):
                         "source": "Connector health",
                     } for e in errors[:4]
                 ],
+                "alert_rows": [],
                 "sources": {"live": [], "simulated": [], "errors": errors},
             }
 
@@ -999,7 +1021,8 @@ class TelemetryEngine(threading.Thread):
             events.extend(r.get("events", []))
         for e in errors[:4]:
             events.append({"severity": "medium", "title": f"{e['source']} connector degraded", "detail": e["error"][:160], "source": "Connector health"})
-        events = events[:12]
+        alert_rows = [self.event_to_alert_row(e) for e in events[:100]]
+        events = events[:100]
         return {
             "timestamp": now_iso(),
             "metrics": {
@@ -1039,6 +1062,7 @@ class TelemetryEngine(threading.Thread):
                 "priority_reason": priority_reason,
             },
             "events": events,
+            "alert_rows": alert_rows,
             "sources": {"live": live_sources, "simulated": sim_sources, "errors": errors},
         }
 
@@ -1166,8 +1190,28 @@ class SentinelApp(tk.Tk):
             self.platform_labels[key] = val
 
 
-        self.canvas = tk.Canvas(left, bg=PANEL, highlightthickness=0, height=165)
-        self.canvas.pack(fill="both", expand=True, pady=(18, 0))
+        self.alert_table_panel = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.alert_table_panel.pack(fill="both", expand=True, pady=(12, 0))
+
+        table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
+        table_header.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(table_header, text="Connector alert table", bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(side="left")
+        self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold"))
+        self.alert_table_summary.pack(side="right")
+
+        self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=260)
+        self.alert_table_scrollbar = tk.Scrollbar(self.alert_table_panel, orient="vertical", command=self.alert_table_canvas.yview, bg=PANEL, troughcolor=BG)
+        self.alert_table_canvas.configure(yscrollcommand=self.alert_table_scrollbar.set)
+        self.alert_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 10))
+        self.alert_table_scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 10))
+
+        self.alert_table = tk.Frame(self.alert_table_canvas, bg=PANEL)
+        self.alert_table_window = self.alert_table_canvas.create_window((0, 0), window=self.alert_table, anchor="nw")
+        self.alert_table.bind("<Configure>", self._on_alert_table_configure)
+        self.alert_table_canvas.bind("<Configure>", self._on_alert_table_canvas_configure)
+        self.alert_table_canvas.bind("<Enter>", self._bind_alert_table_mousewheel)
+        self.alert_table_canvas.bind("<Leave>", self._unbind_alert_table_mousewheel)
+
         self.spark = []
 
         tk.Label(right, text="Verified signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
@@ -1263,6 +1307,81 @@ class SentinelApp(tk.Tk):
             return "ACTION", AMBER
         return "CLEAR", GREEN
 
+
+
+
+    def _on_alert_table_configure(self, event=None):
+        if hasattr(self, "alert_table_canvas"):
+            self.alert_table_canvas.configure(scrollregion=self.alert_table_canvas.bbox("all"))
+
+    def _on_alert_table_canvas_configure(self, event):
+        if hasattr(self, "alert_table_canvas") and hasattr(self, "alert_table_window"):
+            self.alert_table_canvas.itemconfigure(self.alert_table_window, width=event.width)
+
+    def _alert_table_mousewheel(self, event):
+        if hasattr(self, "alert_table_canvas"):
+            delta = -1 * int(event.delta / 120) if event.delta else 0
+            self.alert_table_canvas.yview_scroll(delta, "units")
+
+    def _alert_table_mousewheel_linux_up(self, event):
+        if hasattr(self, "alert_table_canvas"):
+            self.alert_table_canvas.yview_scroll(-3, "units")
+
+    def _alert_table_mousewheel_linux_down(self, event):
+        if hasattr(self, "alert_table_canvas"):
+            self.alert_table_canvas.yview_scroll(3, "units")
+
+    def _bind_alert_table_mousewheel(self, event=None):
+        if hasattr(self, "alert_table_canvas"):
+            self.alert_table_canvas.bind_all("<MouseWheel>", self._alert_table_mousewheel)
+            self.alert_table_canvas.bind_all("<Button-4>", self._alert_table_mousewheel_linux_up)
+            self.alert_table_canvas.bind_all("<Button-5>", self._alert_table_mousewheel_linux_down)
+
+    def _unbind_alert_table_mousewheel(self, event=None):
+        if hasattr(self, "alert_table_canvas"):
+            self.alert_table_canvas.unbind_all("<MouseWheel>")
+            self.alert_table_canvas.unbind_all("<Button-4>")
+            self.alert_table_canvas.unbind_all("<Button-5>")
+
+    def render_alert_table(self, rows, metrics):
+        if not hasattr(self, "alert_table"):
+            return
+        for child in self.alert_table.winfo_children():
+            child.destroy()
+
+        summary = f"Active {metrics.get('active_alerts', metrics.get('alerts', 0))} • Returned {metrics.get('returned_alerts', 0)} • Resolved/closed {metrics.get('resolved_alerts', 0)}"
+        self.alert_table_summary.config(text=summary)
+
+        headers = [("Connector", 18), ("Severity", 10), ("Status", 14), ("Alert / finding", 42)]
+        header_row = tk.Frame(self.alert_table, bg="#182136")
+        header_row.pack(fill="x", pady=(0, 2))
+        for title, width in headers:
+            tk.Label(header_row, text=title, bg="#182136", fg=MUTED, font=("Segoe UI", 8, "bold"), width=width, anchor="w").pack(side="left", padx=4, pady=5)
+
+        sev_color = {"CRITICAL": RED, "HIGH": RED, "MEDIUM": AMBER, "INFO": BLUE, "LOW": GREEN}
+        active_rows = rows[:120]
+        if not active_rows:
+            empty = tk.Frame(self.alert_table, bg=PANEL)
+            empty.pack(fill="x", pady=4)
+            tk.Label(empty, text="No live alert rows returned by configured connectors.", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=8, pady=8)
+        for row in active_rows:
+            sev = str(row.get("severity", "INFO")).upper()
+            color = sev_color.get(sev, BLUE)
+            status = str(row.get("status", "ACTIVE"))
+            bg = "#121827" if status != "RESOLVED/CLOSED" else "#101522"
+            r = tk.Frame(self.alert_table, bg=bg, highlightthickness=1, highlightbackground="#22304C")
+            r.pack(fill="x", pady=2)
+            tk.Label(r, text=row.get("source", ""), bg=bg, fg=TEXT, font=("Segoe UI", 8, "bold"), width=18, anchor="w").pack(side="left", padx=4, pady=5)
+            tk.Label(r, text=sev, bg=bg, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=4, pady=5)
+            tk.Label(r, text=status, bg=bg, fg=GREEN if status == "ACTIVE" else MUTED, font=("Segoe UI", 8, "bold"), width=14, anchor="w").pack(side="left", padx=4, pady=5)
+            text_value = row.get("title", "")
+            detail = row.get("detail", "")
+            if detail:
+                text_value = f"{text_value} | {detail}"
+            tk.Label(r, text=text_value, bg=bg, fg=TEXT if status == "ACTIVE" else MUTED, font=("Segoe UI", 8), anchor="w", justify="left", wraplength=620).pack(side="left", fill="x", expand=True, padx=4, pady=5)
+
+        self.alert_table.update_idletasks()
+        self.alert_table_canvas.configure(scrollregion=self.alert_table_canvas.bbox("all"))
 
 
     def _on_feed_configure(self, event=None):
@@ -1487,7 +1606,7 @@ class SentinelApp(tk.Tk):
 
         self.spark.append(m.get("alerts", 0))
         self.spark = self.spark[-80:]
-        self.draw_spark()
+        self.render_alert_table(payload.get("alert_rows", []), m)
 
         for child in self.feed.winfo_children():
             child.destroy()
@@ -1516,6 +1635,8 @@ class SentinelApp(tk.Tk):
         self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
+        if not hasattr(self, "canvas"):
+            return
         self.canvas.delete("all")
         w = max(10, self.canvas.winfo_width())
         h = max(10, self.canvas.winfo_height())
