@@ -1,6 +1,6 @@
 
 """
-Smartbox Sentinel PoC
+Smartbox Security by Marc PoC
 A single-file desktop dashboard for hackathon demos.
 
 Runs with: python sentinel.py
@@ -27,25 +27,25 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
-APP_NAME = "Smartbox Security Dasher 3000"
+APP_NAME = "Smartbox Security by Marc"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#080B10"
-PANEL = "#111821"
-PANEL_2 = "#1B2430"
+BG = "#090C12"
+PANEL = "#121923"
+PANEL_2 = "#1A2431"
 TEXT = "#F7F9FC"
-MUTED = "#9AA8BA"
-BLUE = "#7CC7FF"
-GREEN = "#63E6BE"
-AMBER = "#FFD166"
-RED = "#FF6B81"
-PURPLE = "#C7A7FF"
-GLASS = "#0F151D"
-HAIRLINE = "#263241"
-GLASS_2 = "#0C1219"
-ROW_ALT = "#151C27"
+MUTED = "#A3AEC0"
+BLUE = "#77C8FF"
+GREEN = "#5BE4B3"
+AMBER = "#FFD36A"
+RED = "#FF637D"
+PURPLE = "#C8A8FF"
+GLASS = "#101720"
+HAIRLINE = "#243244"
+GLASS_2 = "#0D131B"
+ROW_ALT = "#151E2A"
 
 
 def now_iso():
@@ -359,7 +359,7 @@ class MicrosoftGraphConnector:
             SOFTWARE_CACHE_FILE.write_text(json.dumps({
                 "updated": now_iso(),
                 "keys": sorted(keys),
-                "apps": apps[:1000],
+                "apps": apps[:20000],
                 "source": source,
                 "last_error": last_error,
                 "backoff_until": backoff_until,
@@ -455,10 +455,10 @@ class MicrosoftGraphConnector:
             })
         else:
             try:
-                detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=15)
+                detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=120)
                 if not detected_apps:
                     try:
-                        beta_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=15)
+                        beta_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=120)
                         if beta_apps:
                             detected_apps = beta_apps
                             detected_apps_source = "beta"
@@ -469,7 +469,7 @@ class MicrosoftGraphConnector:
                 backoff_until = self.backoff_from_error(detected_apps_error, minutes=30)
                 try:
                     if not backoff_until:
-                        detected_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=15)
+                        detected_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=120)
                         detected_apps_source = "beta"
                     else:
                         detected_apps = software_state.get("apps", []) or []
@@ -636,7 +636,7 @@ class MicrosoftGraphConnector:
             "detected_apps_error": detected_apps_error or "",
             "new_software_count": len(new_software),
             "new_software": new_software,
-            "detected_apps": normalised_apps[:300],
+            "detected_apps": normalised_apps[:20000],
             "alerts": total_active_alerts,
             "active_alerts": total_active_alerts,
             "returned_alerts": total_alerts_returned,
@@ -1635,7 +1635,7 @@ class TelemetryEngine(threading.Thread):
                 "detected_apps_error": detected_apps_error,
                 "new_software_count": new_software_count,
                 "new_software": new_software[:300],
-                "detected_apps": detected_apps[:500],
+                "detected_apps": detected_apps[:20000],
                 "alerts": active_alerts,
                 "active_alerts": active_alerts,
                 "returned_alerts": returned_alerts,
@@ -1724,22 +1724,23 @@ class SentinelApp(tk.Tk):
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
         style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
-        style.configure("Dasher.TNotebook.Tab", background="#101620", foreground=MUTED, padding=(22, 11), font=("Segoe UI Variable Text", 10, "bold"), borderwidth=0)
+        style.configure("Dasher.TNotebook.Tab", background="#101620", foreground=MUTED, padding=(24, 12), font=("Segoe UI Variable Text", 10, "bold"), borderwidth=0)
         style.map("Dasher.TNotebook.Tab",
-                  background=[("selected", "#1D2836"), ("active", "#17212D")],
+                  background=[("selected", "#223044"), ("active", "#17212D")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
         style.configure("Dasher.Treeview",
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=28,
+                  rowheight=32,
                   borderwidth=0,
+                  relief="flat",
                   font=("Segoe UI", 9))
         style.configure("Dasher.Treeview.Heading",
                   background="#1C2634",
                   foreground=MUTED,
                   relief="flat",
-                  font=("Segoe UI", 8, "bold"))
+                  font=("Segoe UI", 9, "bold"))
         style.map("Dasher.Treeview",
                   background=[("selected", "#24344A")],
                   foreground=[("selected", TEXT)])
@@ -1750,7 +1751,7 @@ class SentinelApp(tk.Tk):
 
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security Dasher 3000", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 30, "bold")).pack(side="left")
+        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 30, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1A2330", fg=TEXT, activebackground="#263347", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
         tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#151D29", fg=TEXT, activebackground="#263347", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
@@ -1784,7 +1785,7 @@ class SentinelApp(tk.Tk):
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 12))
-        tk.Label(self.overview_focus_bar, text="Operational summary", bg=GLASS, fg=MUTED, font=("Segoe UI Variable Text", 9, "bold")).pack(anchor="w", padx=14, pady=(10, 2))
+        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=("Segoe UI Variable Text", 9, "bold")).pack(anchor="w", padx=14, pady=(10, 2))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=("Segoe UI", 11, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 10))
 
@@ -1939,7 +1940,7 @@ class SentinelApp(tk.Tk):
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software tabs. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
 
     def table_panel(self, parent, title, columns, height=9):
         shell = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
@@ -1957,9 +1958,9 @@ class SentinelApp(tk.Tk):
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        tree.tag_configure("bad", foreground=RED, background="#181821")
-        tree.tag_configure("warn", foreground=AMBER, background="#171A20")
-        tree.tag_configure("good", foreground=GREEN, background="#121A20")
+        tree.tag_configure("bad", foreground=RED, background="#1A141B")
+        tree.tag_configure("warn", foreground=AMBER, background="#191813")
+        tree.tag_configure("good", foreground=GREEN, background="#101A17")
         tree.tag_configure("info", foreground=TEXT, background=GLASS_2)
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
@@ -2033,7 +2034,30 @@ class SentinelApp(tk.Tk):
         self.focus_card(row, "Defender active alerts", BLUE, "defender", "defender_alerts")
         self.focus_card(row, "High / critical Defender", RED, "defender", "defender_critical")
         self.focus_card(row, "Graph security context", PURPLE, "defender", "graph_alerts")
-        self.defender_text = self.text_panel(defender_wrap, "Defender and Microsoft security rows")
+        self.defender_tables = ttk.Notebook(defender_wrap, style="Dasher.TNotebook")
+        self.defender_tables.pack(fill="both", expand=True, padx=0, pady=6)
+
+        defender_alert_tab = tk.Frame(self.defender_tables, bg=BG)
+        defender_signal_tab = tk.Frame(self.defender_tables, bg=BG)
+        self.defender_tables.add(defender_alert_tab, text="Security alerts")
+        self.defender_tables.add(defender_signal_tab, text="Signal events")
+
+        self.defender_alert_table = self.table_panel(defender_alert_tab, "Defender / Microsoft security alerts", [
+            ("time", "Time", 150),
+            ("status", "Status", 115),
+            ("severity", "Severity", 90),
+            ("source", "Source", 180),
+            ("title", "Alert / finding", 360),
+            ("detail", "Detail", 420),
+        ], height=17)
+
+        self.defender_signal_table = self.table_panel(defender_signal_tab, "Microsoft security signal feed", [
+            ("time", "Time", 150),
+            ("severity", "Severity", 90),
+            ("source", "Source", 180),
+            ("title", "Signal", 360),
+            ("detail", "Detail", 520),
+        ], height=17)
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
@@ -2132,7 +2156,30 @@ class SentinelApp(tk.Tk):
         self.focus_card(row_b, "Degraded sites", AMBER, "unifi", "unifi_degraded_sites")
         self.focus_card(row_b, "UniFi alerts", AMBER, "unifi", "unifi_alerts")
 
-        self.unifi_text = self.text_panel(unifi_wrap, "UniFi site and connector detail")
+        self.unifi_tables = ttk.Notebook(unifi_wrap, style="Dasher.TNotebook")
+        self.unifi_tables.pack(fill="both", expand=True, padx=0, pady=6)
+
+        unifi_sites_tab = tk.Frame(self.unifi_tables, bg=BG)
+        unifi_notes_tab = tk.Frame(self.unifi_tables, bg=BG)
+        self.unifi_tables.add(unifi_sites_tab, text="Sites")
+        self.unifi_tables.add(unifi_notes_tab, text="Connector notes")
+
+        self.unifi_sites_table = self.table_panel(unifi_sites_tab, "UniFi network sites", [
+            ("site", "Site", 260),
+            ("status", "Status", 100),
+            ("devices", "Devices", 80),
+            ("online", "Online", 80),
+            ("offline", "Offline", 80),
+            ("degraded", "Degraded", 90),
+            ("unknown", "Unknown", 90),
+            ("detail", "Detail", 420),
+        ], height=16)
+
+        self.unifi_notes_table = self.table_panel(unifi_notes_tab, "UniFi connector notes", [
+            ("severity", "Severity", 90),
+            ("title", "Finding", 300),
+            ("detail", "Detail", 700),
+        ], height=16)
 
 
         # Software tab
@@ -2465,7 +2512,7 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "unifi_bar"):
             if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
                 if not self.unifi_bar.winfo_manager():
-                    self.unifi_bar.pack(fill="x", pady=(8, 0), )
+                    self.unifi_bar.pack(fill="x", pady=(8, 0), after=self.network_summary_bar)
             else:
                 if self.unifi_bar.winfo_manager():
                     self.unifi_bar.pack_forget()
@@ -2509,7 +2556,7 @@ class SentinelApp(tk.Tk):
 
     def open_setup(self):
         win = tk.Toplevel(self)
-        win.title("Dasher setup")
+        win.title("Security setup")
         win.geometry("780x690")
         win.configure(bg=BG)
         win.transient(self)
@@ -2797,35 +2844,37 @@ class SentinelApp(tk.Tk):
             if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph"):
                 ms_rows.append(r)
 
-        def_lines = []
-        def_lines.append(f"Defender priority: {m.get('priority_state', 'CLEAR')}")
-        def_lines.append(f"Defender active alerts: {m.get('defender_alerts', 0)} | high/critical: {m.get('defender_critical', 0)} | Graph context: {m.get('graph_alerts', 0)}")
-        def_lines.append("")
-        def_lines.append("Security rows")
-        def_lines.append("-" * 90)
-        if not ms_rows:
-            def_lines.append("No Microsoft security rows returned.")
-        for r in ms_rows[:250]:
-            sev = str(r.get("severity", "INFO")).upper()
-            status = str(r.get("status", "ACTIVE"))
-            src = str(r.get("source", ""))
-            title = str(r.get("title", ""))
-            detail = str(r.get("detail", ""))
-            ts = short_ts(r.get("timestamp", ""))
-            prefix = f"{ts:<19} | " if ts else " " * 22
-            line = f"{prefix}{status:<15} | {sev:<8} | {src:<22} | {title}"
-            if detail:
-                line += f"\n    {detail}"
-            def_lines.append(line)
-        if events:
-            def_lines.append("")
-            def_lines.append("Signal feed")
-            def_lines.append("-" * 90)
-            for e in events[:40]:
-                src = str(e.get("source", ""))
-                if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph", "Microsoft"):
-                    def_lines.append(f"{str(e.get('severity','info')).upper():<8} | {src:<22} | {e.get('title','')}")
-        self.set_text_widget(self.defender_text, "\n".join(def_lines))
+        if hasattr(self, "defender_alert_table"):
+            self.clear_table(self.defender_alert_table)
+            if not ms_rows:
+                self.insert_table_row(self.defender_alert_table, ["", "INFO", "INFO", "Microsoft", "No Microsoft security rows returned", ""], tag="info")
+            for r in ms_rows[:2000]:
+                sev = str(r.get("severity", "INFO")).upper()
+                status = str(r.get("status", "ACTIVE"))
+                src = str(r.get("source", ""))
+                title = str(r.get("title", ""))
+                detail = str(r.get("detail", ""))
+                ts = short_ts(r.get("timestamp", ""))
+                tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" or status == "ACTIVE" else "info"
+                self.insert_table_row(self.defender_alert_table, [ts, status, sev, src, title, detail], tag=tag)
+
+            self.clear_table(self.defender_signal_table)
+            if events:
+                for e in events[:500]:
+                    src = str(e.get("source", ""))
+                    if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph", "Microsoft"):
+                        sev = str(e.get("severity", "info")).upper()
+                        ts = short_ts(e.get("timestamp", ""))
+                        tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" else "info"
+                        self.insert_table_row(self.defender_signal_table, [
+                            ts,
+                            sev,
+                            src,
+                            e.get("title", ""),
+                            e.get("detail", ""),
+                        ], tag=tag)
+            else:
+                self.insert_table_row(self.defender_signal_table, ["", "INFO", "Microsoft", "No signal events returned", ""], tag="info")
 
         # Intune focused cards
         for key, card in self.focus_cards["intune"].items():
@@ -3004,33 +3053,43 @@ class SentinelApp(tk.Tk):
             fg=network_color if network_state != "GOOD" else "#8FD7B9"
         )
         sites = m.get("unifi_site_health", []) or []
-        uni_lines = [
-            f"Network site status: {network_state}",
-            f"UniFi sites: {total_sites} | devices: {network_devices} | fully offline sites: {offline_sites} | degraded sites: {degraded_sites} | alerts: {m.get('unifi_alerts', 0)}",
-            f"Client probe: {m.get('unifi_client_note', 'not checked')}",
-            f"Traffic probe: {m.get('unifi_traffic_note', 'not checked')}",
-            "",
-            "Site inventory. CRITICAL = all devices offline. DEGRADED = partial device issue.",
-            "-" * 110,
-        ]
-        if not sites:
-            uni_lines.append("No UniFi site rows returned.")
-        else:
-            for s in sites[:200]:
-                uni_lines.append(
-                    f"{str(s.get('name','UniFi site')):<28} | {str(s.get('status','VISIBLE')):<8} | total {int(s.get('total',0) or 0):>3} | online {int(s.get('online',0) or 0):>3} | offline {int(s.get('offline',0) or 0):>3} | degraded {int(s.get('degraded',0) or 0):>3} | unknown {int(s.get('unknown',0) or 0):>3}"
-                )
         uni_rows = [r for r in rows if str(r.get("source","")) == "UniFi"]
-        if uni_rows:
-            uni_lines += ["", "UniFi connector notes", "-" * 110]
-            for r in uni_rows[:80]:
-                title = str(r.get("title", ""))
-                detail = str(r.get("detail", ""))
-                line = title
-                if detail:
-                    line += f"\n    {detail}"
-                uni_lines.append(line)
-        self.set_text_widget(self.unifi_text, "\n".join(uni_lines))
+
+        if hasattr(self, "unifi_sites_table"):
+            self.clear_table(self.unifi_sites_table)
+            if not sites:
+                self.insert_table_row(self.unifi_sites_table, ["No UniFi site rows returned", "", "", "", "", "", "", ""], tag="info")
+            for s in sites[:500]:
+                status = str(s.get("status", "VISIBLE")).upper()
+                tag = "bad" if status == "CRITICAL" else "warn" if status == "DEGRADED" else "good" if status == "HEALTHY" else "info"
+                self.insert_table_row(self.unifi_sites_table, [
+                    s.get("name", "UniFi site"),
+                    status,
+                    int(s.get("total", 0) or 0),
+                    int(s.get("online", 0) or 0),
+                    int(s.get("offline", 0) or 0),
+                    int(s.get("degraded", 0) or 0),
+                    int(s.get("unknown", 0) or 0),
+                    s.get("detail", ""),
+                ], tag=tag)
+
+            self.clear_table(self.unifi_notes_table)
+            self.insert_table_row(self.unifi_notes_table, [
+                "INFO",
+                "Polling source",
+                f"/v1/sites + /v1/devices + /v1/hosts; hostId join; client probe: {m.get('unifi_client_note', 'not checked')}; traffic probe: {m.get('unifi_traffic_note', 'not checked')}",
+            ], tag="info")
+            if uni_rows:
+                for r in uni_rows[:250]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = "bad" if sev in ("CRITICAL", "HIGH") else "warn" if sev == "MEDIUM" else "info"
+                    self.insert_table_row(self.unifi_notes_table, [
+                        sev,
+                        r.get("title", ""),
+                        r.get("detail", ""),
+                    ], tag=tag)
+            else:
+                self.insert_table_row(self.unifi_notes_table, ["INFO", "No UniFi connector notes returned", ""], tag="info")
 
         # Software / change focused cards
         for key, card in self.focus_cards["software"].items():
@@ -3055,7 +3114,7 @@ class SentinelApp(tk.Tk):
 
         if hasattr(self, "software_new_table"):
             self.clear_table(self.software_new_table)
-            for app in (m.get("new_software", []) or [])[:500]:
+            for app in (m.get("new_software", []) or [])[:5000]:
                 self.insert_table_row(self.software_new_table, [
                     app.get("displayName", "Unknown app"),
                     app.get("version", ""),
@@ -3063,7 +3122,7 @@ class SentinelApp(tk.Tk):
                     app.get("deviceCount", 0),
                 ], tag="warn")
             self.clear_table(self.software_all_table)
-            for app in (m.get("detected_apps", []) or [])[:1000]:
+            for app in (m.get("detected_apps", []) or [])[:20000]:
                 self.insert_table_row(self.software_all_table, [
                     app.get("displayName", "Unknown app"),
                     app.get("version", ""),
