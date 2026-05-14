@@ -665,20 +665,14 @@ class UniFiConnector:
         critical_sites = sum(1 for s in site_health if s["status"] == "CRITICAL")
         visible_sites = sum(1 for s in site_health if s["status"] == "VISIBLE")
 
-        # Alert endpoints are not guaranteed in every Site Manager API tenant. Try configured path first,
-        # otherwise try /v1/alerts and /v1/events. If those fail, show a clear diagnostic.
+        # UniFi Site Manager v1 docs confirm /v1/sites and /v1/devices pagination.
+        # Alert/event endpoints vary by API surface and tenant. Do not guess and present failures as findings.
+        # Only query alerts when the user provides an Alerts path.
         alerts = []
-        alert_paths = []
         configured_alert_path = self._configured_path(base, c.get("alerts_path", ""))
         if configured_alert_path:
-            alert_paths.append(configured_alert_path)
-        alert_paths.extend([base + "/v1/alerts", base + "/v1/events"])
-
-        for url in alert_paths:
             try:
-                alerts, _ = self._get_paged(base, headers, url, page_size=500, max_pages=20)
-                if alerts:
-                    break
+                alerts, _ = self._get_paged(base, headers, configured_alert_path, page_size=500, max_pages=20)
             except Exception as e:
                 alert_errors.append(str(e)[:140])
 
@@ -718,11 +712,25 @@ class UniFiConnector:
                     "detail": self._alert_detail(alert),
                     "source": "UniFi",
                 })
-        elif alert_errors:
+        elif configured_alert_path and alert_errors:
             events.append({
                 "severity": "medium",
-                "title": "UniFi alert/event endpoint not confirmed",
-                "detail": "Sites/devices worked, but /v1/alerts or /v1/events did not return alert items. Add Alerts path if your tenant uses another endpoint.",
+                "title": "Configured UniFi alerts path failed",
+                "detail": f"Alerts path was configured but did not return alert items: {alert_errors[0]}",
+                "source": "UniFi",
+            })
+        elif configured_alert_path:
+            events.append({
+                "severity": "info",
+                "title": "Configured UniFi alerts path returned no active items",
+                "detail": "The custom alerts path responded but no active UniFi alert/event items were found.",
+                "source": "UniFi",
+            })
+        else:
+            events.append({
+                "severity": "info",
+                "title": "UniFi alerts not configured",
+                "detail": "Site Manager /v1/sites and /v1/devices are live. Add a custom Alerts path only if your UniFi API exposes one.",
                 "source": "UniFi",
             })
 
@@ -904,7 +912,13 @@ class TelemetryEngine(threading.Thread):
         lowered = (title + " " + detail).lower()
         if any(word in lowered for word in ("resolved", "closed", "dismissed", "remediated", "cleared", "archived")):
             status = "RESOLVED/CLOSED"
-        if "inventory loaded" in lowered or "api live" in lowered or "site health calculated" in lowered:
+        if (
+            "inventory loaded" in lowered
+            or "api live" in lowered
+            or "site health calculated" in lowered
+            or "not configured" in lowered
+            or "returned no active items" in lowered
+        ):
             status = "INFO"
         return {
             "source": source,
@@ -1590,7 +1604,11 @@ class SentinelApp(tk.Tk):
         elif hasattr(self, "unifi_site_health_text"):
             self.unifi_site_health_text.config(text="No UniFi site health fields returned yet.", fg=MUTED)
 
-        top_events = [e for e in payload["events"] if str(e.get("severity", "")).lower() in ("critical", "high", "medium")]
+        top_events = [
+            e for e in payload["events"]
+            if str(e.get("severity", "")).lower() in ("critical", "high", "medium")
+            and "not configured" not in str(e.get("title", "")).lower()
+        ]
         if top_events:
             summary = "  •  ".join([f"{e.get('source','')}: {e.get('title','')}" for e in top_events[:3]])
             self.top_issues_text.config(text=summary, fg=TEXT)
