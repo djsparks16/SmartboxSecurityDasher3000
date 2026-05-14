@@ -1955,19 +1955,19 @@ class SentinelApp(tk.Tk):
         self.trend_strip = tk.Frame(body, bg=BG)
         self.trend_strip.pack(fill="x", pady=(0, 8))
         for title, key, color in [
-            ("Defender pulse", "defender", ORANGE),
+            ("Active alerts", "defender", ORANGE),
             ("Intune posture drift", "compliance", BLUE),
             ("UniFi network pulse", "network", RED),
             ("Signal composition", "security_signals", BLUE),
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=20, padding=1)
-            panel_shell.configure(height=116)
+            panel_shell.configure(height=136)
             panel_shell.pack_propagate(False)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(8, 0))
             val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 17, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=78, bg=GLASS, highlightthickness=0, bd=0)
+            c = tk.Canvas(panel, height=92, bg=GLASS, highlightthickness=0, bd=0)
             c.pack(fill="x", padx=10, pady=(0, 10))
             if key == "security_signals":
                 self.security_signals_canvas = c
@@ -2079,9 +2079,9 @@ class SentinelApp(tk.Tk):
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
         tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 22, "bold")).pack(side="left")
-        tk.Label(full_feed_header, text="Sorted: critical first, newest high-signal cards", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(full_feed_header, text="Severity-grouped list · newest first inside each category", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
-        self.overview_full_feed_canvas = tk.Canvas(self.overview_full_feed_panel, bg=GLASS, highlightthickness=0, bd=0, height=260)
+        self.overview_full_feed_canvas = tk.Canvas(self.overview_full_feed_panel, bg=GLASS, highlightthickness=0, bd=0, height=320)
         self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_panel, orient="vertical", command=self.overview_full_feed_canvas.yview)
         self.overview_full_feed_canvas.configure(yscrollcommand=self.overview_full_feed_scrollbar.set)
         self.overview_full_feed_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 12))
@@ -3361,48 +3361,62 @@ class SentinelApp(tk.Tk):
         sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
         sev_color = {"critical": RED, "high": ORANGE, "medium": AMBER, "info": BLUE, "low": GREEN}
         sev_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
-        events = sorted(list(payload.get("events", []) or [])[:160], key=lambda e: (
-            sev_priority.get(str(e.get("severity", "info")).lower(), 9),
-            str(e.get("timestamp", "")),
-        ))
+        events = list(payload.get("events", []) or [])[:200]
+
+        grouped = []
+        for sev_name in ("critical", "high", "medium", "info", "low"):
+            grouped.extend(sorted(
+                [e for e in events if str(e.get("severity", "info")).lower() == sev_name],
+                key=lambda e: str(e.get("timestamp", "")),
+                reverse=True,
+            ))
+        if grouped:
+            events = grouped
 
         if not events:
             tk.Label(frame, text="Waiting for live signal feed data.", bg=GLASS, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(anchor="w", padx=12, pady=12)
             return
 
+        header_shell, header = self.rounded_panel(frame, fill=GLASS_2, border=HAIRLINE, radius=16, padding=1)
+        header_shell.pack(fill="x", pady=(0, 6))
+        header.grid_columnconfigure(0, minsize=92)
+        header.grid_columnconfigure(1, minsize=150)
+        header.grid_columnconfigure(2, minsize=154)
+        header.grid_columnconfigure(3, weight=3)
+        header.grid_columnconfigure(4, weight=4)
+        for col, label, anchor in [
+            (0, "Severity", "w"),
+            (1, "Source", "w"),
+            (2, "Time", "w"),
+            (3, "Alert / finding", "w"),
+            (4, "Detail", "w"),
+        ]:
+            tk.Label(header, text=label, bg=GLASS_2, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor=anchor).grid(row=0, column=col, sticky="ew", padx=10, pady=8)
+
         for idx, event in enumerate(events):
             sev = str(event.get("severity", "info")).lower()
             color = sev_color.get(sev, BLUE)
-            bg = sev_bg.get(sev, PANEL)
+            bg = sev_bg.get(sev, PANEL) if idx % 2 == 0 else GLASS
             src = str(event.get("source", "source"))
-            icon = src[:1].upper() if src else "?"
+            title = str(event.get("title", "event"))
+            detail = str(event.get("detail", ""))
+            when = short_ts(event.get("timestamp", ""))
+            if len(detail) > 180:
+                detail = detail[:177] + "..."
 
-            shell, panel = self.rounded_panel(frame, fill=bg, border=color, radius=18, padding=1)
-            shell.pack(fill="x", pady=5)
+            row_shell, row = self.rounded_panel(frame, fill=bg, border="#2D3C50", radius=14, padding=1)
+            row_shell.pack(fill="x", pady=3)
+            row.grid_columnconfigure(0, minsize=92)
+            row.grid_columnconfigure(1, minsize=150)
+            row.grid_columnconfigure(2, minsize=154)
+            row.grid_columnconfigure(3, weight=3)
+            row.grid_columnconfigure(4, weight=4)
 
-            top = tk.Frame(panel, bg=bg)
-            top.pack(fill="x", padx=12, pady=(10, 4))
-
-            badge = tk.Canvas(top, width=24, height=24, bg=bg, highlightthickness=0, bd=0)
-            badge.pack(side="left", padx=(0, 8))
-            badge.create_oval(2, 2, 22, 22, fill="#162338", outline=color, width=1.2)
-            badge.create_text(12, 12, text=icon, fill=color, font=(self.font_ui, 9, "bold"))
-
-            tk.Label(top, text=sev.upper(), bg=color, fg="#071018", font=(self.font_ui, 8, "bold"), padx=8, pady=2).pack(side="left")
-            tk.Label(top, text=src, bg=bg, fg="#9FB0CB", font=(self.font_ui, 8, "bold")).pack(side="left", padx=(8, 0))
-            tk.Label(top, text=short_ts(event.get("timestamp", "")), bg=bg, fg=MUTED, font=(self.font_ui, 8)).pack(side="right")
-
-            row = tk.Frame(panel, bg=bg)
-            row.pack(fill="x", padx=12, pady=(0, 10))
-            text_col = tk.Frame(row, bg=bg)
-            text_col.pack(side="left", fill="both", expand=True)
-            tk.Label(text_col, text=event.get("title", "event"), bg=bg, fg=TEXT, font=(self.font_ui, 10, "bold"), wraplength=1000, justify="left").pack(anchor="w")
-            tk.Label(text_col, text=event.get("detail", ""), bg=bg, fg=MUTED, font=(self.font_ui, 8), wraplength=1000, justify="left").pack(anchor="w", pady=(3, 0))
-
-            spark = tk.Canvas(row, width=146, height=38, bg=bg, highlightthickness=0, bd=0)
-            spark.pack(side="right", padx=(12, 0))
-            seed = len(str(event.get("title", ""))) + (idx + 1) * 3
-            self.after(30, lambda c=spark, vals=self.make_feed_spark(seed), col=color, b=bg: self.draw_mini_sparkline(c, vals, col, b))
+            tk.Label(row, text=sev.upper(), bg=color, fg="#071018", font=(self.font_ui, 8, "bold"), padx=10, pady=4).grid(row=0, column=0, sticky="w", padx=10, pady=8)
+            tk.Label(row, text=src, bg=bg, fg="#9FB0CB", font=(self.font_ui, 9, "bold"), anchor="w").grid(row=0, column=1, sticky="ew", padx=(2, 10), pady=8)
+            tk.Label(row, text=when, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=2, sticky="ew", padx=10, pady=8)
+            tk.Label(row, text=title, bg=bg, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w", justify="left", wraplength=420).grid(row=0, column=3, sticky="ew", padx=10, pady=8)
+            tk.Label(row, text=detail, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w", justify="left", wraplength=680).grid(row=0, column=4, sticky="ew", padx=(10, 12), pady=8)
 
         try:
             self.overview_full_feed.update_idletasks()
@@ -3415,8 +3429,8 @@ class SentinelApp(tk.Tk):
             return
         canvas, _ = self.trend_canvases[key]
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 360)
-        h = max(canvas.winfo_height(), 104)
+        w = max(canvas.winfo_width(), 400)
+        h = max(canvas.winfo_height(), 118)
         canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
         left, top, right, bottom = 10, 10, w - 10, h - 12
@@ -3446,15 +3460,15 @@ class SentinelApp(tk.Tk):
         flat_area = [coord for p in area for coord in p]
 
         canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray25")
-        canvas.create_line(*flat, fill="#142033", width=8, smooth=True, splinesteps=18)
-        canvas.create_line(*flat, fill=color, width=2.8, smooth=True, splinesteps=18)
+        canvas.create_line(*flat, fill="#142033", width=10, smooth=True, splinesteps=20)
+        canvas.create_line(*flat, fill=color, width=3.2, smooth=True, splinesteps=20)
 
         recent = pts[-6:]
         for px, py in recent:
             canvas.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline=color)
 
         last = vals[-1]
-        canvas.create_text(left + 6, top + 2, text=f"Now {last}", anchor="nw", fill=color, font=(self.font_ui, 8, "bold"))
+        canvas.create_text(left + 6, top + 2, text=f"Live {last}", anchor="nw", fill=color, font=(self.font_ui, 8, "bold"))
         canvas.create_text(right - 2, top + 2, text=f"Peak {vmax}", anchor="ne", fill="#7D8DA6", font=(self.font_ui, 8))
 
     def draw_security_signals(self, values):
@@ -3462,8 +3476,8 @@ class SentinelApp(tk.Tk):
         if not canvas:
             return
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 280)
-        h = max(canvas.winfo_height(), 74)
+        w = max(canvas.winfo_width(), 340)
+        h = max(canvas.winfo_height(), 88)
         canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
         parts = [
@@ -3474,8 +3488,8 @@ class SentinelApp(tk.Tk):
         ]
         total = max(sum(v for _, v, _ in parts), 1)
 
-        left, top, right = 12, 12, w - 12
-        bar_h = 16
+        left, top, right = 12, 14, w - 12
+        bar_h = 18
         canvas.create_rectangle(left, top, right, top + bar_h, fill="#111A2A", outline="#1A2940")
         x = left + 1
         usable = (right - left - 2)
@@ -3485,11 +3499,11 @@ class SentinelApp(tk.Tk):
                 canvas.create_rectangle(x, top + 1, min(right - 1, x + seg), top + bar_h - 1, fill=color, outline="")
                 x += seg
 
-        canvas.create_text(left, top + 24, text=f"Total signals {sum(v for _, v, _ in parts)}", anchor="nw", fill=TEXT, font=(self.font_ui, 8, "bold"))
+        canvas.create_text(left, top + 28, text=f"Live security signals {sum(v for _, v, _ in parts)}", anchor="nw", fill=TEXT, font=(self.font_ui, 8, "bold"))
 
         lx = left
-        ly = top + 46
-        step = max(62, int((w - 24) / 4))
+        ly = top + 56
+        step = max(74, int((w - 24) / 4))
         for i, (label, val, color) in enumerate(parts):
             cx = lx + i * step
             canvas.create_oval(cx, ly - 4, cx + 8, ly + 4, fill=color, outline=color)
