@@ -1978,9 +1978,9 @@ class SentinelApp(tk.Tk):
 
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
-        right = tk.Frame(body, bg=BG, width=360)
-        right.pack(side="right", fill="y", padx=(12, 0))
-        right.pack_propagate(False)
+        # Right-side overview signal rail removed; full signal feed now lives in the main overview body.
+        self.feed = None
+        self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
         self.security_posture_strip.pack(fill="x", pady=(0, 6))
@@ -2090,6 +2090,10 @@ class SentinelApp(tk.Tk):
         self.overview_full_feed_window = self.overview_full_feed_canvas.create_window((0, 0), window=self.overview_full_feed, anchor="nw")
         self.overview_full_feed.bind("<Configure>", lambda e: self.overview_full_feed_canvas.configure(scrollregion=self.overview_full_feed_canvas.bbox("all")))
         self.overview_full_feed_canvas.bind("<Configure>", lambda e: self.overview_full_feed_canvas.itemconfigure(self.overview_full_feed_window, width=e.width))
+        self.overview_full_feed_canvas.bind("<Enter>", self._bind_overview_feed_mousewheel)
+        self.overview_full_feed_canvas.bind("<Leave>", self._unbind_overview_feed_mousewheel)
+        self.overview_full_feed.bind("<Enter>", self._bind_overview_feed_mousewheel)
+        self.overview_full_feed.bind("<Leave>", self._unbind_overview_feed_mousewheel)
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -2129,23 +2133,6 @@ class SentinelApp(tk.Tk):
         self.alert_table_canvas.bind("<Leave>", self._unbind_alert_table_mousewheel)
 
         self.spark = []
-
-        tk.Label(right, text="Signal feed", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w")
-
-        self.feed_canvas = tk.Canvas(right, bg=BG, highlightthickness=0, bd=0)
-        self.feed_scrollbar = tk.Scrollbar(right, orient="vertical", command=self.feed_canvas.yview, bg=PANEL, troughcolor=BG, activebackground="#263347")
-        self.feed_canvas.configure(yscrollcommand=self.feed_scrollbar.set)
-
-        self.feed_canvas.pack(side="left", fill="both", expand=True, pady=(10, 0))
-        self.feed_scrollbar.pack(side="right", fill="y", pady=(10, 0))
-
-        self.feed = tk.Frame(self.feed_canvas, bg=BG)
-        self.feed_window = self.feed_canvas.create_window((0, 0), window=self.feed, anchor="nw")
-
-        self.feed.bind("<Configure>", self._on_feed_configure)
-        self.feed_canvas.bind("<Configure>", self._on_feed_canvas_configure)
-        self.feed_canvas.bind("<Enter>", self._bind_feed_mousewheel)
-        self.feed_canvas.bind("<Leave>", self._unbind_feed_mousewheel)
 
         self._build_focus_tabs()
 
@@ -2852,7 +2839,7 @@ class SentinelApp(tk.Tk):
 
 
     def _on_feed_configure(self, event=None):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
     def _on_feed_canvas_configure(self, event):
@@ -2860,26 +2847,26 @@ class SentinelApp(tk.Tk):
             self.feed_canvas.itemconfigure(self.feed_window, width=event.width)
 
     def _feed_mousewheel(self, event):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             delta = -1 * int(event.delta / 120) if event.delta else 0
             self.feed_canvas.yview_scroll(delta, "units")
 
     def _feed_mousewheel_linux_up(self, event):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             self.feed_canvas.yview_scroll(-3, "units")
 
     def _feed_mousewheel_linux_down(self, event):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             self.feed_canvas.yview_scroll(3, "units")
 
     def _bind_feed_mousewheel(self, event=None):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             self.feed_canvas.bind_all("<MouseWheel>", self._feed_mousewheel)
             self.feed_canvas.bind_all("<Button-4>", self._feed_mousewheel_linux_up)
             self.feed_canvas.bind_all("<Button-5>", self._feed_mousewheel_linux_down)
 
     def _unbind_feed_mousewheel(self, event=None):
-        if hasattr(self, "feed_canvas"):
+        if getattr(self, "feed_canvas", None):
             self.feed_canvas.unbind_all("<MouseWheel>")
             self.feed_canvas.unbind_all("<Button-4>")
             self.feed_canvas.unbind_all("<Button-5>")
@@ -3261,28 +3248,29 @@ class SentinelApp(tk.Tk):
         self.render_overview_full_feed(payload)
         self.default_sort_tables()
 
-        for child in self.feed.winfo_children():
-            child.destroy()
+        if getattr(self, "feed", None) is not None and getattr(self, "feed_canvas", None) is not None:
+            for child in self.feed.winfo_children():
+                child.destroy()
 
-        sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        sev_color = {"critical": RED, "high": ORANGE, "medium": AMBER, "info": BLUE, "low": GREEN}
-        sev_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
-        events = sorted(payload["events"][:100], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
-        for event in events:
-            sev = str(event.get("severity", "info")).lower()
-            color = sev_color.get(sev, BLUE)
-            bg = sev_bg.get(sev, PANEL)
-            f = tk.Frame(self.feed, bg=bg, highlightthickness=1, highlightbackground="#334055")
-            f.pack(fill="x", pady=5)
-            top = tk.Frame(f, bg=bg)
-            top.pack(fill="x", padx=12, pady=(8, 0))
-            tk.Label(top, text=sev.upper(), bg=bg, fg=color, font=(self.font_ui, 8, "bold")).pack(side="left")
-            tk.Label(top, text=event.get("source", "source"), bg=bg, fg="#8D9BB5", font=(self.font_ui, 8, "bold")).pack(side="right")
-            tk.Label(f, text=event.get("title", "event"), bg=bg, fg=TEXT, font=(self.font_ui, 10, "bold"), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(4,0))
-            tk.Label(f, text=event.get("detail", ""), bg=bg, fg=MUTED, font=(self.font_ui, 8), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(0, 8))
+            sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+            sev_color = {"critical": RED, "high": ORANGE, "medium": AMBER, "info": BLUE, "low": GREEN}
+            sev_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
+            events = sorted(payload["events"][:100], key=lambda e: sev_priority.get(str(e.get("severity", "info")).lower(), 9))
+            for event in events:
+                sev = str(event.get("severity", "info")).lower()
+                color = sev_color.get(sev, BLUE)
+                bg = sev_bg.get(sev, PANEL)
+                f = tk.Frame(self.feed, bg=bg, highlightthickness=1, highlightbackground="#334055")
+                f.pack(fill="x", pady=5)
+                top = tk.Frame(f, bg=bg)
+                top.pack(fill="x", padx=12, pady=(8, 0))
+                tk.Label(top, text=sev.upper(), bg=bg, fg=color, font=(self.font_ui, 8, "bold")).pack(side="left")
+                tk.Label(top, text=event.get("source", "source"), bg=bg, fg="#8D9BB5", font=(self.font_ui, 8, "bold")).pack(side="right")
+                tk.Label(f, text=event.get("title", "event"), bg=bg, fg=TEXT, font=(self.font_ui, 10, "bold"), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(4,0))
+                tk.Label(f, text=event.get("detail", ""), bg=bg, fg=MUTED, font=(self.font_ui, 8), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(0, 8))
 
-        self.feed.update_idletasks()
-        self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
+            self.feed.update_idletasks()
+            self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
         self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | Intune devices: {m.get('devices', 0)} | compliance gap: {m.get('noncompliant', 0)}")
