@@ -32,19 +32,19 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#0A0C10"
-PANEL = "#141922"
+BG = "#080B10"
+PANEL = "#111821"
 PANEL_2 = "#1B2430"
-TEXT = "#F7F8FA"
-MUTED = "#9BA6B6"
+TEXT = "#F7F9FC"
+MUTED = "#9AA8BA"
 BLUE = "#7CC7FF"
 GREEN = "#63E6BE"
 AMBER = "#FFD166"
 RED = "#FF6B81"
 PURPLE = "#C7A7FF"
-GLASS = "#10151D"
-HAIRLINE = "#242D3A"
-GLASS_2 = "#0F141C"
+GLASS = "#0F151D"
+HAIRLINE = "#263241"
+GLASS_2 = "#0C1219"
 ROW_ALT = "#151C27"
 
 
@@ -89,6 +89,18 @@ def days_since(value):
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return (dt.datetime.now(dt.timezone.utc) - parsed).days
+
+
+def software_cache_age_minutes(state):
+    try:
+        updated = parse_dt_safe(state.get("updated"))
+        if not updated:
+            return None
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=dt.timezone.utc)
+        return int((dt.datetime.now(dt.timezone.utc) - updated).total_seconds() / 60)
+    except Exception:
+        return None
 
 
 def short_ts(value):
@@ -322,22 +334,59 @@ class MicrosoftGraphConnector:
             str(app.get("publisher") or "").strip().lower(),
         ])
 
-    def load_software_cache(self):
+    def normalise_app(self, app):
+        return {
+            "displayName": app.get("displayName") or app.get("name") or "Unknown app",
+            "version": app.get("version") or "",
+            "publisher": app.get("publisher") or "",
+            "deviceCount": app.get("deviceCount") or 0,
+            "sizeInByte": app.get("sizeInByte") or 0,
+        }
+
+    def load_software_state(self):
         try:
             if SOFTWARE_CACHE_FILE.exists():
                 data = json.loads(SOFTWARE_CACHE_FILE.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    return set(data.get("keys", []))
+                    return data
         except Exception:
             pass
-        return set()
+        return {"updated": "", "keys": [], "apps": [], "backoff_until": "", "last_error": ""}
 
-    def save_software_cache(self, keys):
+    def save_software_state(self, keys, apps, source="unknown", last_error="", backoff_until=""):
         try:
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-            SOFTWARE_CACHE_FILE.write_text(json.dumps({"updated": now_iso(), "keys": sorted(keys)}, indent=2), encoding="utf-8")
+            SOFTWARE_CACHE_FILE.write_text(json.dumps({
+                "updated": now_iso(),
+                "keys": sorted(keys),
+                "apps": apps[:1000],
+                "source": source,
+                "last_error": last_error,
+                "backoff_until": backoff_until,
+            }, indent=2), encoding="utf-8")
         except Exception:
             pass
+
+    def should_skip_software_poll(self, state, min_age_minutes=30):
+        # detectedApps can be expensive and rate-limited. Only refresh periodically.
+        backoff_until = parse_dt_safe(state.get("backoff_until"))
+        now = dt.datetime.now(dt.timezone.utc)
+        if backoff_until:
+            if backoff_until.tzinfo is None:
+                backoff_until = backoff_until.replace(tzinfo=dt.timezone.utc)
+            if backoff_until > now:
+                return True, f"Graph detectedApps backoff active until {short_ts(backoff_until.isoformat())}"
+        age = software_cache_age_minutes(state)
+        if age is not None and age < min_age_minutes and state.get("apps"):
+            return True, f"Using cached detectedApps inventory, refreshed {age} minute(s) ago"
+        return False, ""
+
+    def backoff_from_error(self, err, minutes=30):
+        # urllib hides Retry-After in this version, so use a safe local backoff.
+        if "429" in str(err) or "Too Many Requests" in str(err):
+            until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=minutes)
+            return until.isoformat()
+        return ""
 
 
     def fetch(self):
@@ -392,29 +441,49 @@ class MicrosoftGraphConnector:
             })
 
         detected_apps_source = "v1.0"
-        try:
-            detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=50)
-            if not detected_apps:
-                try:
-                    beta_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=50)
-                    if beta_apps:
-                        detected_apps = beta_apps
-                        detected_apps_source = "beta"
-                except Exception:
-                    pass
-        except Exception as e:
-            detected_apps_error = str(e)
+        software_state = self.load_software_state()
+        skip_software_poll, software_skip_reason = self.should_skip_software_poll(software_state, min_age_minutes=30)
+        if skip_software_poll:
+            detected_apps = software_state.get("apps", []) or []
+            detected_apps_source = software_state.get("source") or "cache"
+            detected_apps_error = software_state.get("last_error") or software_skip_reason
+            events.append({
+                "severity": "info",
+                "title": "Detected apps inventory using cache",
+                "detail": software_skip_reason,
+                "source": "Microsoft Graph",
+            })
+        else:
             try:
-                detected_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=50)
-                detected_apps_source = "beta"
-            except Exception as beta_e:
-                detected_apps_error = f"{detected_apps_error[:120]} | beta: {str(beta_e)[:120]}"
-                events.append({
-                    "severity": "info",
-                    "title": "Detected apps inventory unavailable",
-                    "detail": detected_apps_error[:180],
-                    "source": "Microsoft Graph",
-                })
+                detected_apps = self.graph_get_all(detected_apps_url, headers=graph_headers, max_pages=15)
+                if not detected_apps:
+                    try:
+                        beta_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=15)
+                        if beta_apps:
+                            detected_apps = beta_apps
+                            detected_apps_source = "beta"
+                    except Exception:
+                        pass
+            except Exception as e:
+                detected_apps_error = str(e)
+                backoff_until = self.backoff_from_error(detected_apps_error, minutes=30)
+                try:
+                    if not backoff_until:
+                        detected_apps = self.graph_get_all(detected_apps_beta_url, headers=graph_headers, max_pages=15)
+                        detected_apps_source = "beta"
+                    else:
+                        detected_apps = software_state.get("apps", []) or []
+                        detected_apps_source = software_state.get("source") or "cache"
+                except Exception as beta_e:
+                    detected_apps_error = f"{detected_apps_error[:120]} | beta: {str(beta_e)[:120]}"
+                if backoff_until or detected_apps_error:
+                    self.save_software_state(set(software_state.get("keys", [])), software_state.get("apps", []) or [], source=detected_apps_source, last_error=detected_apps_error, backoff_until=backoff_until)
+                    events.append({
+                        "severity": "medium" if "429" in detected_apps_error else "info",
+                        "title": "Detected apps inventory unavailable",
+                        "detail": ("Graph rate limited detectedApps; using cache/backoff. " if "429" in detected_apps_error else "") + detected_apps_error[:180],
+                        "source": "Microsoft Graph",
+                    })
 
         try:
             defender_token = self.get_token("https://api.securitycenter.microsoft.com/.default")
@@ -462,21 +531,16 @@ class MicrosoftGraphConnector:
             if not (d.get("userPrincipalName") or d.get("emailAddress"))
         ]
 
-        app_keys = {self.app_key(a) for a in detected_apps if self.app_key(a)}
-        previous_app_keys = self.load_software_cache()
+        normalised_apps = [self.normalise_app(a) for a in detected_apps]
+        app_keys = {self.app_key(a) for a in normalised_apps if self.app_key(a)}
+        previous_app_keys = set(software_state.get("keys", [])) if isinstance(software_state, dict) else set()
         newly_seen_keys = app_keys - previous_app_keys if previous_app_keys else set()
         new_software = [
-            {
-                "displayName": a.get("displayName") or a.get("name") or "Unknown app",
-                "version": a.get("version") or "",
-                "publisher": a.get("publisher") or "",
-                "deviceCount": a.get("deviceCount") or 0,
-                "sizeInByte": a.get("sizeInByte") or 0,
-            }
-            for a in detected_apps
+            a for a in normalised_apps
             if self.app_key(a) in newly_seen_keys
         ][:100]
-        self.save_software_cache(app_keys)
+        if detected_apps and not detected_apps_error:
+            self.save_software_state(app_keys, normalised_apps, source=detected_apps_source, last_error="", backoff_until="")
 
         graph_active = [a for a in graph_alerts if self.is_alert_active(a)]
         defender_active = [a for a in defender_alerts if self.is_alert_active(a)]
@@ -572,14 +636,7 @@ class MicrosoftGraphConnector:
             "detected_apps_error": detected_apps_error or "",
             "new_software_count": len(new_software),
             "new_software": new_software,
-            "detected_apps": [
-                {
-                    "displayName": a.get("displayName") or a.get("name") or "Unknown app",
-                    "version": a.get("version") or "",
-                    "publisher": a.get("publisher") or "",
-                    "deviceCount": a.get("deviceCount") or 0,
-                } for a in detected_apps[:300]
-            ],
+            "detected_apps": normalised_apps[:300],
             "alerts": total_active_alerts,
             "active_alerts": total_active_alerts,
             "returned_alerts": total_alerts_returned,
@@ -1667,9 +1724,9 @@ class SentinelApp(tk.Tk):
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
         style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
-        style.configure("Dasher.TNotebook.Tab", background="#121821", foreground=MUTED, padding=(22, 11), font=("Segoe UI Variable Text", 10, "bold"), borderwidth=0)
+        style.configure("Dasher.TNotebook.Tab", background="#101620", foreground=MUTED, padding=(22, 11), font=("Segoe UI Variable Text", 10, "bold"), borderwidth=0)
         style.map("Dasher.TNotebook.Tab",
-                  background=[("selected", "#202A38"), ("active", "#1A2330")],
+                  background=[("selected", "#1D2836"), ("active", "#17212D")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
         style.configure("Dasher.Treeview",
                   background=GLASS_2,
@@ -1900,6 +1957,10 @@ class SentinelApp(tk.Tk):
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        tree.tag_configure("bad", foreground=RED, background="#181821")
+        tree.tag_configure("warn", foreground=AMBER, background="#171A20")
+        tree.tag_configure("good", foreground=GREEN, background="#121A20")
+        tree.tag_configure("info", foreground=TEXT, background=GLASS_2)
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2869,7 +2930,7 @@ class SentinelApp(tk.Tk):
                     d.get("user", ""),
                     d.get("compliance", ""),
                     short_ts(d.get("last_sync", "")),
-                ])
+                ], tag="warn")
 
             self.clear_table(self.intune_stale_table)
             for d in (m.get("stale_devices", []) or [])[:500]:
@@ -2879,7 +2940,7 @@ class SentinelApp(tk.Tk):
                     d.get("last_sync_days", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
-                ])
+                ], tag="warn")
 
             self.clear_table(self.intune_posture_table)
             for d in (m.get("unencrypted_devices", []) or [])[:300]:
@@ -2889,7 +2950,7 @@ class SentinelApp(tk.Tk):
                     d.get("os", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
-                ])
+                ], tag="bad")
             for d in (m.get("jailbroken_devices", []) or [])[:200]:
                 self.insert_table_row(self.intune_posture_table, [
                     "Jailbreak/root flag",
@@ -2897,7 +2958,7 @@ class SentinelApp(tk.Tk):
                     d.get("os", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
-                ])
+                ], tag="bad")
 
         # UniFi focused cards and summary
         for key, card in self.focus_cards["unifi"].items():
@@ -3000,7 +3061,7 @@ class SentinelApp(tk.Tk):
                     app.get("version", ""),
                     app.get("publisher", ""),
                     app.get("deviceCount", 0),
-                ])
+                ], tag="warn")
             self.clear_table(self.software_all_table)
             for app in (m.get("detected_apps", []) or [])[:1000]:
                 self.insert_table_row(self.software_all_table, [
@@ -3008,7 +3069,7 @@ class SentinelApp(tk.Tk):
                     app.get("version", ""),
                     app.get("publisher", ""),
                     app.get("deviceCount", 0),
-                ])
+                ], tag="info")
 
         sw_lines = [
             f"Software detection source: Microsoft Graph deviceManagement/detectedApps ({m.get('detected_apps_source', 'unknown')})",
@@ -3017,7 +3078,8 @@ class SentinelApp(tk.Tk):
             "",
             f"Detected apps: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
-            f"Graph error/detail: {m.get('detected_apps_error', '') or 'none'}",
+            f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
+            "If this says 429, Graph is rate-limiting detectedApps. The dashboard now uses a 30-minute local cache/backoff.",
             "",
             "Newly observed software",
             "-" * 100,
