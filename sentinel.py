@@ -1689,8 +1689,8 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1706x885")
-        self.minsize(1500, 820)
+        self.geometry("1760x980")
+        self.minsize(1360, 820)
         self.configure(bg=BG)
         self._init_fonts()
         self.cfg = Config.load()
@@ -1790,7 +1790,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=24,
+                  rowheight=30,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -1890,7 +1890,7 @@ class SentinelApp(tk.Tk):
         self.hero_strip.pack(fill="x", pady=(0, 8))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
-        self.hero_priority_shell.configure(height=132, width=1040)
+        self.hero_priority_shell.configure(height=150, width=1160)
         self.hero_priority_shell.pack_propagate(False)
         self.hero_priority_shell.pack(side="left", fill="x", expand=True, padx=(0, 8), pady=2)
 
@@ -1900,14 +1900,14 @@ class SentinelApp(tk.Tk):
         self.hero_priority_pill = tk.Label(hero_top, text="LIVE", bg="#132235", fg=BLUE, font=(self.font_ui, 8, "bold"), padx=10, pady=3)
         self.hero_priority_pill.pack(side="right")
         self.hero_priority_value = tk.Label(self.hero_priority_panel, text="DEFENDER ACTION", bg=PANEL, fg=ORANGE, font=(self.font_display, 30, "bold"))
-        self.hero_priority_value.pack(anchor="w", padx=22, pady=(12, 0))
+        self.hero_priority_value.pack(anchor="w", padx=22, pady=(16, 0))
         self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="5 active Defender alert(s) need triage.", bg=PANEL, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.hero_priority_detail.pack(anchor="w", padx=22, pady=(6, 0))
         self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="Medium and informational Defender alerts stay visible in the focus table.", bg=PANEL, fg="#C4D2E3", font=(self.font_ui, 11), justify="left")
         self.hero_priority_meta.pack(anchor="w", padx=22, pady=(6, 12))
 
         self.heartbeat_shell, self.heartbeat_panel = self.rounded_panel(self.hero_strip, fill=GLASS, border=HAIRLINE, radius=24, padding=1)
-        self.heartbeat_shell.configure(height=132, width=520)
+        self.heartbeat_shell.configure(height=150, width=560)
         self.heartbeat_shell.pack_propagate(False)
         self.heartbeat_shell.pack(side="left", fill="x", expand=False, padx=(0, 0), pady=2)
 
@@ -1918,7 +1918,7 @@ class SentinelApp(tk.Tk):
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
-        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=58, bg=GLASS, highlightthickness=0, bd=0)
+        self.heartbeat_canvas = tk.Canvas(self.heartbeat_panel, height=74, bg=GLASS, highlightthickness=0, bd=0)
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
@@ -1931,12 +1931,12 @@ class SentinelApp(tk.Tk):
             ("Software", "overview_software", GREEN),
         ]:
             shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-            shell.configure(height=116)
+            shell.configure(height=132)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(6, 10))
 
             card_body = tk.Frame(panel, bg=PANEL)
-            card_body.pack(fill="both", expand=True, padx=20, pady=13)
+            card_body.pack(fill="both", expand=True, padx=22, pady=18)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "▯", "UniFi": "≋", "Software": "◇"}.get(title, "•")
@@ -1945,7 +1945,7 @@ class SentinelApp(tk.Tk):
             tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold")).pack(side="left")
 
             value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"), anchor="w")
-            value.pack(fill="x", pady=(11, 3))
+            value.pack(fill="x", pady=(16, 4))
             detail = tk.Label(card_body, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), wraplength=480, justify="left", anchor="w")
             detail.pack(fill="x")
 
@@ -1997,7 +1997,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
-        self.security_posture_strip.pack(fill="x", pady=(4, 6))
+        self.security_posture_strip.pack(fill="x", pady=(6, 10))
         self.posture_labels = {}
         for label, key, color, icon in [
             ("Stale 30+ days", "stale_30_count", BLUE, "▣"),
@@ -2006,15 +2006,15 @@ class SentinelApp(tk.Tk):
             ("Degraded sites", "unifi_degraded_sites", ORANGE, "▲"),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=68)
+            shell.configure(height=88)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
-            body_row.pack(fill="both", expand=True, padx=18, pady=11)
-            badge = tk.Canvas(body_row, width=44, height=44, bg=GLASS, highlightthickness=0, bd=0)
+            body_row.pack(fill="both", expand=True, padx=20, pady=15)
+            badge = tk.Canvas(body_row, width=48, height=48, bg=GLASS, highlightthickness=0, bd=0)
             badge.pack(side="left", padx=(0, 16))
-            badge.create_oval(3, 3, 41, 41, fill="#0D1A28", outline=color, width=1.4)
-            badge.create_text(22, 22, text=icon, fill=color, font=(self.font_ui, 16, "bold"))
+            badge.create_oval(3, 3, 45, 45, fill="#0D1A28", outline=color, width=1.4)
+            badge.create_text(24, 24, text=icon, fill=color, font=(self.font_ui, 17, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
             tk.Label(text_col, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w")
@@ -2133,7 +2133,7 @@ class SentinelApp(tk.Tk):
         self.overview_defender_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
-        self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(8, 0))
+        self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(6, 2))
@@ -2151,7 +2151,7 @@ class SentinelApp(tk.Tk):
             style="Dasher.Treeview",
             yscrollcommand=self.overview_full_feed_scrollbar.set,
             selectmode="browse",
-            height=6,
+            height=5,
         )
         self.setup_tree_columns(self.overview_full_feed_table, [
             ("severity", "Severity", 96),
@@ -2238,10 +2238,10 @@ class SentinelApp(tk.Tk):
                     pass
 
         layout_heights = {
-            "hero_priority_shell": 132,
-            "heartbeat_shell": 132,
-            "overview_defender_feed_shell": 205,
-            "overview_full_feed_shell": 190,
+            "hero_priority_shell": 150,
+            "heartbeat_shell": 150,
+            "overview_defender_feed_shell": 230,
+            "overview_full_feed_shell": 215,
         }
         for name, height in layout_heights.items():
             widget = getattr(self, name, None)
@@ -2262,10 +2262,10 @@ class SentinelApp(tk.Tk):
             compact = h < 900
 
             sizes = {
-                "hero_priority_shell": 126 if compact else 132,
-                "heartbeat_shell": 126 if compact else 132,
-                "overview_defender_feed_shell": 198 if compact else 205,
-                "overview_full_feed_shell": 178 if compact else 190,
+                "hero_priority_shell": 140 if compact else 150,
+                "heartbeat_shell": 140 if compact else 150,
+                "overview_defender_feed_shell": 220 if compact else 230,
+                "overview_full_feed_shell": 205 if compact else 215,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2273,8 +2273,8 @@ class SentinelApp(tk.Tk):
                     widget.configure(height=height)
 
             for tree_name, rows in (
-                ("overview_defender_feed_table", 5 if compact else 6),
-                ("overview_full_feed_table", 5 if compact else 6),
+                ("overview_defender_feed_table", 6 if compact else 6),
+                ("overview_full_feed_table", 5 if compact else 5),
             ):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
@@ -2480,17 +2480,17 @@ class SentinelApp(tk.Tk):
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-        shell.configure(height=112)
+        shell.configure(height=132)
         shell.pack_propagate(False)
         if width_pack:
             shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
         else:
             shell.pack(fill="x", padx=6, pady=4)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
-        val.pack(anchor="w", padx=16, pady=(6, 2))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(16, 3))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+        val.pack(anchor="w", padx=16, pady=(8, 2))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
-        hint.pack(anchor="w", padx=16, pady=(4, 12))
+        hint.pack(anchor="w", padx=16, pady=(6, 12))
         self.focus_cards[bucket][key] = {"frame": shell, "value": val, "hint": hint, "base": color}
         return shell
 
@@ -2760,7 +2760,7 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=68)
+        shell.configure(height=100)
         shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=6)
         shell.grid_propagate(False)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 1))
