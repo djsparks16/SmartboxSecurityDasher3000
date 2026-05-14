@@ -117,7 +117,7 @@ class Config:
     defaults = {
         "demo_mode": False,
         "poll_seconds": 8,
-        "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "enabled": False},
+        "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
         "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "enabled": False},
         "datto": {"api_url": "", "access_token": "", "enabled": False},
         "rocketcyber": {"base_url": "https://api-us.rocketcyber.com", "api_key": "", "enabled": False},
@@ -253,7 +253,8 @@ class MicrosoftGraphConnector:
 
         # Dedicated Defender for Endpoint API. This normally needs Defender API permissions on the app:
         # Alert.Read.All and optionally Machine.Read.All for deeper enrichment later.
-        defender_alerts_url = "https://api.securitycenter.microsoft.com/api/alerts?$top=100"
+        defender_base = self.cfg["microsoft"].get("defender_api_url", "https://api.securitycenter.microsoft.com").rstrip("/")
+        defender_alerts_url = f"{defender_base}/api/alerts?$top=100"
 
         devices = []
         graph_alerts = []
@@ -292,10 +293,13 @@ class MicrosoftGraphConnector:
             defender_alerts = self.defender_get_all(defender_alerts_url, headers=defender_headers, max_pages=20)
         except Exception as e:
             defender_alert_error = str(e)
+            hint = defender_alert_error[:180]
+            if "403" in defender_alert_error or "Forbidden" in defender_alert_error:
+                hint = "403 Forbidden: add WindowsDefenderATP application permission Alert.Read.All, grant admin consent, and verify the Defender API URL/region."
             events.append({
                 "severity": "medium",
                 "title": "Microsoft Defender alert query failed",
-                "detail": defender_alert_error[:180],
+                "detail": hint,
                 "source": "Defender for Endpoint",
             })
 
@@ -824,6 +828,7 @@ class SentinelApp(tk.Tk):
             ("Tenant ID", "tenant_id", False),
             ("App/client ID", "client_id", False),
             ("Client secret", "client_secret", True),
+            ("Defender API URL", "defender_api_url", False),
         ])
         add_tab("UniFi", "unifi", [
             ("Base URL", "base_url", False),
