@@ -1474,6 +1474,7 @@ class TelemetryEngine(threading.Thread):
                     "detected_app_count": 0,
                     "detected_apps_source": "",
                     "detected_apps_error": "",
+                    "software_issue_state": "ok",
                     "new_software_count": 0,
                     "new_software": [],
                     "detected_apps": [],
@@ -1635,6 +1636,7 @@ class TelemetryEngine(threading.Thread):
                 "detected_app_count": detected_app_count,
                 "detected_apps_source": detected_apps_source,
                 "detected_apps_error": detected_apps_error,
+                "software_issue_state": "429/backoff" if "429" in detected_apps_error else ("check" if detected_apps_error else "ok"),
                 "new_software_count": new_software_count,
                 "new_software": new_software[:300],
                 "detected_apps": detected_apps[:20000],
@@ -1845,7 +1847,7 @@ class SentinelApp(tk.Tk):
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
 
         self.trend_strip = tk.Frame(body, bg=BG)
-        self.trend_strip.pack(fill="x", pady=(0, 8))
+        self.trend_strip.pack(fill="x", pady=(0, 10))
         for title, key, color in [
             ("Defender active trend", "defender", ORANGE),
             ("Compliance gap trend", "compliance", BLUE),
@@ -1853,14 +1855,14 @@ class SentinelApp(tk.Tk):
             ("Severity mix", "severity", GREEN),
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            panel_shell.configure(height=96)
+            panel_shell.configure(height=104)
             panel_shell.pack_propagate(False)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
             val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=42, bg=GLASS, highlightthickness=0, bd=0)
-            c.pack(fill="x", padx=10, pady=(0, 6))
+            c = tk.Canvas(panel, height=54, bg=GLASS, highlightthickness=0, bd=0)
+            c.pack(fill="x", padx=10, pady=(0, 8))
             if key == "severity":
                 self.severity_mix_canvas = c
                 self.trend_labels[key] = val
@@ -2189,8 +2191,15 @@ class SentinelApp(tk.Tk):
         row.pack(fill="x")
         self.focus_card(row, "Intune devices", GREEN, "intune", "devices")
         self.focus_card(row, "Non-compliant devices", AMBER, "intune", "noncompliant")
-        self.focus_card(row, "Compliant devices", BLUE, "intune", "compliant_devices")
-        self.focus_card(row, "Compliance rate", PURPLE, "intune", "compliance_percent")
+        self.focus_card(row, "Stale 30+ days", ORANGE, "intune", "stale_30_count")
+        self.focus_card(row, "Unencrypted devices", RED, "intune", "unencrypted_count")
+
+        row2 = tk.Frame(intune_wrap, bg=BG)
+        row2.pack(fill="x")
+        self.focus_card(row2, "Compliant devices", BLUE, "intune", "compliant_devices")
+        self.focus_card(row2, "Compliance rate", PURPLE, "intune", "compliance_percent")
+        self.focus_card(row2, "Jailbreak/root flags", RED, "intune", "jailbroken_count")
+        self.focus_card(row2, "No primary user", AMBER, "intune", "no_user_count")
 
         platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         platform.pack(fill="x", padx=6, pady=6)
@@ -2312,8 +2321,8 @@ class SentinelApp(tk.Tk):
         sw_row.pack(fill="x")
         self.focus_card(sw_row, "Detected apps", BLUE, "software", "detected_app_count")
         self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
-        self.focus_card(sw_row, "Stale Intune devices", PURPLE, "software", "stale_30_count")
-        self.focus_card(sw_row, "Unencrypted devices", RED, "software", "unencrypted_count")
+        self.focus_card(sw_row, "Inventory source", BLUE, "software", "detected_apps_source")
+        self.focus_card(sw_row, "Graph issues", ORANGE, "software", "software_issue_state")
         self.software_tables = ttk.Notebook(software_wrap, style="Dasher.TNotebook")
         self.software_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
@@ -2341,7 +2350,7 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=112)
+        shell.configure(height=104)
         shell.grid(row=row, column=col, sticky="nsew", padx=8, pady=6)
         shell.grid_propagate(False)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(8, 1))
@@ -2902,26 +2911,37 @@ class SentinelApp(tk.Tk):
         canvas, _ = self.trend_canvases[key]
         canvas.delete("all")
         w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 42)
-        for y in (10, int(h/2), h-8):
-            canvas.create_line(4, y, w-4, y, fill="#1B2635")
-        if len(values) < 2:
-            if values:
-                canvas.create_text(10, h/2, text=str(values[-1]), fill=color, anchor="w", font=(self.font_ui, 9, "bold"))
+        h = max(canvas.winfo_height(), 54)
+
+        # soft grid
+        for y in (12, int(h / 2), h - 10):
+            canvas.create_line(6, y, w - 6, y, fill="#1B2635")
+
+        vals = values[-40:] if values else []
+        if not vals:
             return
-        vals = values[-40:]
+
         vmax = max(max(vals), 1)
+        if len(vals) == 1:
+            vals = vals * 2
+
         points = []
         for i, value in enumerate(vals):
-            x = (i / max(len(vals) - 1, 1)) * (w - 14) + 7
-            y = h - 10 - ((value / vmax) * (h - 22))
+            x = (i / max(len(vals) - 1, 1)) * (w - 18) + 9
+            y = h - 12 - ((value / vmax) * (h - 26))
             points.append((x, y))
-        area = [(points[0][0], h-10)] + points + [(points[-1][0], h-10)]
+
+        # glassy area fill plus smoothed line
+        area = [(points[0][0], h - 11)] + points + [(points[-1][0], h - 11)]
         flat_area = [coord for p in area for coord in p]
         canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray25")
+
         flat_line = [coord for p in points for coord in p]
-        canvas.create_line(*flat_line, fill=color, width=2.4, smooth=True, splinesteps=18)
-        canvas.create_oval(points[-1][0]-3, points[-1][1]-3, points[-1][0]+3, points[-1][1]+3, fill=color, outline=color)
+        canvas.create_line(*flat_line, fill=color, width=2.6, smooth=True, splinesteps=24)
+        canvas.create_oval(points[-1][0] - 3, points[-1][1] - 3, points[-1][0] + 3, points[-1][1] + 3, fill=color, outline=color)
+
+        # tiny min/max markers for a richer telemetry feel
+        canvas.create_text(8, h - 4, text=str(vals[-1]), fill=color, anchor="sw", font=(self.font_ui, 7, "bold"))
 
     def draw_severity_mix(self, counts):
         canvas = self.severity_mix_canvas
@@ -2929,23 +2949,28 @@ class SentinelApp(tk.Tk):
             return
         canvas.delete("all")
         w = max(canvas.winfo_width(), 180)
-        h = max(canvas.winfo_height(), 42)
+        h = max(canvas.winfo_height(), 54)
         total = max(sum(counts.values()), 1)
-        x = 10
-        y1, y2 = 18, 34
+
         palette = [("info", BLUE), ("medium", AMBER), ("high", ORANGE), ("critical", RED)]
+        x = 10
+        y1, y2 = 14, 28
+
+        canvas.create_rectangle(10, y1, w - 10, y2, fill="#172131", outline="")
+        usable = w - 20
         for key, color in palette:
             val = int(counts.get(key, 0) or 0)
-            seg = max(18, int((val / total) * (w - 20))) if val > 0 else 0
+            seg = int((val / total) * usable) if val > 0 else 0
             if seg:
-                canvas.create_rectangle(x, y1, min(w-10, x+seg), y2, fill=color, outline="")
-                x += seg + 4
+                canvas.create_rectangle(x, y1, min(w - 10, x + seg), y2, fill=color, outline="")
+                x += seg
+
         lx = 10
         for key, color in palette:
-            label = f"{key[:4].title()} {int(counts.get(key,0) or 0)}"
-            canvas.create_oval(lx, 40, lx+8, 48, fill=color, outline="")
-            canvas.create_text(lx+12, 44, text=label, fill=MUTED if counts.get(key,0)==0 else TEXT, anchor="w", font=(self.font_ui, 8, "bold"))
-            lx += 68
+            label = f"{key[:4].title()} {int(counts.get(key, 0) or 0)}"
+            canvas.create_oval(lx, 36, lx + 8, 44, fill=color, outline="")
+            canvas.create_text(lx + 12, 40, text=label, fill=MUTED if counts.get(key, 0) == 0 else TEXT, anchor="w", font=(self.font_ui, 8, "bold"))
+            lx += 72
 
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
@@ -3053,6 +3078,18 @@ class SentinelApp(tk.Tk):
                 pct = int(val or 0)
                 color = GREEN if pct >= 90 else AMBER if pct >= 75 else RED
                 hint = "overall Intune compliance rate"
+            elif key == "stale_30_count":
+                color = ORANGE if int(val or 0) > 0 else GREEN
+                hint = "devices not contacted 30+ days"
+            elif key == "unencrypted_count":
+                color = RED if int(val or 0) > 0 else GREEN
+                hint = "devices reporting not encrypted"
+            elif key == "jailbroken_count":
+                color = RED if int(val or 0) > 0 else GREEN
+                hint = "jailbreak/root posture flags"
+            elif key == "no_user_count":
+                color = AMBER if int(val or 0) > 0 else GREEN
+                hint = "devices without a primary user/email"
             card["value"].config(text=f"{val}{suffix}", fg=color)
             card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
             card["frame"].config(highlightbackground=color)
@@ -3262,13 +3299,13 @@ class SentinelApp(tk.Tk):
             elif key == "detected_app_count":
                 color = BLUE if int(val or 0) > 0 else MUTED
                 hint = "returned/cached from Graph; full estate may require paged pulls"
-            elif key == "stale_30_count":
-                color = AMBER if int(val or 0) > 0 else GREEN
-                hint = "devices not contacted 30+ days"
-            elif key == "unencrypted_count":
-                color = RED if int(val or 0) > 0 else GREEN
-                hint = "devices reporting not encrypted"
-            card["value"].config(text=str(val), fg=color)
+            elif key == "detected_apps_source":
+                color = BLUE if str(val or "").lower() not in ("", "unavailable") else AMBER
+                hint = "Graph source: v1.0, beta, cache, empty or unavailable"
+            elif key == "software_issue_state":
+                color = GREEN if str(val).lower() == "ok" else ORANGE
+                hint = "Graph detectedApps status"
+            card["value"].config(text=str(val)[:18], fg=color)
             card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
             card["frame"].config(highlightbackground=color)
 
