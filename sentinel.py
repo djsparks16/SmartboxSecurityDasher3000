@@ -1689,8 +1689,8 @@ class SentinelApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("1760x980")
-        self.minsize(1360, 820)
+        self.geometry("1760x1020")
+        self.minsize(1360, 860)
         self.configure(bg=BG)
         self._init_fonts()
         self.cfg = Config.load()
@@ -1764,12 +1764,12 @@ class SentinelApp(tk.Tk):
         style.configure("TFrame", background=BG)
         style.configure("Panel.TFrame", background=PANEL)
         style.configure("TLabel", background=BG, foreground=TEXT, font=(self.font_ui, 10))
-        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(self.font_ui, 9))
+        style.configure("Muted.TLabel", background=BG, foreground=MUTED, font=(self.font_ui, 10))
         style.configure("Title.TLabel", background=BG, foreground=TEXT, font=(self.font_display, 24, "bold"))
         style.configure("Card.TLabel", background=PANEL, foreground=TEXT, font=(self.font_display, 24, "bold"))
-        style.configure("SmallCard.TLabel", background=PANEL, foreground=MUTED, font=(self.font_ui, 9))
+        style.configure("SmallCard.TLabel", background=PANEL, foreground=MUTED, font=(self.font_ui, 10))
         style.configure("TButton", font=(self.font_ui, 10, "bold"), padding=8)
-        style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=(self.font_ui, 9))
+        style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=(self.font_ui, 10))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
         style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
         style.configure("MainHidden.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
@@ -1793,12 +1793,12 @@ class SentinelApp(tk.Tk):
                   rowheight=31,
                   borderwidth=0,
                   relief="flat",
-                  font=(self.font_ui, 9))
+                  font=(self.font_ui, 10))
         style.configure("Dasher.Treeview.Heading",
                   background="#16283C",
                   foreground="#CAD9E8",
                   relief="flat",
-                  font=(self.font_ui, 9, "bold"))
+                  font=(self.font_ui, 10, "bold"))
         style.map("Dasher.Treeview",
                   background=[("selected", "#1A456B")],
                   foreground=[("selected", TEXT)])
@@ -1855,7 +1855,7 @@ class SentinelApp(tk.Tk):
         self.state_badge.pack(side="left", padx=(18, 10), pady=12)
         self.state_detail = tk.Label(self.overview, text="Waiting for first telemetry pull...", bg=PANEL, fg=TEXT, font=(self.font_ui, 10))
         self.state_detail.pack(side="left", padx=(0, 8), pady=12)
-        self.live_badge = tk.Label(self.overview, text="LIVE: NONE", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold"))
+        self.live_badge = tk.Label(self.overview, text="LIVE: NONE", bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold"))
         self.live_badge.pack(side="right", padx=(8, 18), pady=12)
 
         self.main_tab_names = []
@@ -1913,8 +1913,8 @@ class SentinelApp(tk.Tk):
 
         hb_top = tk.Frame(self.heartbeat_panel, bg=GLASS)
         hb_top.pack(fill="x", padx=16, pady=(12, 2))
-        tk.Label(hb_top, text="Live heartbeat", bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="left")
-        self.heartbeat_state = tk.Label(hb_top, text="CONNECTING", bg=GLASS, fg=BLUE, font=(self.font_ui, 9, "bold"))
+        tk.Label(hb_top, text="Live heartbeat", bg=GLASS, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(side="left")
+        self.heartbeat_state = tk.Label(hb_top, text="CONNECTING", bg=GLASS, fg=BLUE, font=(self.font_ui, 10, "bold"))
         self.heartbeat_state.pack(side="right")
         self.heartbeat_meta = tk.Label(self.heartbeat_panel, text="Polling links not yet active", bg=GLASS, fg=TEXT, font=(self.font_ui, 9, "bold"), anchor="w")
         self.heartbeat_meta.pack(fill="x", padx=16, pady=(0, 4))
@@ -2089,7 +2089,7 @@ class SentinelApp(tk.Tk):
         self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         site_header = tk.Frame(self.unifi_site_health_bar, bg=PANEL)
         site_header.pack(fill="x", padx=12, pady=(8, 2))
-        self.unifi_site_health_title = tk.Label(site_header, text="UniFi network sites", bg=PANEL, fg=TEXT, font=(self.font_ui, 9, "bold"))
+        self.unifi_site_health_title = tk.Label(site_header, text="UniFi network sites", bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold"))
         self.unifi_site_health_title.pack(side="left")
         self.unifi_site_health_summary = tk.Label(site_header, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold"))
         self.unifi_site_health_summary.pack(side="right")
@@ -2142,11 +2142,11 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
-        self.overview_defender_feed_table.tag_configure("sev_critical", background="#1A1018", foreground="#FFE7EE")
-        self.overview_defender_feed_table.tag_configure("sev_high", background="#1D1710", foreground="#FFE7C4")
-        self.overview_defender_feed_table.tag_configure("sev_medium", background="#2A210D", foreground="#FFEFB5")
-        self.overview_defender_feed_table.tag_configure("sev_info", background="#0B2131", foreground="#E0F6FF")
-        self.overview_defender_feed_table.tag_configure("sev_low", background="#0B211A", foreground="#DFFBEE")
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#102438", foreground="#FFE8EF")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#11283D", foreground="#FFE4BF")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#10263A", foreground="#FFF0BC")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0C2436", foreground="#E0F6FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#0D2430", foreground="#DFFBEE")
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
@@ -2178,13 +2178,13 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#1A1018", foreground="#FFE7EE")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#1D1710", foreground="#FFE7C4")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#2A210D", foreground="#FFEFB5")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0B2131", foreground="#E0F6FF")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#0B211A", foreground="#DFFBEE")
-        self.overview_full_feed_table.tag_configure("oddrow", background="#0E1D2C", foreground="#D8E8F8")
-        self.overview_full_feed_table.tag_configure("alt", background="#101D2D", foreground="#E7F2FF")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#102438", foreground="#FFE8EF")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#11283D", foreground="#FFE4BF")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#10263A", foreground="#FFF0BC")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0C2436", foreground="#E0F6FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0D2430", foreground="#DFFBEE")
+        self.overview_full_feed_table.tag_configure("oddrow", background="#0F2234", foreground="#D8E8F8")
+        self.overview_full_feed_table.tag_configure("alt", background="#102235", foreground="#E7F2FF")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2211,7 +2211,7 @@ class SentinelApp(tk.Tk):
         table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
         table_header.pack(fill="x", padx=12, pady=(7, 3))
         tk.Label(table_header, text="Security alert table", bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(side="left")
-        self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold"))
+        self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold"))
         self.alert_table_summary.pack(side="right")
 
         self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=320)
@@ -2231,12 +2231,13 @@ class SentinelApp(tk.Tk):
 
         self._build_focus_tabs()
         self._enforce_soc_console_overview()
+        self._polish_all_table_chrome()
         self.bind("<Configure>", self._fit_soc_console_overview, add="+")
 
         footer = tk.Frame(shell, bg=BG)
         footer.pack_forget()  # hidden to match the one-screen SOC console reference
-        tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 9)).pack(side="left")
-        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 9)).pack(side="right")
+        tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(side="left")
+        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 10)).pack(side="right")
 
 
     def _enforce_soc_console_overview(self):
@@ -2257,8 +2258,8 @@ class SentinelApp(tk.Tk):
         layout_heights = {
             "hero_priority_shell": 150,
             "heartbeat_shell": 150,
-            "overview_defender_feed_shell": 230,
-            "overview_full_feed_shell": 215,
+            "overview_defender_feed_shell": 252,
+            "overview_full_feed_shell": 265,
         }
         for name, height in layout_heights.items():
             widget = getattr(self, name, None)
@@ -2282,8 +2283,8 @@ class SentinelApp(tk.Tk):
             sizes = {
                 "hero_priority_shell": 142 if compact else 150,
                 "heartbeat_shell": 142 if compact else 150,
-                "overview_defender_feed_shell": 226 if compact else 236,
-                "overview_full_feed_shell": (218 if compact else 226) + extra,
+                "overview_defender_feed_shell": 248 if compact else 258,
+                "overview_full_feed_shell": (252 if compact else 274) + extra,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2291,14 +2292,62 @@ class SentinelApp(tk.Tk):
                     widget.configure(height=height)
 
             for tree_name, rows in (
-                ("overview_defender_feed_table", 6 if compact else 6),
-                ("overview_full_feed_table", max(5, (5 if compact else 6) + extra // 29)),
+                ("overview_defender_feed_table", 7 if compact else 7),
+                ("overview_full_feed_table", max(7, (7 if compact else 8) + extra // 31)),
             ):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
                     tree.configure(height=rows)
         except Exception:
             pass
+
+    def _polish_all_table_chrome(self):
+        """Apple-meets-Linux table pass: glass rows, capsule text, no muddy slabs."""
+        try:
+            style = ttk.Style()
+            style.configure("Dasher.Treeview",
+                            background="#0A1D2D",
+                            fieldbackground="#0A1D2D",
+                            foreground="#EAF4FF",
+                            rowheight=31,
+                            borderwidth=0,
+                            relief="flat",
+                            font=(self.font_ui, 10))
+            style.configure("Dasher.Treeview.Heading",
+                            background="#17293D",
+                            foreground="#D7E7F7",
+                            relief="flat",
+                            font=(self.font_ui, 10, "bold"))
+            style.map("Dasher.Treeview",
+                      background=[("selected", "#1A3B5C")],
+                      foreground=[("selected", TEXT)])
+        except Exception:
+            pass
+
+        for tree_name in (
+            "overview_defender_feed_table", "overview_full_feed_table",
+            "defender_alert_table", "defender_signal_table",
+            "intune_noncompliant_table", "intune_stale_table", "intune_posture_table",
+            "unifi_sites_table", "unifi_notes_table",
+            "software_new_table", "software_all_table",
+        ):
+            tree = getattr(self, tree_name, None)
+            if tree is None:
+                continue
+            try:
+                tree.tag_configure("bad", foreground="#FFE8EF", background="#122438")
+                tree.tag_configure("high", foreground="#FFE4BF", background="#11283D")
+                tree.tag_configure("warn", foreground="#FFF0BC", background="#10263A")
+                tree.tag_configure("good", foreground="#E7FFE9", background="#0D2430")
+                tree.tag_configure("info", foreground="#E0F6FF", background="#0C2436")
+                tree.tag_configure("alt", foreground="#E7F2FF", background="#102235")
+                tree.tag_configure("sev_critical", foreground="#FFE8EF", background="#122438")
+                tree.tag_configure("sev_high", foreground="#FFE4BF", background="#11283D")
+                tree.tag_configure("sev_medium", foreground="#FFF0BC", background="#10263A")
+                tree.tag_configure("sev_info", foreground="#E0F6FF", background="#0C2436")
+                tree.tag_configure("sev_low", foreground="#DFFBEE", background="#0D2430")
+            except Exception:
+                pass
 
     def _build_main_tab_pills(self):
         for child in self.main_tab_bar.winfo_children():
@@ -2487,12 +2536,12 @@ class SentinelApp(tk.Tk):
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
-        tree.tag_configure("bad", foreground="#FFE9EF", background="#21111A")
-        tree.tag_configure("warn", foreground="#FFF0B8", background="#1B1A13")
-        tree.tag_configure("high", foreground="#FFE4C0", background="#1E1710")
-        tree.tag_configure("good", foreground="#E6FFE8", background="#101F18")
-        tree.tag_configure("info", foreground="#E1F6FF", background="#0B2131")
-        tree.tag_configure("alt", foreground="#E7F2FF", background="#0E1B2B")
+        tree.tag_configure("bad", foreground="#FFE8EF", background="#122235")
+        tree.tag_configure("warn", foreground="#FFF0BC", background="#102438")
+        tree.tag_configure("high", foreground="#FFE3BF", background="#13273A")
+        tree.tag_configure("good", foreground="#E7FFE9", background="#0E2430")
+        tree.tag_configure("info", foreground="#E1F6FF", background="#0C2436")
+        tree.tag_configure("alt", foreground="#E7F2FF", background="#102235")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2527,10 +2576,10 @@ class SentinelApp(tk.Tk):
             "THROTTLED": "THROTTLED",
         }
         label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
-        # Native ttk.Treeview cannot draw true rounded per-cell widgets. This
-        # gives every coded value a compact capsule silhouette without painting
-        # whole rows neon.
-        return f"  {label}  "
+        # Tk's native Treeview cannot host real rounded widgets per cell, so we
+        # use a compact capsule glyph. It reads as a soft pill without turning
+        # the whole row into a warning slab.
+        return f"  ● {label}  "
 
     def _should_bubble_column(self, tree, column_key, index, value):
         key = str(column_key).lower()
@@ -2566,8 +2615,8 @@ class SentinelApp(tk.Tk):
             return "high"
         if any(x in text for x in ("degraded", "throttled")):
             return "warn"
-        if fallback:
-            return fallback
+        if fallback in ("bad", "high", "warn", "good", "info"):
+            return "alt" if fallback in ("warn", "info") else fallback
         return None
 
     def insert_table_row(self, tree, values, tag=None):
@@ -2595,10 +2644,10 @@ class SentinelApp(tk.Tk):
             shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
         else:
             shell.pack(fill="x", padx=6, pady=4)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(16, 3))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w", padx=16, pady=(16, 3))
         val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
         val.pack(anchor="w", padx=16, pady=(8, 2))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 10))
         hint.pack(anchor="w", padx=16, pady=(6, 12))
         self.focus_cards[bucket][key] = {"frame": shell, "value": val, "hint": hint, "base": color}
         return shell
@@ -2714,7 +2763,7 @@ class SentinelApp(tk.Tk):
         ]:
             box = tk.Frame(plat_row, bg=PANEL)
             box.pack(side="left", fill="x", expand=True, padx=8)
-            tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w")
+            tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w")
             val = tk.Label(box, text="--", bg=PANEL, fg=color, font=(self.font_display, 15, "bold"))
             val.pack(anchor="w")
             self.intune_platform_focus[key] = val
@@ -2772,7 +2821,7 @@ class SentinelApp(tk.Tk):
         status_shell.pack(fill="x")
         left_big = tk.Frame(status_shell, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         left_big.pack(side="left", fill="both", expand=True, padx=6, pady=6)
-        tk.Label(left_big, text="Network site status", bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        tk.Label(left_big, text="Network site status", bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
         self.unifi_tab_status_big = tk.Label(left_big, text="--", bg=PANEL, fg=BLUE, font=(self.font_display, 26, "bold"))
         self.unifi_tab_status_big.pack(anchor="w", padx=16, pady=(0, 2))
         self.unifi_tab_status_hint = tk.Label(left_big, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
@@ -2872,10 +2921,10 @@ class SentinelApp(tk.Tk):
         shell.configure(height=100)
         shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=6)
         shell.grid_propagate(False)
-        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(12, 1))
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w", padx=16, pady=(12, 1))
         val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 22, "bold"))
         val.pack(anchor="w", padx=16, pady=(5, 1))
-        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 9))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8C98AD", font=(self.font_ui, 10))
         hint.pack(anchor="w", padx=16, pady=(2, 10))
         self.metric_labels[key] = val
         self.metric_cards[key] = {"frame": shell, "value": val, "hint": hint, "base": color}
@@ -3082,7 +3131,7 @@ class SentinelApp(tk.Tk):
         if not active_rows:
             empty = tk.Frame(self.alert_table, bg=PANEL)
             empty.pack(fill="x", pady=4)
-            tk.Label(empty, text="No live alert rows returned by configured connectors.", bg=PANEL, fg=MUTED, font=(self.font_ui, 9)).pack(anchor="w", padx=8, pady=8)
+            tk.Label(empty, text="No live alert rows returned by configured connectors.", bg=PANEL, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=8)
         for row in active_rows:
             sev = str(row.get("severity", "INFO")).upper()
             color = sev_color.get(sev, BLUE)
@@ -3273,7 +3322,7 @@ class SentinelApp(tk.Tk):
             entries[(section, "enabled")] = enabled
             row += 1
             for label, key, secret in fields:
-                tk.Label(frame, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).grid(row=row, column=0, sticky="w", padx=18, pady=(8, 2))
+                tk.Label(frame, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 10, "bold")).grid(row=row, column=0, sticky="w", padx=18, pady=(8, 2))
                 var = tk.StringVar(value=self.cfg[section].get(key, ""))
                 ent = tk.Entry(frame, textvariable=var, show="*" if secret else "", bg="#0F1524", fg=TEXT, insertbackground=TEXT, relief="flat", font=(self.font_ui, 10))
                 ent.grid(row=row, column=1, sticky="ew", padx=18, pady=(8, 2), ipady=8)
@@ -3696,10 +3745,10 @@ class SentinelApp(tk.Tk):
                 title = title[:115] + "..."
             if len(detail) > 170:
                 detail = detail[:167] + "..."
-            tree.insert("", "end", values=(self.bubble_severity(sev), short_ts(row.get("timestamp", "")), title, self.bubble_status(row.get("status", "ACTIVE")), detail), tags=(tag,))
+            tree.insert("", "end", values=(self._bubble_token(sev, "severity"), short_ts(row.get("timestamp", "")), title, self._bubble_token(row.get("status", "ACTIVE"), "status"), detail), tags=(tag,))
 
         if not rows:
-            tree.insert("", "end", values=(self.bubble_severity("INFO"), "", "No active Defender alerts returned yet.", self.bubble_status("INFO"), "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
+            tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "", "No active Defender alerts returned yet.", self._bubble_token("INFO", "status"), "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -3734,10 +3783,10 @@ class SentinelApp(tk.Tk):
                 detail = detail[:165] + "..."
 
             tag = f"sev_{sev}" if sev in ("critical", "high", "medium", "info", "low") else "sev_info"
-            tree.insert("", "end", values=(self.bubble_severity(sev), src, when, title, detail), tags=(tag,))
+            tree.insert("", "end", values=(self._bubble_token(sev, "severity"), src, when, title, detail), tags=(tag,))
 
         if not events:
-            tree.insert("", "end", values=(self.bubble_severity("INFO"), "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
+            tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
 
     def draw_trend(self, key, values, color):
         if key not in self.trend_canvases:
