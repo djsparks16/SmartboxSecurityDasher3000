@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#030812"
-PANEL = "#07121E"
-PANEL_2 = "#0E1B2B"
-TEXT = "#F7FBFF"
-MUTED = "#9CB4CD"
-BLUE = "#19B9FF"
-GREEN = "#64FF00"
-AMBER = "#FFD400"
-ORANGE = "#FF9800"
-RED = "#FF3D68"
-PURPLE = "#A56BFF"
-GLASS = "#07111D"
-HAIRLINE = "#1C3148"
-GLASS_2 = "#091827"
-ROW_ALT = "#0F1D2D"
+BG = "#050A12"
+PANEL = "#091522"
+PANEL_2 = "#102033"
+TEXT = "#F4F8FC"
+MUTED = "#AFC1D4"
+BLUE = "#2FB8F6"
+GREEN = "#78E83C"
+AMBER = "#F1D85A"
+ORANGE = "#FF9E35"
+RED = "#F35D7D"
+PURPLE = "#AA88FF"
+GLASS = "#081421"
+HAIRLINE = "#29425D"
+GLASS_2 = "#0A1B2A"
+ROW_ALT = "#102235"
 
 
 def now_iso():
@@ -1795,12 +1795,12 @@ class SentinelApp(tk.Tk):
                   relief="flat",
                   font=(self.font_ui, 9))
         style.configure("Dasher.Treeview.Heading",
-                  background="#152337",
-                  foreground="#C7D7EA",
+                  background="#16283C",
+                  foreground="#CAD9E8",
                   relief="flat",
                   font=(self.font_ui, 9, "bold"))
         style.map("Dasher.Treeview",
-                  background=[("selected", "#17385A")],
+                  background=[("selected", "#1A456B")],
                   foreground=[("selected", TEXT)])
 
     def make_scrollable_page(self, parent, show_scrollbar=False):
@@ -2126,11 +2126,11 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_defender_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_defender_feed_scrollbar.config(command=self.overview_defender_feed_table.yview)
-        self.overview_defender_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
-        self.overview_defender_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
-        self.overview_defender_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
-        self.overview_defender_feed_table.tag_configure("sev_info", background="#0C2232", foreground="#DFF6FF")
-        self.overview_defender_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
+        self.overview_defender_feed_table.tag_configure("sev_critical", background="#22131C", foreground="#FFD8E3")
+        self.overview_defender_feed_table.tag_configure("sev_high", background="#231A10", foreground="#FFE3B7")
+        self.overview_defender_feed_table.tag_configure("sev_medium", background="#202014", foreground="#FFF1A8")
+        self.overview_defender_feed_table.tag_configure("sev_info", background="#0B2638", foreground="#D7F2FF")
+        self.overview_defender_feed_table.tag_configure("sev_low", background="#0A241B", foreground="#DDFCEA")
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
@@ -2162,12 +2162,12 @@ class SentinelApp(tk.Tk):
         ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
-        self.overview_full_feed_table.tag_configure("sev_critical", background="#2B0A14", foreground="#FFE4EA")
-        self.overview_full_feed_table.tag_configure("sev_high", background="#2D1806", foreground="#FFF0D6")
-        self.overview_full_feed_table.tag_configure("sev_medium", background="#282200", foreground="#FFF8C4")
-        self.overview_full_feed_table.tag_configure("sev_info", background="#0C2232", foreground="#DFF6FF")
-        self.overview_full_feed_table.tag_configure("sev_low", background="#082016", foreground="#DCFFF2")
-        self.overview_full_feed_table.tag_configure("oddrow", background="#0D1522")
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#22131C", foreground="#FFD8E3")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#231A10", foreground="#FFE3B7")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#202014", foreground="#FFF1A8")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0B2638", foreground="#D7F2FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0A241B", foreground="#DDFCEA")
+        self.overview_full_feed_table.tag_configure("oddrow", background="#0E1D2C", foreground="#D8E8F8")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2260,12 +2260,13 @@ class SentinelApp(tk.Tk):
                 return
             h = max(780, self.winfo_height())
             compact = h < 900
+            extra = max(0, h - 900)
 
             sizes = {
-                "hero_priority_shell": 140 if compact else 150,
-                "heartbeat_shell": 140 if compact else 150,
-                "overview_defender_feed_shell": 220 if compact else 230,
-                "overview_full_feed_shell": 205 if compact else 215,
+                "hero_priority_shell": 142 if compact else 150,
+                "heartbeat_shell": 142 if compact else 150,
+                "overview_defender_feed_shell": 226 if compact else 236,
+                "overview_full_feed_shell": (218 if compact else 226) + extra,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2274,7 +2275,7 @@ class SentinelApp(tk.Tk):
 
             for tree_name, rows in (
                 ("overview_defender_feed_table", 6 if compact else 6),
-                ("overview_full_feed_table", 5 if compact else 5),
+                ("overview_full_feed_table", max(5, (5 if compact else 6) + extra // 29)),
             ):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
@@ -2460,11 +2461,11 @@ class SentinelApp(tk.Tk):
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        tree.tag_configure("bad", foreground=RED, background="#1A141B")
-        tree.tag_configure("warn", foreground=AMBER, background="#191813")
-        tree.tag_configure("high", foreground=ORANGE, background="#20170F")
-        tree.tag_configure("good", foreground=GREEN, background="#101A17")
-        tree.tag_configure("info", foreground=TEXT, background=GLASS_2)
+        tree.tag_configure("bad", foreground="#FFD8E3", background="#22131C")
+        tree.tag_configure("warn", foreground="#FFF1A8", background="#202014")
+        tree.tag_configure("high", foreground="#FFE3B7", background="#231A10")
+        tree.tag_configure("good", foreground="#DDFCEA", background="#0A241B")
+        tree.tag_configure("info", foreground="#D8E8F8", background="#0B2638")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -3534,6 +3535,20 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
+    def bubble_severity(self, value):
+        sev = str(value or "INFO").upper().strip()
+        if sev == "CRITICAL":
+            return "  CRIT  "
+        if sev == "MEDIUM":
+            return "  MED  "
+        return f"  {sev}  "
+
+    def bubble_status(self, value):
+        status = str(value or "ACTIVE").upper().strip()
+        if status == "RESOLVED/CLOSED":
+            return "  RESOLVED  "
+        return f"  {status}  "
+
     def render_overview_defender_feed(self, payload):
         tree = getattr(self, "overview_defender_feed_table", None)
         if tree is None:
@@ -3572,10 +3587,10 @@ class SentinelApp(tk.Tk):
                 title = title[:115] + "..."
             if len(detail) > 170:
                 detail = detail[:167] + "..."
-            tree.insert("", "end", values=(sev, short_ts(row.get("timestamp", "")), title, str(row.get("status", "ACTIVE")), detail), tags=(tag,))
+            tree.insert("", "end", values=(self.bubble_severity(sev), short_ts(row.get("timestamp", "")), title, self.bubble_status(row.get("status", "ACTIVE")), detail), tags=(tag,))
 
         if not rows:
-            tree.insert("", "end", values=("INFO", "", "No active Defender alerts returned yet.", "INFO", "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
+            tree.insert("", "end", values=(self.bubble_severity("INFO"), "", "No active Defender alerts returned yet.", self.bubble_status("INFO"), "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -3610,10 +3625,10 @@ class SentinelApp(tk.Tk):
                 detail = detail[:165] + "..."
 
             tag = f"sev_{sev}" if sev in ("critical", "high", "medium", "info", "low") else "sev_info"
-            tree.insert("", "end", values=(sev.upper(), src, when, title, detail), tags=(tag,))
+            tree.insert("", "end", values=(self.bubble_severity(sev), src, when, title, detail), tags=(tag,))
 
         if not events:
-            tree.insert("", "end", values=("INFO", "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
+            tree.insert("", "end", values=(self.bubble_severity("INFO"), "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
 
     def draw_trend(self, key, values, color):
         if key not in self.trend_canvases:
