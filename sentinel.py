@@ -1845,7 +1845,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
         tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 27, "bold")).pack(side="left")
-        tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg=MUTED, font=(self.font_ui, 11)).pack(side="left", padx=18, pady=(14,0))
+        tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
         tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
 
@@ -1883,8 +1883,8 @@ class SentinelApp(tk.Tk):
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 8))
-        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
-        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Waiting for live connector data", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
+        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
+        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender priority • Intune estate • Software drift • UniFi health", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
         self.hero_strip.pack(fill="x", pady=(0, 8))
@@ -1942,10 +1942,19 @@ class SentinelApp(tk.Tk):
             icon_text = {"Defender": "🛡", "Intune": "▯", "UniFi": "≋", "Software": "◇"}.get(title, "•")
             dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 15, "bold"), width=2)
             dot.pack(side="left", padx=(0, 10))
-            tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold")).pack(side="left")
+            title_col = tk.Frame(top, bg=PANEL)
+            title_col.pack(side="left", fill="x", expand=True)
+            tk.Label(title_col, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold"), anchor="w").pack(anchor="w")
+            micro_text = {
+                "Defender": "MDO alert focus",
+                "Intune": "Device posture",
+                "UniFi": "Network estate",
+                "Software": "Graph inventory",
+            }.get(title, "Live signal")
+            tk.Label(title_col, text=micro_text, bg=PANEL, fg="#7E92A8", font=(self.font_ui, 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
 
             value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"), anchor="w")
-            value.pack(fill="x", pady=(16, 4))
+            value.pack(fill="x", pady=(12, 4))
             detail = tk.Label(card_body, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), wraplength=480, justify="left", anchor="w")
             detail.pack(fill="x")
 
@@ -2017,8 +2026,15 @@ class SentinelApp(tk.Tk):
             badge.create_text(24, 24, text=icon, fill=color, font=(self.font_ui, 17, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
-            tk.Label(text_col, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 10, "bold")).pack(anchor="w")
-            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 24, "bold"))
+            tk.Label(text_col, text=label, bg=GLASS, fg="#B6C8DA", font=(self.font_ui, 10, "bold")).pack(anchor="w")
+            subcopy = {
+                "Stale 30+ days": "last check-in drift",
+                "Unencrypted": "device protection gap",
+                "No primary user": "ownership missing",
+                "Degraded sites": "UniFi site health",
+            }.get(label, "live posture")
+            tk.Label(text_col, text=subcopy, bg=GLASS, fg="#687C92", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
+            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 23, "bold"))
             val.pack(anchor="w", pady=(3, 0))
             self.posture_labels[key] = val
 
@@ -2101,7 +2117,7 @@ class SentinelApp(tk.Tk):
         defender_feed_header = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
         defender_feed_header.pack(fill="x", padx=14, pady=(6, 2))
         tk.Label(defender_feed_header, text="Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="Active Defender alerts shown first · medium alerts included", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold"))
+        self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="6 active Defender item(s)  •  0 high/critical  •  1 medium  •  click headers to sort", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold"))
         self.overview_defender_feed_summary.pack(side="right")
 
         self.overview_defender_feed_table_wrap = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
@@ -2138,7 +2154,7 @@ class SentinelApp(tk.Tk):
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(6, 2))
         tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
-        tk.Label(full_feed_header, text="Color-coded live event table · severity first, newest items first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(full_feed_header, text="Color-coded live event table  •  severity first, newest items first", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 8))
@@ -2461,6 +2477,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(panel, bg=PANEL)
         header.pack(fill="x", padx=12, pady=(7, 3))
         tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 15, "bold")).pack(side="left")
+        tk.Label(header, text="live rows  •  soft severity pills  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         frame = tk.Frame(panel, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
@@ -3517,7 +3534,7 @@ class SentinelApp(tk.Tk):
 
                 self.hero_priority_value.config(text=hero_head, fg=hero_color)
                 self.hero_priority_detail.config(text=hero_detail, fg=TEXT)
-                self.hero_priority_meta.config(text=hero_meta_text, fg=hero_color if hero_color != GREEN else "#9CFFC6")
+                self.hero_priority_meta.config(text=hero_meta_text, fg="#C6D2E0")
                 self.hero_priority_pill.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER), bg=("#12281E" if connected else "#2A1D11"))
                 self.heartbeat_color = GREEN if connected else AMBER
                 self.heartbeat_state.config(text=("CONNECTED" if connected else "CACHE MODE"), fg=(GREEN if connected else AMBER))
@@ -3560,7 +3577,8 @@ class SentinelApp(tk.Tk):
             offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
             total_sites = int(m.get("unifi_sites", 0) or 0)
             self.overview_focus_text.config(
-                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   Software: {m.get('new_software_count', 0)} newly observed   •   UniFi: {total_sites} sites, {offline_sites} offline, {m.get('unifi_degraded_sites', 0)} degraded"
+                text=f"Defender: {defender} active, {defender_critical} high/critical   •   Intune: {intune_devices} devices, {noncompliant} non-compliant   •   Software: {m.get('new_software_count', 0)} newly observed   •   UniFi: {total_sites} sites, {offline_sites} offline, {m.get('unifi_degraded_sites', 0)} degraded",
+                fg=TEXT,
             )
 
         self.spark.append(m.get("alerts", 0))
