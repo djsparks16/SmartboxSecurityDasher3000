@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#090C12"
-PANEL = "#121923"
-PANEL_2 = "#1A2431"
-TEXT = "#F7F9FC"
-MUTED = "#A3AEC0"
-BLUE = "#77C8FF"
-GREEN = "#5BE4B3"
-AMBER = "#FFD36A"
-ORANGE = "#FF9F43"
-RED = "#FF637D"
-PURPLE = "#C8A8FF"
-GLASS = "#101720"
-HAIRLINE = "#243244"
-GLASS_2 = "#0D131B"
-ROW_ALT = "#151E2A"
+BG = "#060A10"
+PANEL = "#0E1622"
+PANEL_2 = "#162233"
+TEXT = "#F5FBFF"
+MUTED = "#9EB5CC"
+BLUE = "#3DB7FF"
+GREEN = "#38FFB3"
+AMBER = "#FFE45C"
+ORANGE = "#FFAE42"
+RED = "#FF4D6D"
+PURPLE = "#A98CFF"
+GLASS = "#0B1320"
+HAIRLINE = "#203247"
+GLASS_2 = "#09111A"
+ROW_ALT = "#101A28"
 
 
 def now_iso():
@@ -1789,17 +1789,17 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=27,
+                  rowheight=28,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
         style.configure("Dasher.Treeview.Heading",
-                  background="#1A2330",
-                  foreground=MUTED,
+                  background="#132133",
+                  foreground="#B9CBE1",
                   relief="flat",
                   font=(self.font_ui, 9, "bold"))
         style.map("Dasher.Treeview",
-                  background=[("selected", "#24344A")],
+                  background=[("selected", "#17385A")],
                   foreground=[("selected", TEXT)])
 
     def make_scrollable_page(self, parent):
@@ -2083,21 +2083,43 @@ class SentinelApp(tk.Tk):
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
         tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(full_feed_header, text="Severity-grouped list · newest first inside each category", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(full_feed_header, text="Color-coded live event table · newest high-signal events first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
 
-        self.overview_full_feed_canvas = tk.Canvas(self.overview_full_feed_panel, bg=GLASS, highlightthickness=0, bd=0, height=420)
-        self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_panel, orient="vertical", command=self.overview_full_feed_canvas.yview)
-        self.overview_full_feed_canvas.configure(yscrollcommand=self.overview_full_feed_scrollbar.set)
-        self.overview_full_feed_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 12))
-        self.overview_full_feed_scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 12))
-        self.overview_full_feed = tk.Frame(self.overview_full_feed_canvas, bg=GLASS)
-        self.overview_full_feed_window = self.overview_full_feed_canvas.create_window((0, 0), window=self.overview_full_feed, anchor="nw")
-        self.overview_full_feed.bind("<Configure>", lambda e: self.overview_full_feed_canvas.configure(scrollregion=self.overview_full_feed_canvas.bbox("all")))
-        self.overview_full_feed_canvas.bind("<Configure>", lambda e: self.overview_full_feed_canvas.itemconfigure(self.overview_full_feed_window, width=e.width))
-        self.overview_full_feed_canvas.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
-        self.overview_full_feed_canvas.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
-        self.overview_full_feed.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
-        self.overview_full_feed.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
+        self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
+        self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_table_wrap, orient="vertical")
+        self.overview_full_feed_scrollbar.pack(side="right", fill="y")
+        self.overview_full_feed_table = ttk.Treeview(
+            self.overview_full_feed_table_wrap,
+            columns=("severity", "source", "time", "title", "detail"),
+            show="headings",
+            style="Dasher.Treeview",
+            yscrollcommand=self.overview_full_feed_scrollbar.set,
+            selectmode="browse",
+            height=16,
+        )
+        self.overview_full_feed_table.heading("severity", text="Severity")
+        self.overview_full_feed_table.heading("source", text="Source")
+        self.overview_full_feed_table.heading("time", text="Time")
+        self.overview_full_feed_table.heading("title", text="Alert / finding")
+        self.overview_full_feed_table.heading("detail", text="Detail")
+        self.overview_full_feed_table.column("severity", width=90, anchor="w", stretch=False)
+        self.overview_full_feed_table.column("source", width=160, anchor="w", stretch=False)
+        self.overview_full_feed_table.column("time", width=150, anchor="w", stretch=False)
+        self.overview_full_feed_table.column("title", width=390, anchor="w", stretch=True)
+        self.overview_full_feed_table.column("detail", width=580, anchor="w", stretch=True)
+        self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
+        self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
+        self.overview_full_feed_table.tag_configure("sev_critical", background="#2A1017", foreground="#FFDCE3")
+        self.overview_full_feed_table.tag_configure("sev_high", background="#2A180F", foreground="#FFE7C5")
+        self.overview_full_feed_table.tag_configure("sev_medium", background="#241E0C", foreground="#FFF1BA")
+        self.overview_full_feed_table.tag_configure("sev_info", background="#0F1B2A", foreground="#D7F0FF")
+        self.overview_full_feed_table.tag_configure("sev_low", background="#0E211B", foreground="#D8FFF0")
+        self.overview_full_feed_table.tag_configure("oddrow", background="#0D1522")
+        self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
+        self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
+        self.overview_full_feed_canvas = self.overview_full_feed_table
+        self.overview_full_feed = self.overview_full_feed_table
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -3356,72 +3378,37 @@ class SentinelApp(tk.Tk):
             pass
 
     def render_overview_full_feed(self, payload):
-        frame = getattr(self, "overview_full_feed", None)
-        if frame is None:
+        tree = getattr(self, "overview_full_feed_table", None)
+        if tree is None:
             return
-        for child in frame.winfo_children():
-            child.destroy()
-
-        sev_priority = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        sev_color = {"critical": RED, "high": ORANGE, "medium": AMBER, "info": BLUE, "low": GREEN}
-        row_bg = {"critical": "#24141A", "high": "#23190F", "medium": "#211D13", "info": "#121B28", "low": "#102019"}
-
-        events = list(payload.get("events", []) or [])[:240]
-        ordered = []
-        for sev_name in ("critical", "high", "medium", "info", "low"):
-            ordered.extend(sorted(
-                [e for e in events if str(e.get("severity", "info")).lower() == sev_name],
-                key=lambda e: str(e.get("timestamp", "")),
-                reverse=True,
-            ))
-        if ordered:
-            events = ordered
-
-        # Table grid. Compact. No fat cards.
-        header = tk.Frame(frame, bg=GLASS_2, highlightthickness=1, highlightbackground=HAIRLINE)
-        header.pack(fill="x", pady=(0, 4))
-        weights = [0, 0, 0, 3, 4]
-        mins = [92, 160, 154, 360, 460]
-        for i, (w, m) in enumerate(zip(weights, mins)):
-            header.grid_columnconfigure(i, weight=w, minsize=m)
-        for col, label in enumerate(("Severity", "Source", "Time", "Alert / finding", "Detail")):
-            tk.Label(header, text=label, bg=GLASS_2, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=col, sticky="ew", padx=10, pady=7)
-
-        if not events:
-            tk.Label(frame, text="Waiting for live signal feed data.", bg=GLASS, fg=MUTED, font=(self.font_ui, 11, "bold")).pack(anchor="w", padx=12, pady=12)
+        try:
+            tree.delete(*tree.get_children())
+        except Exception:
             return
+
+        events = list(payload.get("events", []) or [])[:300]
+        sev_order = {"critical": 0, "high": 1, "medium": 2, "info": 3, "low": 4}
+        events.sort(key=lambda e: (sev_order.get(str(e.get("severity", "info")).lower(), 9), str(e.get("timestamp", ""))), reverse=False)
 
         for idx, event in enumerate(events):
             sev = str(event.get("severity", "info")).lower()
-            color = sev_color.get(sev, BLUE)
-            bg = row_bg.get(sev, PANEL) if idx % 2 == 0 else GLASS
             src = str(event.get("source", "source"))
+            when = short_ts(event.get("timestamp", ""))
             title = str(event.get("title", "event"))
             detail = str(event.get("detail", ""))
-            when = short_ts(event.get("timestamp", ""))
 
-            if len(title) > 95:
-                title = title[:92] + "..."
-            if len(detail) > 150:
-                detail = detail[:147] + "..."
+            if len(title) > 92:
+                title = title[:89] + "..."
+            if len(detail) > 120:
+                detail = detail[:117] + "..."
 
-            row = tk.Frame(frame, bg=bg, highlightthickness=1, highlightbackground="#1E2A39")
-            row.pack(fill="x", pady=1)
+            tags = [f"sev_{sev}"]
+            if idx % 2 == 1 and sev not in ("critical", "high", "medium", "info", "low"):
+                tags.append("oddrow")
+            tree.insert("", "end", values=(sev.upper(), src, when, title, detail), tags=tuple(tags))
 
-            for i, (w, m) in enumerate(zip(weights, mins)):
-                row.grid_columnconfigure(i, weight=w, minsize=m)
-
-            tk.Label(row, text=sev.upper(), bg=color, fg="#071018", font=(self.font_ui, 8, "bold"), padx=8, pady=2).grid(row=0, column=0, sticky="w", padx=10, pady=6)
-            tk.Label(row, text=src, bg=bg, fg="#AFC0D9", font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=1, sticky="ew", padx=10, pady=6)
-            tk.Label(row, text=when, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=2, sticky="ew", padx=10, pady=6)
-            tk.Label(row, text=title, bg=bg, fg=TEXT, font=(self.font_ui, 8, "bold"), anchor="w").grid(row=0, column=3, sticky="ew", padx=10, pady=6)
-            tk.Label(row, text=detail, bg=bg, fg=MUTED, font=(self.font_ui, 8), anchor="w").grid(row=0, column=4, sticky="ew", padx=10, pady=6)
-
-        try:
-            self.overview_full_feed.update_idletasks()
-            self.overview_full_feed_canvas.configure(scrollregion=self.overview_full_feed_canvas.bbox("all"))
-        except Exception:
-            pass
+        if not events:
+            tree.insert("", "end", values=("INFO", "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
 
     def draw_trend(self, key, values, color):
         if key not in self.trend_canvases:
@@ -3433,12 +3420,13 @@ class SentinelApp(tk.Tk):
         canvas.create_rectangle(0, 0, w, h, fill=GLASS, outline="")
 
         left, top, right, bottom = 10, 8, w - 10, h - 10
-        for i in range(4):
-            y = top + ((bottom - top) * i / 3)
-            canvas.create_line(left, y, right, y, fill="#182435")
-        for i in range(6):
-            x = left + ((right - left) * i / 5)
-            canvas.create_line(x, top, x, bottom, fill="#111A2A")
+        # cyber grid
+        for i in range(5):
+            y = top + ((bottom - top) * i / 4)
+            canvas.create_line(left, y, right, y, fill="#102033")
+        for i in range(9):
+            x = left + ((right - left) * i / 8)
+            canvas.create_line(x, top, x, bottom, fill="#0B1624")
 
         vals = [max(0, int(v or 0)) for v in (values[-32:] if values else [])]
         if not vals:
@@ -3454,21 +3442,32 @@ class SentinelApp(tk.Tk):
             y = bottom - ((v / vmax) * (bottom - top - 8))
             pts.append((x, y))
 
+        # subtle vertical bars for motion/telemetry feel
+        for x, y in pts:
+            canvas.create_line(x, bottom, x, y, fill="#122033")
+
         flat = [coord for p in pts for coord in p]
         area = [(pts[0][0], bottom)] + pts + [(pts[-1][0], bottom)]
         flat_area = [coord for p in area for coord in p]
-
         canvas.create_polygon(flat_area, fill=color, outline="", stipple="gray25")
-        canvas.create_line(*flat, fill="#142033", width=10, smooth=True, splinesteps=20)
-        canvas.create_line(*flat, fill=color, width=3.2, smooth=True, splinesteps=20)
+        # glow layers
+        canvas.create_line(*flat, fill="#071018", width=9, smooth=True, splinesteps=24)
+        canvas.create_line(*flat, fill=color, width=5, smooth=True, splinesteps=24)
+        canvas.create_line(*flat, fill="#E8FBFF", width=1, smooth=True, splinesteps=24)
 
-        recent = pts[-6:]
-        for px, py in recent:
-            canvas.create_oval(px - 2, py - 2, px + 2, py + 2, fill=color, outline=color)
+        recent = pts[-8:]
+        for px, py in recent[:-1]:
+            canvas.create_oval(px - 1.5, py - 1.5, px + 1.5, py + 1.5, fill=color, outline=color)
+        px, py = recent[-1]
+        canvas.create_oval(px - 5, py - 5, px + 5, py + 5, outline=color, width=2)
+        canvas.create_oval(px - 2.5, py - 2.5, px + 2.5, py + 2.5, fill="#F5FBFF", outline=color)
 
         last = vals[-1]
+        prev = vals[-2] if len(vals) > 1 else vals[-1]
+        delta = last - prev
+        delta_txt = f"{delta:+d}"
         canvas.create_text(left + 6, top + 2, text=f"Live {last}", anchor="nw", fill=color, font=(self.font_ui, 8, "bold"))
-        canvas.create_text(right - 2, top + 2, text=f"Peak {vmax}", anchor="ne", fill="#7D8DA6", font=(self.font_ui, 8))
+        canvas.create_text(right - 2, top + 2, text=f"Peak {vmax} · Δ {delta_txt}", anchor="ne", fill="#A9BED3", font=(self.font_ui, 8))
 
     def draw_security_signals(self, values):
         canvas = self.security_signals_canvas
@@ -3489,13 +3488,14 @@ class SentinelApp(tk.Tk):
 
         left, top, right = 12, 14, w - 12
         bar_h = 18
-        canvas.create_rectangle(left, top, right, top + bar_h, fill="#111A2A", outline="#1A2940")
+        canvas.create_rectangle(left, top, right, top + bar_h, fill="#09111A", outline="#17314B", width=1)
         x = left + 1
         usable = (right - left - 2)
         for label, val, color in parts:
             seg = max(0, int((val / total) * usable)) if val else 0
             if seg > 0:
                 canvas.create_rectangle(x, top + 1, min(right - 1, x + seg), top + bar_h - 1, fill=color, outline="")
+                canvas.create_line(x, top + 1, min(right - 1, x + seg), top + 1, fill="#F7FCFF")
                 x += seg
 
         canvas.create_text(left, top + 28, text=f"Live security signals {sum(v for _, v, _ in parts)}", anchor="nw", fill=TEXT, font=(self.font_ui, 8, "bold"))
@@ -3505,8 +3505,8 @@ class SentinelApp(tk.Tk):
         step = max(74, int((w - 24) / 4))
         for i, (label, val, color) in enumerate(parts):
             cx = lx + i * step
-            canvas.create_oval(cx, ly - 4, cx + 8, ly + 4, fill=color, outline=color)
-            canvas.create_text(cx + 12, ly, text=f"{label} {val}", fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
+            canvas.create_oval(cx, ly - 5, cx + 10, ly + 5, fill=color, outline="#EAFBFF")
+            canvas.create_text(cx + 14, ly, text=f"{label} {val}", fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
 
     def draw_heartbeat(self):
         canvas = getattr(self, "heartbeat_canvas", None)
