@@ -1771,8 +1771,13 @@ class SentinelApp(tk.Tk):
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
         style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
         style.configure("MainHidden.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("SubHidden.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
         try:
             style.layout("MainHidden.TNotebook.Tab", [])
+        except Exception:
+            pass
+        try:
+            style.layout("SubHidden.TNotebook.Tab", [])
         except Exception:
             pass
         style.configure("Dasher.TNotebook.Tab", background="#101620", foreground=MUTED, padding=(24, 12), font=(self.font_ui, 10, "bold"), borderwidth=0)
@@ -2079,6 +2084,63 @@ class SentinelApp(tk.Tk):
         for tab_frame, parts in self.main_tab_buttons.items():
             parts["draw"](active=(tab_frame == frame))
 
+    def _build_subtab_pills(self, bar, notebook, tabs):
+        if not hasattr(self, "subtab_buttons"):
+            self.subtab_buttons = {}
+        for child in bar.winfo_children():
+            child.destroy()
+
+        buttons = {}
+        for label, frame in tabs:
+            width = min(170, max(102, 12 * len(label) + 22))
+            shell = tk.Frame(bar, bg=BG, width=width, height=34)
+            shell.pack(side="left", padx=(0, 8), pady=(0, 2))
+            shell.pack_propagate(False)
+
+            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, bd=0, width=width, height=34)
+            canvas.pack(fill="both", expand=True)
+            btn = tk.Label(
+                canvas,
+                text=label,
+                bg="#111925",
+                fg=MUTED,
+                font=(self.font_ui, 9, "bold"),
+                cursor="hand2"
+            )
+            canvas.create_window((width // 2, 17), window=btn, width=width - 10, height=28)
+
+            def draw(c=canvas, b=btn, w=width, active=False):
+                c.delete("panel")
+                bg = "#223147" if active else "#111925"
+                border = BLUE if active else HAIRLINE
+                pts = self._rounded_points(2, 2, w - 2, 32, 14)
+                c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.3, tags="panel")
+                c.tag_lower("panel")
+                b.configure(bg=bg, fg=TEXT if active else MUTED)
+
+            for widget in (shell, canvas, btn):
+                widget.bind("<Button-1>", lambda e, f=frame, nb=notebook: self.select_subtab(nb, f))
+            buttons[frame] = {"draw": draw}
+            draw(False)
+
+        self.subtab_buttons[notebook] = buttons
+        notebook.bind("<<NotebookTabChanged>>", lambda e, nb=notebook: self._sync_subtab_pills(nb), add="+")
+        if tabs:
+            self.select_subtab(notebook, tabs[0][1])
+
+    def select_subtab(self, notebook, frame):
+        notebook.select(frame)
+        self._sync_subtab_pills(notebook)
+
+    def _sync_subtab_pills(self, notebook):
+        current = notebook.select()
+        for frame, parts in self.subtab_buttons.get(notebook, {}).items():
+            try:
+                fid = str(frame)
+            except Exception:
+                fid = ""
+            parts["draw"](active=(fid == current))
+
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
@@ -2174,13 +2236,19 @@ class SentinelApp(tk.Tk):
         self.focus_card(row, "Defender active alerts", BLUE, "defender", "defender_alerts")
         self.focus_card(row, "High / critical Defender", RED, "defender", "defender_critical")
         self.focus_card(row, "Graph security context", PURPLE, "defender", "graph_alerts")
-        self.defender_tables = ttk.Notebook(defender_wrap, style="Dasher.TNotebook")
+        defender_subtabs = tk.Frame(defender_wrap, bg=BG)
+        defender_subtabs.pack(fill="x", padx=6, pady=(4, 0))
+        self.defender_tables = ttk.Notebook(defender_wrap, style="SubHidden.TNotebook")
         self.defender_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
         defender_alert_tab = tk.Frame(self.defender_tables, bg=BG)
         defender_signal_tab = tk.Frame(self.defender_tables, bg=BG)
         self.defender_tables.add(defender_alert_tab, text="Security alerts")
         self.defender_tables.add(defender_signal_tab, text="Signal events")
+        self._build_subtab_pills(defender_subtabs, self.defender_tables, [
+            ("Security alerts", defender_alert_tab),
+            ("Signal events", defender_signal_tab),
+        ])
 
         self.defender_alert_table = self.table_panel(defender_alert_tab, "Defender / Microsoft security alerts", [
             ("time", "Time", 150),
@@ -2239,7 +2307,9 @@ class SentinelApp(tk.Tk):
             val.pack(anchor="w")
             self.intune_platform_focus[key] = val
 
-        self.intune_tables = ttk.Notebook(intune_wrap, style="Dasher.TNotebook")
+        intune_subtabs = tk.Frame(intune_wrap, bg=BG)
+        intune_subtabs.pack(fill="x", padx=6, pady=(4, 0))
+        self.intune_tables = ttk.Notebook(intune_wrap, style="SubHidden.TNotebook")
         self.intune_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
         int_tab_non = tk.Frame(self.intune_tables, bg=BG)
@@ -2250,6 +2320,12 @@ class SentinelApp(tk.Tk):
         self.intune_tables.add(int_tab_stale, text="Stale 30+ days")
         self.intune_tables.add(int_tab_posture, text="Security posture")
         self.intune_tables.add(int_tab_summary, text="Summary")
+        self._build_subtab_pills(intune_subtabs, self.intune_tables, [
+            ("Non-compliant", int_tab_non),
+            ("Stale 30+ days", int_tab_stale),
+            ("Security posture", int_tab_posture),
+            ("Summary", int_tab_summary),
+        ])
 
         self.intune_noncompliant_table = self.table_panel(int_tab_non, "Non-compliant Intune devices", [
             ("name", "Device", 230),
@@ -2303,13 +2379,19 @@ class SentinelApp(tk.Tk):
         self.focus_card(row_b, "Degraded sites", AMBER, "unifi", "unifi_degraded_sites")
         self.focus_card(row_b, "UniFi alerts", AMBER, "unifi", "unifi_alerts")
 
-        self.unifi_tables = ttk.Notebook(unifi_wrap, style="Dasher.TNotebook")
+        unifi_subtabs = tk.Frame(unifi_wrap, bg=BG)
+        unifi_subtabs.pack(fill="x", padx=6, pady=(4, 0))
+        self.unifi_tables = ttk.Notebook(unifi_wrap, style="SubHidden.TNotebook")
         self.unifi_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
         unifi_sites_tab = tk.Frame(self.unifi_tables, bg=BG)
         unifi_notes_tab = tk.Frame(self.unifi_tables, bg=BG)
         self.unifi_tables.add(unifi_sites_tab, text="Sites")
         self.unifi_tables.add(unifi_notes_tab, text="Connector notes")
+        self._build_subtab_pills(unifi_subtabs, self.unifi_tables, [
+            ("Sites", unifi_sites_tab),
+            ("Connector notes", unifi_notes_tab),
+        ])
 
         self.unifi_sites_table = self.table_panel(unifi_sites_tab, "UniFi network sites", [
             ("site", "Site", 260),
@@ -2341,7 +2423,9 @@ class SentinelApp(tk.Tk):
         self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
         self.focus_card(sw_row, "Inventory source", BLUE, "software", "detected_apps_source")
         self.focus_card(sw_row, "DetectedApps status", ORANGE, "software", "software_issue_state")
-        self.software_tables = ttk.Notebook(software_wrap, style="Dasher.TNotebook")
+        software_subtabs = tk.Frame(software_wrap, bg=BG)
+        software_subtabs.pack(fill="x", padx=6, pady=(4, 0))
+        self.software_tables = ttk.Notebook(software_wrap, style="SubHidden.TNotebook")
         self.software_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
         sw_new_tab = tk.Frame(self.software_tables, bg=BG)
@@ -2350,6 +2434,11 @@ class SentinelApp(tk.Tk):
         self.software_tables.add(sw_new_tab, text="Newly observed")
         self.software_tables.add(sw_all_tab, text="Detected apps")
         self.software_tables.add(sw_notes_tab, text="Notes")
+        self._build_subtab_pills(software_subtabs, self.software_tables, [
+            ("Newly observed", sw_new_tab),
+            ("Detected apps", sw_all_tab),
+            ("Notes", sw_notes_tab),
+        ])
 
         self.software_new_table = self.table_panel(sw_new_tab, "Newly observed software", [
             ("name", "Application", 320),
