@@ -1931,30 +1931,30 @@ class SentinelApp(tk.Tk):
             ("Software", "overview_software", GREEN),
         ]:
             shell, panel = self.rounded_panel(self.overview_status_cards, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-            shell.configure(height=132)
+            shell.configure(height=140)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(6, 10))
 
             card_body = tk.Frame(panel, bg=PANEL)
-            card_body.pack(fill="both", expand=True, padx=22, pady=18)
+            card_body.pack(fill="both", expand=True, padx=22, pady=16)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
-            icon_text = {"Defender": "🛡", "Intune": "▯", "UniFi": "≋", "Software": "◇"}.get(title, "•")
-            dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 15, "bold"), width=2)
+            icon_text = {"Defender": "⬟", "Intune": "▯", "UniFi": "⌁", "Software": "◈"}.get(title, "•")
+            dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 16, "bold"), width=2)
             dot.pack(side="left", padx=(0, 10))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
             tk.Label(title_col, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold"), anchor="w").pack(anchor="w")
             micro_text = {
-                "Defender": "MDO alert focus",
-                "Intune": "Device posture",
-                "UniFi": "Network estate",
-                "Software": "Graph inventory",
-            }.get(title, "Live signal")
-            tk.Label(title_col, text=micro_text, bg=PANEL, fg="#7E92A8", font=(self.font_ui, 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
+                "Defender": "Open Defender details ->",
+                "Intune": "Open Intune posture ->",
+                "UniFi": "Open UniFi estate ->",
+                "Software": "Open software inventory ->",
+            }.get(title, "Open details ->")
+            tk.Label(title_col, text=micro_text, bg=PANEL, fg="#58C7FF", font=(self.font_ui, 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
 
             value = tk.Label(card_body, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"), anchor="w")
-            value.pack(fill="x", pady=(12, 4))
+            value.pack(fill="x", pady=(10, 3))
             detail = tk.Label(card_body, text="Connector warming up", bg=PANEL, fg=MUTED, font=(self.font_ui, 10), wraplength=480, justify="left", anchor="w")
             detail.pack(fill="x")
 
@@ -2009,33 +2009,33 @@ class SentinelApp(tk.Tk):
         self.security_posture_strip.pack(fill="x", pady=(6, 10))
         self.posture_labels = {}
         for label, key, color, icon in [
-            ("Stale 30+ days", "stale_30_count", BLUE, "▣"),
+            ("Stale 30+ days", "stale_30_count", BLUE, "▦"),
             ("Unencrypted", "unencrypted_count", RED, "▣"),
             ("No primary user", "no_user_count", AMBER, "●"),
-            ("Degraded sites", "unifi_degraded_sites", ORANGE, "▲"),
+            ("Degraded sites", "unifi_degraded_sites", ORANGE, "△"),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=88)
+            shell.configure(height=104)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
-            body_row.pack(fill="both", expand=True, padx=20, pady=15)
-            badge = tk.Canvas(body_row, width=48, height=48, bg=GLASS, highlightthickness=0, bd=0)
+            body_row.pack(fill="both", expand=True, padx=20, pady=14)
+            badge = tk.Canvas(body_row, width=50, height=50, bg=GLASS, highlightthickness=0, bd=0)
             badge.pack(side="left", padx=(0, 16))
-            badge.create_oval(3, 3, 45, 45, fill="#0D1A28", outline=color, width=1.4)
-            badge.create_text(24, 24, text=icon, fill=color, font=(self.font_ui, 17, "bold"))
+            badge.create_oval(3, 3, 47, 47, fill="#0D1A28", outline=color, width=1.5)
+            badge.create_text(25, 25, text=icon, fill=color, font=(self.font_ui, 18, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
-            tk.Label(text_col, text=label, bg=GLASS, fg="#B6C8DA", font=(self.font_ui, 10, "bold")).pack(anchor="w")
+            tk.Label(text_col, text=label, bg=GLASS, fg="#D7E7F7", font=(self.font_ui, 10, "bold")).pack(anchor="w")
             subcopy = {
                 "Stale 30+ days": "last check-in drift",
                 "Unencrypted": "device protection gap",
                 "No primary user": "ownership missing",
                 "Degraded sites": "UniFi site health",
             }.get(label, "live posture")
-            tk.Label(text_col, text=subcopy, bg=GLASS, fg="#687C92", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
+            tk.Label(text_col, text=subcopy + "  ->", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
             val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 23, "bold"))
-            val.pack(anchor="w", pady=(3, 0))
+            val.pack(anchor="w", pady=(2, 0))
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
@@ -2232,6 +2232,7 @@ class SentinelApp(tk.Tk):
         self._build_focus_tabs()
         self._enforce_soc_console_overview()
         self._polish_all_table_chrome()
+        self._bind_overview_action_navigation()
         self.bind("<Configure>", self._fit_soc_console_overview, add="+")
 
         footer = tk.Frame(shell, bg=BG)
@@ -2314,8 +2315,8 @@ class SentinelApp(tk.Tk):
                             relief="flat",
                             font=(self.font_ui, 10))
             style.configure("Dasher.Treeview.Heading",
-                            background="#17293D",
-                            foreground="#D7E7F7",
+                            background="#182D43",
+                            foreground="#E6F2FF",
                             relief="flat",
                             font=(self.font_ui, 10, "bold"))
             style.map("Dasher.Treeview",
