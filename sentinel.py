@@ -31,16 +31,16 @@ APP_NAME = "Smartbox Security Dasher 3000"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-BG = "#0B0F1A"
-PANEL = "#121827"
-PANEL_2 = "#171F33"
-TEXT = "#F5F7FB"
-MUTED = "#9BA7BD"
-BLUE = "#53A6FF"
-GREEN = "#4DFFB5"
-AMBER = "#FFD66B"
-RED = "#FF4D6D"
-PURPLE = "#B38CFF"
+BG = "#0E1116"
+PANEL = "#141A22"
+PANEL_2 = "#1A2230"
+TEXT = "#F6F7FB"
+MUTED = "#98A2B3"
+BLUE = "#7AB8FF"
+GREEN = "#63E6BE"
+AMBER = "#FFCF66"
+RED = "#FF6B81"
+PURPLE = "#C1A8FF"
 
 
 def now_iso():
@@ -1360,6 +1360,8 @@ class SentinelApp(tk.Tk):
         self.alert_breakdown_labels = {}
         self.unifi_labels = {}
         self.connector_widgets = {}
+        self.focus_cards = {"defender": {}, "intune": {}, "unifi": {}}
+        self.last_payload = None
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
@@ -1381,6 +1383,11 @@ class SentinelApp(tk.Tk):
         style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=8)
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("TEntry", fieldbackground="#0F1524", foreground=TEXT, insertcolor=TEXT, bordercolor="#24304A")
+        style.configure("Dasher.TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("Dasher.TNotebook.Tab", background="#1A2130", foreground=MUTED, padding=(18, 10), font=("Segoe UI", 10, "bold"), borderwidth=0)
+        style.map("Dasher.TNotebook.Tab",
+                  background=[("selected", PANEL), ("active", "#202A3A")],
+                  foreground=[("selected", TEXT), ("active", TEXT)])
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
@@ -1393,7 +1400,7 @@ class SentinelApp(tk.Tk):
         tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1C2740", fg=TEXT, activebackground="#243455", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
         tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162034", fg=TEXT, activebackground="#243455", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
 
-        self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.overview = tk.Frame(shell, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
         self.overview.pack(fill="x", pady=(14, 6))
         self.state_badge = tk.Label(self.overview, text="INITIALISING", bg=PANEL, fg=BLUE, font=("Segoe UI", 10, "bold"))
         self.state_badge.pack(side="left", padx=(18, 10), pady=12)
@@ -1402,7 +1409,20 @@ class SentinelApp(tk.Tk):
         self.live_badge = tk.Label(self.overview, text="LIVE: NONE", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold"))
         self.live_badge.pack(side="right", padx=(8, 18), pady=12)
 
-        body = tk.Frame(shell, bg=BG)
+        self.main_tabs = ttk.Notebook(shell, style="Dasher.TNotebook")
+        self.main_tabs.pack(fill="both", expand=True, pady=(12, 0))
+
+        self.tab_overview = tk.Frame(self.main_tabs, bg=BG)
+        self.tab_defender = tk.Frame(self.main_tabs, bg=BG)
+        self.tab_intune = tk.Frame(self.main_tabs, bg=BG)
+        self.tab_unifi = tk.Frame(self.main_tabs, bg=BG)
+
+        self.main_tabs.add(self.tab_overview, text="Overview")
+        self.main_tabs.add(self.tab_defender, text="Defender")
+        self.main_tabs.add(self.tab_intune, text="Intune")
+        self.main_tabs.add(self.tab_unifi, text="UniFi")
+
+        body = tk.Frame(self.tab_overview, bg=BG)
         body.pack(fill="both", expand=True, pady=(12, 0))
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
@@ -1421,7 +1441,7 @@ class SentinelApp(tk.Tk):
         self.card(cards, 1, 1, "High/Critical Defender", "critical", PURPLE)
 
 
-        self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
         for label, key, color in [
             ("Network status", "unifi_status", BLUE),
             ("UniFi sites", "unifi_sites", GREEN),
@@ -1439,7 +1459,20 @@ class SentinelApp(tk.Tk):
             self.unifi_labels[key] = val
 
 
-        self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.network_summary_bar = tk.Frame(left, bg="#121A2A", highlightthickness=1, highlightbackground="#263552")
+        self.network_summary_bar.pack(fill="x", pady=(8, 0))
+        ns_left = tk.Frame(self.network_summary_bar, bg="#121A2A")
+        ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=10)
+        tk.Label(ns_left, text="Network site status", bg="#121A2A", fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.network_status_big = tk.Label(ns_left, text="--", bg="#121A2A", fg=BLUE, font=("Segoe UI Variable Display", 18, "bold"))
+        self.network_status_big.pack(anchor="w")
+        ns_right = tk.Frame(self.network_summary_bar, bg="#121A2A")
+        ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=10)
+        tk.Label(ns_right, text="UniFi site health summary", bg="#121A2A", fg=MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.network_status_detail = tk.Label(ns_right, text="Waiting for UniFi site data", bg="#121A2A", fg=TEXT, font=("Segoe UI", 10, "bold"), justify="left")
+        self.network_status_detail.pack(anchor="w")
+
+        self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
         site_header = tk.Frame(self.unifi_site_health_bar, bg=PANEL)
         site_header.pack(fill="x", padx=12, pady=(8, 2))
         self.unifi_site_health_title = tk.Label(site_header, text="UniFi network sites", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
@@ -1447,7 +1480,7 @@ class SentinelApp(tk.Tk):
         self.unifi_site_health_summary = tk.Label(site_header, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold"))
         self.unifi_site_health_summary.pack(side="right")
 
-        self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=132)
+        self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=150)
         self.unifi_site_table_scrollbar = tk.Scrollbar(self.unifi_site_health_bar, orient="vertical", command=self.unifi_site_table_canvas.yview, bg=PANEL, troughcolor=BG)
         self.unifi_site_table_canvas.configure(yscrollcommand=self.unifi_site_table_scrollbar.set)
         self.unifi_site_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 8))
@@ -1461,7 +1494,7 @@ class SentinelApp(tk.Tk):
         self.unifi_site_table_canvas.bind("<Leave>", self._unbind_unifi_site_table_mousewheel)
 
 
-        self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
         self.platform_bar.pack(fill="x", pady=(8, 0))
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
@@ -1478,7 +1511,7 @@ class SentinelApp(tk.Tk):
             self.platform_labels[key] = val
 
 
-        self.alert_table_panel = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+        self.alert_table_panel = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
         self.alert_table_panel.pack(fill="both", expand=True, pady=(12, 0))
 
         table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
@@ -1487,7 +1520,7 @@ class SentinelApp(tk.Tk):
         self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold"))
         self.alert_table_summary.pack(side="right")
 
-        self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=300)
+        self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=320)
         self.alert_table_scrollbar = tk.Scrollbar(self.alert_table_panel, orient="vertical", command=self.alert_table_canvas.yview, bg=PANEL, troughcolor=BG)
         self.alert_table_canvas.configure(yscrollcommand=self.alert_table_scrollbar.set)
         self.alert_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 10))
@@ -1519,13 +1552,142 @@ class SentinelApp(tk.Tk):
         self.feed_canvas.bind("<Enter>", self._bind_feed_mousewheel)
         self.feed_canvas.bind("<Leave>", self._unbind_feed_mousewheel)
 
+        self._build_focus_tabs()
+
         footer = tk.Frame(shell, bg=BG)
         footer.pack(fill="x", pady=(12, 0))
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
-        tk.Label(footer, text="Only configured live connectors are displayed. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+        tk.Label(footer, text="Focused tabs: Overview, Defender, Intune, and UniFi. No simulated telemetry.", bg=BG, fg="#526078", font=("Segoe UI", 9)).pack(side="right")
+
+    def focus_card(self, parent, title, color, bucket, key, width_pack=True):
+        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#27324A")
+        if width_pack:
+            f.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+        else:
+            f.pack(fill="x", padx=6, pady=6)
+        tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 26, "bold"))
+        val.pack(anchor="w", padx=16, pady=(0, 2))
+        hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=("Segoe UI", 8))
+        hint.pack(anchor="w", padx=16, pady=(0, 12))
+        self.focus_cards[bucket][key] = {"frame": f, "value": val, "hint": hint, "base": color}
+        return f
+
+    def text_panel(self, parent, title):
+        wrap = tk.Frame(parent, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        wrap.pack(fill="both", expand=True, padx=6, pady=6)
+        top = tk.Frame(wrap, bg=PANEL)
+        top.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(side="left")
+        text_frame = tk.Frame(wrap, bg=PANEL)
+        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        widget = tk.Text(
+            text_frame,
+            bg="#111722",
+            fg=TEXT,
+            insertbackground=TEXT,
+            relief="flat",
+            wrap="word",
+            font=("Consolas", 10),
+            padx=10,
+            pady=10
+        )
+        scroll = tk.Scrollbar(text_frame, orient="vertical", command=widget.yview)
+        widget.configure(yscrollcommand=scroll.set)
+        widget.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        widget.config(state="disabled")
+        return widget
+
+    def set_text_widget(self, widget, value):
+        widget.config(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", value)
+        widget.config(state="disabled")
+
+    def _build_focus_tabs(self):
+        # Defender tab
+        defender_wrap = tk.Frame(self.tab_defender, bg=BG)
+        defender_wrap.pack(fill="both", expand=True, padx=6, pady=6)
+        tk.Label(defender_wrap, text="Defender security view", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=8, pady=(0, 12))
+
+        row = tk.Frame(defender_wrap, bg=BG)
+        row.pack(fill="x")
+        self.focus_card(row, "Defender priority", AMBER, "defender", "priority_state")
+        self.focus_card(row, "Defender active alerts", BLUE, "defender", "defender_alerts")
+        self.focus_card(row, "High / critical Defender", RED, "defender", "defender_critical")
+        self.focus_card(row, "Graph security context", PURPLE, "defender", "graph_alerts")
+        self.defender_text = self.text_panel(defender_wrap, "Defender and Microsoft security rows")
+
+        # Intune tab
+        intune_wrap = tk.Frame(self.tab_intune, bg=BG)
+        intune_wrap.pack(fill="both", expand=True, padx=6, pady=6)
+        tk.Label(intune_wrap, text="Intune estate view", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=8, pady=(0, 12))
+
+        row = tk.Frame(intune_wrap, bg=BG)
+        row.pack(fill="x")
+        self.focus_card(row, "Intune devices", GREEN, "intune", "devices")
+        self.focus_card(row, "Non-compliant devices", AMBER, "intune", "noncompliant")
+        self.focus_card(row, "Compliant devices", BLUE, "intune", "compliant_devices")
+        self.focus_card(row, "Compliance rate", PURPLE, "intune", "compliance_percent")
+
+        platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        platform.pack(fill="x", padx=6, pady=6)
+        tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(anchor="w", padx=14, pady=(10, 8))
+        self.intune_platform_focus = {}
+        plat_row = tk.Frame(platform, bg=PANEL)
+        plat_row.pack(fill="x", padx=6, pady=(0, 10))
+        for label, key, color in [
+            ("Windows", "windows", BLUE),
+            ("iPhone / iPad", "ios", GREEN),
+            ("Mac", "macos", PURPLE),
+            ("Android", "android", AMBER),
+            ("Other", "other_os", MUTED),
+        ]:
+            box = tk.Frame(plat_row, bg=PANEL)
+            box.pack(side="left", fill="x", expand=True, padx=8)
+            tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 18, "bold"))
+            val.pack(anchor="w")
+            self.intune_platform_focus[key] = val
+
+        self.intune_text = self.text_panel(intune_wrap, "Intune inventory and compliance summary")
+
+        # UniFi tab
+        unifi_wrap = tk.Frame(self.tab_unifi, bg=BG)
+        unifi_wrap.pack(fill="both", expand=True, padx=6, pady=6)
+        tk.Label(unifi_wrap, text="UniFi network view", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 22, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w", padx=8, pady=(0, 12))
+
+        status_shell = tk.Frame(unifi_wrap, bg=BG)
+        status_shell.pack(fill="x")
+        left_big = tk.Frame(status_shell, bg=PANEL, highlightthickness=1, highlightbackground="#27324A")
+        left_big.pack(side="left", fill="both", expand=True, padx=6, pady=6)
+        tk.Label(left_big, text="Network site status", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=16, pady=(12, 2))
+        self.unifi_tab_status_big = tk.Label(left_big, text="--", bg=PANEL, fg=BLUE, font=("Segoe UI Variable Display", 26, "bold"))
+        self.unifi_tab_status_big.pack(anchor="w", padx=16, pady=(0, 2))
+        self.unifi_tab_status_hint = tk.Label(left_big, text="Awaiting data", bg=PANEL, fg="#8290A7", font=("Segoe UI", 8))
+        self.unifi_tab_status_hint.pack(anchor="w", padx=16, pady=(0, 12))
+
+        right_stats = tk.Frame(status_shell, bg=BG)
+        right_stats.pack(side="left", fill="both", expand=True)
+        row_a = tk.Frame(right_stats, bg=BG)
+        row_a.pack(fill="x")
+        self.focus_card(row_a, "UniFi sites", GREEN, "unifi", "unifi_sites")
+        self.focus_card(row_a, "UniFi devices", BLUE, "unifi", "unifi_devices")
+        self.focus_card(row_a, "Offline sites", RED, "unifi", "unifi_critical_sites")
+        row_b = tk.Frame(right_stats, bg=BG)
+        row_b.pack(fill="x")
+        self.focus_card(row_b, "Healthy sites", GREEN, "unifi", "unifi_healthy_sites")
+        self.focus_card(row_b, "Degraded sites", AMBER, "unifi", "unifi_degraded_sites")
+        self.focus_card(row_b, "UniFi alerts", AMBER, "unifi", "unifi_alerts")
+
+        self.unifi_text = self.text_panel(unifi_wrap, "UniFi site and connector detail")
 
     def card(self, parent, row, col, title, key, color):
-        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#22304C")
+        f = tk.Frame(parent, bg=PANEL, bd=0, highlightthickness=1, highlightbackground="#243149")
         f.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=(14, 2))
         val = tk.Label(f, text="--", bg=PANEL, fg=color, font=("Segoe UI Variable Display", 28, "bold"))
@@ -1673,7 +1835,7 @@ class SentinelApp(tk.Tk):
         for site in sites[:80]:
             status = str(site.get("status", "VISIBLE")).upper()
             color = status_color.get(status, BLUE)
-            row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
+            row = tk.Frame(self.unifi_site_table, bg=PANEL, highlightthickness=1, highlightbackground="#243149")
             row.pack(fill="x", pady=1)
             tk.Label(row, text=str(site.get("name", "UniFi site"))[:48], bg=PANEL, fg=TEXT, font=("Segoe UI", 8, "bold"), width=36, anchor="w").pack(side="left", padx=3, pady=4)
             tk.Label(row, text=status, bg=PANEL, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=3, pady=4)
@@ -1743,7 +1905,7 @@ class SentinelApp(tk.Tk):
             color = sev_color.get(sev, BLUE)
             status = str(row.get("status", "ACTIVE"))
             bg = "#121827" if status != "RESOLVED/CLOSED" else "#101522"
-            r = tk.Frame(self.alert_table, bg=bg, highlightthickness=1, highlightbackground="#22304C")
+            r = tk.Frame(self.alert_table, bg=bg, highlightthickness=1, highlightbackground="#243149")
             r.pack(fill="x", pady=2)
             tk.Label(r, text=row.get("source", ""), bg=bg, fg=TEXT, font=("Segoe UI", 8, "bold"), width=18, anchor="w").pack(side="left", padx=4, pady=5)
             tk.Label(r, text=sev, bg=bg, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=4, pady=5)
@@ -1954,6 +2116,7 @@ class SentinelApp(tk.Tk):
         self.after(250, self.drain_queue)
 
     def render(self, payload):
+        self.last_payload = payload
         m = payload["metrics"]
         self.update_configured_visibility(m, payload["sources"])
         for key, val in m.items():
@@ -1994,6 +2157,26 @@ class SentinelApp(tk.Tk):
             else:
                 label.config(text=str(m.get(key, 0)))
 
+        if hasattr(self, "network_status_big"):
+            offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
+            degraded_sites = int(m.get("unifi_degraded_sites", 0) or 0)
+            healthy_sites = int(m.get("unifi_healthy_sites", 0) or 0)
+            total_sites = int(m.get("unifi_sites", 0) or 0)
+            network_devices = int(m.get("unifi_devices", 0) or 0)
+            if total_sites == 0:
+                network_state, network_color = "NO DATA", MUTED
+            elif offline_sites > 0:
+                network_state, network_color = "ATTENTION", AMBER
+            elif degraded_sites > 0:
+                network_state, network_color = "DEGRADED", AMBER
+            else:
+                network_state, network_color = "GOOD", GREEN
+            self.network_status_big.config(text=network_state, fg=network_color)
+            self.network_status_detail.config(
+                text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} offline • {degraded_sites} degraded • {network_devices} network devices",
+                fg=network_color if network_state != "GOOD" else TEXT
+            )
+
         self.render_unifi_site_table(m.get("unifi_site_health", []) or [])
 
         # Final compliance-card override: keep Compliance gap as context, not priority.
@@ -2019,6 +2202,7 @@ class SentinelApp(tk.Tk):
         self.spark.append(m.get("alerts", 0))
         self.spark = self.spark[-80:]
         self.render_alert_table(payload.get("alert_rows", []), m)
+        self.render_focus_views(payload)
 
         for child in self.feed.winfo_children():
             child.destroy()
@@ -2045,6 +2229,202 @@ class SentinelApp(tk.Tk):
 
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
         self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | Intune devices: {m.get('devices', 0)} | compliance gap: {m.get('noncompliant', 0)}")
+
+    def render_focus_views(self, payload):
+        m = payload.get("metrics", {})
+        rows = payload.get("alert_rows", []) or []
+        events = payload.get("events", []) or []
+
+        # Defender focused cards
+        for key, card in self.focus_cards["defender"].items():
+            if key == "priority_state":
+                value = str(m.get("priority_state", "--")).upper()
+            else:
+                value = str(m.get(key, 0))
+            card["value"].config(text=value)
+            if key == "priority_state":
+                color, hint = self.metric_style("priority_state", m.get("priority_state", "CLEAR"))
+            elif key == "defender_critical":
+                color = RED if int(m.get("defender_critical", 0) or 0) > 0 else GREEN
+                hint = "high / critical Defender active" if int(m.get("defender_critical", 0) or 0) > 0 else "no high / critical Defender"
+            elif key == "defender_alerts":
+                count = int(m.get("defender_alerts", 0) or 0)
+                color = RED if count >= 25 else AMBER if count > 0 else GREEN
+                hint = "Defender active alerts"
+            elif key == "graph_alerts":
+                count = int(m.get("graph_alerts", 0) or 0)
+                color = PURPLE if count > 0 else GREEN
+                hint = "Graph / MDO active context"
+            else:
+                color, hint = BLUE, "live"
+            card["value"].config(fg=color)
+            card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
+            card["frame"].config(highlightbackground=color)
+
+        ms_rows = []
+        for r in rows:
+            src = str(r.get("source", ""))
+            if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph"):
+                ms_rows.append(r)
+
+        def_lines = []
+        def_lines.append(f"Defender priority: {m.get('priority_state', 'CLEAR')}")
+        def_lines.append(f"Defender active alerts: {m.get('defender_alerts', 0)} | high/critical: {m.get('defender_critical', 0)} | Graph context: {m.get('graph_alerts', 0)}")
+        def_lines.append("")
+        def_lines.append("Security rows")
+        def_lines.append("-" * 90)
+        if not ms_rows:
+            def_lines.append("No Microsoft security rows returned.")
+        for r in ms_rows[:250]:
+            sev = str(r.get("severity", "INFO")).upper()
+            status = str(r.get("status", "ACTIVE"))
+            src = str(r.get("source", ""))
+            title = str(r.get("title", ""))
+            detail = str(r.get("detail", ""))
+            line = f"[{status:<15}] {sev:<8} | {src:<22} | {title}"
+            if detail:
+                line += f"\n    {detail}"
+            def_lines.append(line)
+        if events:
+            def_lines.append("")
+            def_lines.append("Signal feed")
+            def_lines.append("-" * 90)
+            for e in events[:40]:
+                src = str(e.get("source", ""))
+                if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph", "Microsoft"):
+                    def_lines.append(f"{str(e.get('severity','info')).upper():<8} | {src:<22} | {e.get('title','')}")
+        self.set_text_widget(self.defender_text, "\n".join(def_lines))
+
+        # Intune focused cards
+        for key, card in self.focus_cards["intune"].items():
+            val = m.get(key, 0)
+            suffix = "%" if key == "compliance_percent" else ""
+            color = card["base"]
+            hint = "live"
+            if key == "devices":
+                color, hint = self.metric_style("devices", val)
+            elif key == "noncompliant":
+                color, hint = self.metric_style("noncompliant", val)
+            elif key == "compliant_devices":
+                color = GREEN
+                hint = "compliant Intune inventory"
+            elif key == "compliance_percent":
+                pct = int(val or 0)
+                color = GREEN if pct >= 90 else AMBER if pct >= 75 else RED
+                hint = "overall Intune compliance rate"
+            card["value"].config(text=f"{val}{suffix}", fg=color)
+            card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
+            card["frame"].config(highlightbackground=color)
+
+        for key, label in getattr(self, "intune_platform_focus", {}).items():
+            label.config(text=str(m.get(key, 0)))
+
+        total = int(m.get("devices", 0) or 0)
+        noncompliant = int(m.get("noncompliant", 0) or 0)
+        compliant = int(m.get("compliant_devices", max(0, total - noncompliant)) or 0)
+        pct = int(m.get("compliance_percent", 0) or 0)
+        int_lines = [
+            f"Total Intune devices : {total}",
+            f"Compliant devices    : {compliant}",
+            f"Non-compliant devices: {noncompliant}",
+            f"Compliance rate      : {pct}%",
+            "",
+            "Platform breakdown",
+            "-" * 90,
+            f"Windows      : {m.get('windows', 0)}",
+            f"iPhone / iPad: {m.get('ios', 0)}",
+            f"Mac          : {m.get('macos', 0)}",
+            f"Android      : {m.get('android', 0)}",
+            f"Other OS     : {m.get('other_os', 0)}",
+            "",
+            "Context",
+            "-" * 90,
+            f"Graph security active context: {m.get('graph_alerts', 0)}",
+            "Defender headline severity is intentionally separate from Intune compliance.",
+        ]
+        graph_rows = [r for r in rows if str(r.get("source","")) == "Microsoft Graph"]
+        if graph_rows:
+            int_lines += ["", "Microsoft Graph rows", "-" * 90]
+            for r in graph_rows[:50]:
+                title = str(r.get("title", ""))
+                detail = str(r.get("detail", ""))
+                line = f"{title}"
+                if detail:
+                    line += f"\n    {detail}"
+                int_lines.append(line)
+        else:
+            int_lines += ["", "No dedicated Microsoft Graph rows returned in this poll."]
+        self.set_text_widget(self.intune_text, "\n".join(int_lines))
+
+        # UniFi focused cards and summary
+        for key, card in self.focus_cards["unifi"].items():
+            val = m.get(key, 0)
+            color = card["base"]
+            if key == "unifi_critical_sites":
+                color = RED if int(val or 0) > 0 else GREEN
+                hint = "offline / critical sites"
+            elif key == "unifi_degraded_sites":
+                color = AMBER if int(val or 0) > 0 else GREEN
+                hint = "degraded sites"
+            elif key == "unifi_alerts":
+                color = AMBER if int(val or 0) > 0 else GREEN
+                hint = "UniFi alert endpoint count"
+            elif key == "unifi_devices":
+                color = BLUE if int(val or 0) > 0 else MUTED
+                hint = "network devices discovered"
+            elif key == "unifi_sites":
+                color = GREEN if int(val or 0) > 0 else MUTED
+                hint = "sites returned"
+            else:
+                hint = "live"
+            card["value"].config(text=str(val), fg=color)
+            card["hint"].config(text=hint, fg=color if color != GREEN else "#8FD7B9")
+            card["frame"].config(highlightbackground=color)
+
+        offline_sites = int(m.get("unifi_critical_sites", 0) or 0)
+        degraded_sites = int(m.get("unifi_degraded_sites", 0) or 0)
+        healthy_sites = int(m.get("unifi_healthy_sites", 0) or 0)
+        total_sites = int(m.get("unifi_sites", 0) or 0)
+        network_devices = int(m.get("unifi_devices", 0) or 0)
+        if total_sites == 0:
+            network_state, network_color = "NO DATA", MUTED
+        elif offline_sites > 0:
+            network_state, network_color = "ATTENTION", AMBER
+        elif degraded_sites > 0:
+            network_state, network_color = "DEGRADED", AMBER
+        else:
+            network_state, network_color = "GOOD", GREEN
+        self.unifi_tab_status_big.config(text=network_state, fg=network_color)
+        self.unifi_tab_status_hint.config(
+            text=f"{healthy_sites}/{total_sites} sites healthy • {offline_sites} offline • {degraded_sites} degraded • {network_devices} devices",
+            fg=network_color if network_state != "GOOD" else "#8FD7B9"
+        )
+        sites = m.get("unifi_site_health", []) or []
+        uni_lines = [
+            f"Network site status: {network_state}",
+            f"UniFi sites: {total_sites} | devices: {network_devices} | offline sites: {offline_sites} | degraded sites: {degraded_sites} | alerts: {m.get('unifi_alerts', 0)}",
+            "",
+            "Site inventory",
+            "-" * 110,
+        ]
+        if not sites:
+            uni_lines.append("No UniFi site rows returned.")
+        else:
+            for s in sites[:200]:
+                uni_lines.append(
+                    f"{str(s.get('name','UniFi site')):<28} | {str(s.get('status','VISIBLE')):<8} | total {int(s.get('total',0) or 0):>3} | online {int(s.get('online',0) or 0):>3} | offline {int(s.get('offline',0) or 0):>3} | degraded {int(s.get('degraded',0) or 0):>3} | unknown {int(s.get('unknown',0) or 0):>3}"
+                )
+        uni_rows = [r for r in rows if str(r.get("source","")) == "UniFi"]
+        if uni_rows:
+            uni_lines += ["", "UniFi connector notes", "-" * 110]
+            for r in uni_rows[:80]:
+                title = str(r.get("title", ""))
+                detail = str(r.get("detail", ""))
+                line = title
+                if detail:
+                    line += f"\n    {detail}"
+                uni_lines.append(line)
+        self.set_text_widget(self.unifi_text, "\n".join(uni_lines))
 
     def draw_spark(self):
         if not hasattr(self, "canvas"):
