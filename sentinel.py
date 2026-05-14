@@ -1707,7 +1707,7 @@ class SentinelApp(tk.Tk):
         self.trend_history = {"defender": [], "compliance": [], "network": []}
         self.trend_canvases = {}
         self.trend_labels = {}
-        self.severity_mix_canvas = None
+        self.security_signals_canvas = None
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
@@ -1849,22 +1849,22 @@ class SentinelApp(tk.Tk):
         self.trend_strip = tk.Frame(body, bg=BG)
         self.trend_strip.pack(fill="x", pady=(0, 8))
         for title, key, color in [
-            ("Defender active trend", "defender", ORANGE),
-            ("Compliance gap trend", "compliance", BLUE),
-            ("Offline site trend", "network", RED),
-            ("Severity mix", "severity", GREEN),
+            ("Defender active alerts", "defender", ORANGE),
+            ("Intune non-compliance", "compliance", BLUE),
+            ("UniFi offline sites", "network", RED),
+            ("Security signals", "security_signals", BLUE),
         ]:
             panel_shell, panel = self.rounded_panel(self.trend_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            panel_shell.configure(height=86)
+            panel_shell.configure(height=82)
             panel_shell.pack_propagate(False)
             panel_shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
             tk.Label(panel, text=title, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
-            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 18, "bold"))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 17, "bold"))
             val.pack(anchor="w", padx=12)
-            c = tk.Canvas(panel, height=68, bg=GLASS, highlightthickness=0, bd=0)
+            c = tk.Canvas(panel, height=72, bg=GLASS, highlightthickness=0, bd=0)
             c.pack(fill="x", padx=10, pady=(0, 10))
-            if key == "severity":
-                self.severity_mix_canvas = c
+            if key == "security_signals":
+                self.security_signals_canvas = c
                 self.trend_labels[key] = val
             else:
                 self.trend_labels[key] = val
@@ -1875,6 +1875,24 @@ class SentinelApp(tk.Tk):
         right = tk.Frame(body, bg=BG, width=360)
         right.pack(side="right", fill="y", padx=(12, 0))
         right.pack_propagate(False)
+
+        self.security_posture_strip = tk.Frame(left, bg=BG)
+        self.security_posture_strip.pack(fill="x", pady=(0, 6))
+        self.posture_labels = {}
+        for label, key, color in [
+            ("Stale 30+ days", "stale_30_count", ORANGE),
+            ("Unencrypted", "unencrypted_count", RED),
+            ("No primary user", "no_user_count", AMBER),
+            ("Degraded sites", "unifi_degraded_sites", AMBER),
+        ]:
+            shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=16, padding=1)
+            shell.configure(height=58)
+            shell.pack_propagate(False)
+            shell.pack(side="left", fill="x", expand=True, padx=(0, 8))
+            tk.Label(panel, text=label, bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 0))
+            val = tk.Label(panel, text="--", bg=GLASS, fg=color, font=(self.font_display, 16, "bold"))
+            val.pack(anchor="w", padx=12, pady=(0, 5))
+            self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
         cards.pack(fill="x")
@@ -1915,7 +1933,7 @@ class SentinelApp(tk.Tk):
         ns_left = tk.Frame(self.network_summary_bar, bg=GLASS)
         ns_left.pack(side="left", fill="x", expand=True, padx=12, pady=6)
         tk.Label(ns_left, text="Network site status", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
-        self.network_status_big = tk.Label(ns_left, text="--", bg=GLASS, fg=BLUE, font=(self.font_display, 18, "bold"))
+        self.network_status_big = tk.Label(ns_left, text="--", bg=GLASS, fg=BLUE, font=(self.font_display, 17, "bold"))
         self.network_status_big.pack(anchor="w")
         ns_right = tk.Frame(self.network_summary_bar, bg=GLASS)
         ns_right.pack(side="right", fill="x", expand=True, padx=12, pady=6)
@@ -1957,7 +1975,7 @@ class SentinelApp(tk.Tk):
             box = tk.Frame(self.platform_bar, bg=PANEL)
             box.pack(side="left", fill="x", expand=True, padx=14, pady=12)
             tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w")
-            val = tk.Label(box, text="0", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+            val = tk.Label(box, text="0", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
             val.pack(anchor="w")
             self.platform_labels[key] = val
 
@@ -2104,7 +2122,7 @@ class SentinelApp(tk.Tk):
         else:
             shell.pack(fill="x", padx=6, pady=4)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(7, 1))
-        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+        val = tk.Label(f, text="--", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
         val.pack(anchor="w", padx=12, pady=(0, 1))
         hint = tk.Label(f, text="Awaiting data", bg=PANEL, fg="#8290A7", font=(self.font_ui, 8))
         hint.pack(anchor="w", padx=12, pady=(0, 6))
@@ -2217,7 +2235,7 @@ class SentinelApp(tk.Tk):
             box = tk.Frame(plat_row, bg=PANEL)
             box.pack(side="left", fill="x", expand=True, padx=8)
             tk.Label(box, text=label, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w")
-            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+            val = tk.Label(box, text="--", bg=PANEL, fg=color, font=(self.font_display, 17, "bold"))
             val.pack(anchor="w")
             self.intune_platform_focus[key] = val
 
@@ -2322,7 +2340,7 @@ class SentinelApp(tk.Tk):
         self.focus_card(sw_row, "Detected apps", BLUE, "software", "detected_app_count")
         self.focus_card(sw_row, "Newly observed apps", AMBER, "software", "new_software_count")
         self.focus_card(sw_row, "Inventory source", BLUE, "software", "detected_apps_source")
-        self.focus_card(sw_row, "Graph throttle/cache", ORANGE, "software", "software_issue_state")
+        self.focus_card(sw_row, "DetectedApps status", ORANGE, "software", "software_issue_state")
         self.software_tables = ttk.Notebook(software_wrap, style="Dasher.TNotebook")
         self.software_tables.pack(fill="both", expand=True, padx=0, pady=6)
 
@@ -2350,7 +2368,7 @@ class SentinelApp(tk.Tk):
 
     def card(self, parent, row, col, title, key, color):
         shell, f = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=20, padding=1)
-        shell.configure(height=86)
+        shell.configure(height=82)
         shell.grid(row=row, column=col, sticky="nsew", padx=7, pady=5)
         shell.grid_propagate(False)
         tk.Label(f, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=12, pady=(6, 1))
@@ -2863,6 +2881,15 @@ class SentinelApp(tk.Tk):
         self.state_detail.config(text=f"Defender priority: {m.get('priority_reason', 'live counts')} • Defender active {m.get('defender_alerts', 0)} • Defender critical {m.get('defender_critical', 0)} • Intune devices {m.get('devices', 0)} • Intune compliance gap {m.get('noncompliant', 0)} • Graph active context {m.get('graph_alerts', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
+        if hasattr(self, "posture_labels"):
+            for key, label in self.posture_labels.items():
+                value = int(m.get(key, 0) or 0)
+                label.config(text=str(value))
+                if key == "unencrypted_count":
+                    label.config(fg=RED if value else GREEN)
+                elif key in ("stale_30_count", "no_user_count", "unifi_degraded_sites"):
+                    label.config(fg=AMBER if value else GREEN)
+
         if hasattr(self, "overview_focus_text"):
             defender = int(m.get("defender_alerts", 0) or 0)
             defender_critical = int(m.get("defender_critical", 0) or 0)
@@ -2943,42 +2970,41 @@ class SentinelApp(tk.Tk):
         # tiny min/max markers for a richer telemetry feel
         canvas.create_text(8, h - 4, text=str(vals[-1]), fill=color, anchor="sw", font=(self.font_ui, 7, "bold"))
 
-    def draw_severity_mix(self, counts):
-        canvas = self.severity_mix_canvas
+    def draw_security_signals(self, values):
+        canvas = self.security_signals_canvas
         if not canvas:
             return
         canvas.delete("all")
-        w = max(canvas.winfo_width(), 220)
+        w = max(canvas.winfo_width(), 260)
         h = max(canvas.winfo_height(), 68)
-        total = max(sum(counts.values()), 1)
 
-        palette = [("info", BLUE), ("medium", AMBER), ("high", ORANGE), ("critical", RED)]
+        # The front page should show useful security signal sources, not abstract severity buckets.
+        parts = [
+            ("Defender", int(values.get("defender", 0) or 0), ORANGE),
+            ("Graph", int(values.get("graph", 0) or 0), BLUE),
+            ("Intune posture", int(values.get("intune", 0) or 0), AMBER),
+            ("UniFi issues", int(values.get("unifi", 0) or 0), RED),
+        ]
+        total = max(sum(v for _, v, _ in parts), 1)
 
-        # Stacked severity bar.
         x = 10
         y1, y2 = 16, 32
         usable = w - 20
         canvas.create_rectangle(10, y1, w - 10, y2, fill="#172131", outline="")
-        for key, color in palette:
-            val = int(counts.get(key, 0) or 0)
+        for _, val, color in parts:
             seg = int((val / total) * usable) if val > 0 else 0
             if seg:
                 canvas.create_rectangle(x, y1, min(w - 10, x + seg), y2, fill=color, outline="")
                 x += seg
 
-        # Legend, fixed positions so it does not vanish at small widths.
-        legend = [
-            ("Info", counts.get("info", 0), BLUE),
-            ("Medium", counts.get("medium", 0), AMBER),
-            ("High", counts.get("high", 0), ORANGE),
-            ("Critical", counts.get("critical", 0), RED),
-        ]
+        # Legend, wrapped if needed.
         lx = 12
         ly = 48
-        for label, val, color in legend:
+        for label, val, color in parts:
             canvas.create_oval(lx, ly - 4, lx + 8, ly + 4, fill=color, outline="")
-            canvas.create_text(lx + 12, ly, text=f"{label} {int(val or 0)}", fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
-            lx += max(76, int((w - 24) / 4))
+            txt = f"{label} {val}"
+            canvas.create_text(lx + 12, ly, text=txt, fill=TEXT if val else MUTED, anchor="w", font=(self.font_ui, 8, "bold"))
+            lx += max(95, int((w - 24) / 4))
 
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
@@ -2994,16 +3020,17 @@ class SentinelApp(tk.Tk):
             self.trend_labels["defender"].config(text=str(m.get("defender_alerts", 0)))
             self.trend_labels["compliance"].config(text=str(m.get("noncompliant", 0)))
             self.trend_labels["network"].config(text=str(m.get("unifi_critical_sites", 0)))
-            severity_counts = {"critical": 0, "high": 0, "medium": 0, "info": 0}
-            for r in rows[:400]:
-                sev = str(r.get("severity", "INFO")).lower()
-                if sev in severity_counts:
-                    severity_counts[sev] += 1
-            self.trend_labels["severity"].config(text=f"{sum(severity_counts.values())} live")
+            security_signals = {
+                "defender": int(m.get("defender_alerts", 0) or 0),
+                "graph": int(m.get("graph_alerts", 0) or 0),
+                "intune": int(m.get("noncompliant", 0) or 0) + int(m.get("stale_30_count", 0) or 0) + int(m.get("unencrypted_count", 0) or 0),
+                "unifi": int(m.get("unifi_critical_sites", 0) or 0) + int(m.get("unifi_degraded_sites", 0) or 0) + int(m.get("unifi_alerts", 0) or 0),
+            }
+            self.trend_labels["security_signals"].config(text=f"{sum(security_signals.values())} signals")
             self.draw_trend("defender", self.trend_history["defender"], ORANGE)
             self.draw_trend("compliance", self.trend_history["compliance"], BLUE)
             self.draw_trend("network", self.trend_history["network"], RED)
-            self.draw_severity_mix(severity_counts)
+            self.draw_security_signals(security_signals)
 
         # Defender focused cards
         for key, card in self.focus_cards["defender"].items():
@@ -3122,6 +3149,13 @@ class SentinelApp(tk.Tk):
             f"Unencrypted devices  : {unencrypted}",
             f"Jailbreak/root flags : {jailbroken}",
             f"No primary user/email : {no_user}",
+            "",
+            "Monitoring interpretation",
+            "-" * 90,
+            "Non-compliant = policy/compliance attention",
+            "Not contacted 30+ days = stale or retired assets to review",
+            "Unencrypted = security control gap",
+            "No primary user/email = ownership/investigation friction",
             "",
             "Platform breakdown",
             "-" * 90,
@@ -3315,7 +3349,7 @@ class SentinelApp(tk.Tk):
                 if "429" in raw or "backoff" in raw:
                     val = "Cached"
                     color = ORANGE
-                    hint = "Graph throttled detectedApps; cached inventory shown"
+                    hint = "Microsoft throttled detectedApps; cached inventory is being shown"
                 elif raw == "ok":
                     val = "OK"
                     color = GREEN
@@ -3354,7 +3388,7 @@ class SentinelApp(tk.Tk):
             f"Detected apps returned/cached this run: {m.get('detected_app_count', 0)}",
             f"Newly observed apps: {m.get('new_software_count', 0)}",
             f"Graph detail: {m.get('detected_apps_error', '') or 'none'}",
-            "429 is Microsoft Graph throttling detectedApps. The dashboard now shows cached inventory and backs off for 30 minutes.",
+            "429 means Microsoft Graph is throttling detectedApps. This is expected on heavy tenants; cached inventory is shown and the app backs off for 30 minutes.",
             "If count is exactly 1000, Graph may be returning a page/window or cached sample. This is not necessarily broken.",
             "",
             "Newly observed software",
@@ -3381,7 +3415,7 @@ class SentinelApp(tk.Tk):
         self.canvas.create_rectangle(0, 0, w, h, fill=PANEL, outline="")
         current = self.spark[-1] if self.spark else 0
         line_color = RED if current >= 100 else AMBER if current >= 25 else BLUE if current > 0 else GREEN
-        self.canvas.create_text(24, 24, anchor="w", text="Alert telemetry", fill=TEXT, font=(self.font_display, 18, "bold"))
+        self.canvas.create_text(24, 24, anchor="w", text="Alert telemetry", fill=TEXT, font=(self.font_display, 17, "bold"))
         self.canvas.create_text(24, 52, anchor="w", text="Live active unresolved alert trend from Defender, Graph Security, and UniFi", fill=MUTED, font=(self.font_ui, 10))
         self.canvas.create_text(w - 24, 24, anchor="e", text=f"Current active unresolved alerts {int(current)}", fill=line_color, font=(self.font_ui, 11, "bold"))
         if len(self.spark) < 2:
