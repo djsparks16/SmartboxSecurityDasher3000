@@ -38,7 +38,7 @@ TEXT = "#F5F7FB"
 MUTED = "#9BA7BD"
 BLUE = "#53A6FF"
 GREEN = "#4DFFB5"
-AMBER = "#FFD166"
+AMBER = "#FFD66B"
 RED = "#FF4D6D"
 PURPLE = "#B38CFF"
 
@@ -407,6 +407,7 @@ class MicrosoftGraphConnector:
             "returned_alerts": total_alerts_returned,
             "resolved_alerts": total_resolved_alerts,
             "defender_alerts": len(defender_active),
+            "defender_critical": len(defender_high),
             "defender_returned_alerts": len(defender_alerts),
             "defender_resolved_alerts": defender_resolved,
             "graph_alerts": len(graph_active),
@@ -914,7 +915,9 @@ class UniFiConnector:
         active_unifi_alerts = [a for a in alerts if isinstance(a, dict) and self.is_unifi_alert_active(a)]
         resolved_unifi_alerts = max(0, len(alerts) - len(active_unifi_alerts))
         critical_alerts = sum(1 for a in active_unifi_alerts if self._severity_from_alert(a) == "critical")
-        critical_total = critical_alerts + critical_sites
+        # UniFi health is displayed locally in the network panel.
+        # It must not drive the global security priority state, which is Microsoft/Intune/Defender focused.
+        critical_total = critical_alerts
 
         if sites:
             trace_bit = f" trace {site_trace_ids[0]}" if site_trace_ids else ""
@@ -935,7 +938,7 @@ class UniFiConnector:
 
         if site_health:
             events.append({
-                "severity": "critical" if critical_sites else "medium" if degraded_sites else "info",
+                "severity": "info",
                 "title": "UniFi site health calculated",
                 "detail": f"{len(site_health)} site row(s): healthy {healthy_sites}, degraded {degraded_sites}, critical {critical_sites}, visible {visible_sites}.",
                 "source": "UniFi",
@@ -1129,32 +1132,21 @@ class TelemetryEngine(threading.Thread):
 
 
     def priority_from_counts(self, metrics):
-        """Return a plain-language state from real counts only. No artificial score."""
-        critical = int(metrics.get("critical", 0) or 0)
+        """Return the main security priority from Defender only.
+
+        Intune compliance, Graph Security and UniFi remain visible, but they do not
+        drive the headline HIGH/CRITICAL state.
+        """
         defender = int(metrics.get("defender_alerts", 0) or 0)
-        graph = int(metrics.get("graph_alerts", 0) or 0)
-        noncompliant = int(metrics.get("noncompliant", 0) or 0)
-        active = int(metrics.get("active_alerts", metrics.get("alerts", 0)) or 0)
+        defender_critical = int(metrics.get("defender_critical", 0) or 0)
 
-        reasons = []
-        if critical > 0:
-            reasons.append(f"{critical} high/critical active alert(s)")
-        if active > 0:
-            reasons.append(f"{active} active unresolved alert(s)")
-        if noncompliant > 0:
-            reasons.append(f"{noncompliant} non-compliant device(s)")
+        if defender_critical > 0:
+            return "CRITICAL", 4, f"{defender_critical} high/critical active Defender alert(s)"
+        if defender >= 10:
+            return "HIGH", 3, f"{defender} active Defender alert(s)"
         if defender > 0:
-            reasons.append(f"{defender} active Defender alert(s)")
-        if graph > 0:
-            reasons.append(f"{graph} active Graph alert(s)")
-
-        if critical > 0:
-            return "CRITICAL", 4, " + ".join(reasons[:3]) or "critical alerts present"
-        if defender >= 10 or graph >= 25 or noncompliant >= 100 or active >= 25:
-            return "HIGH", 3, " + ".join(reasons[:3]) or "large alert/compliance volume"
-        if defender > 0 or graph > 0 or noncompliant > 0 or active > 0:
-            return "ACTION", 2, " + ".join(reasons[:3]) or "investigation required"
-        return "CLEAR", 0, "no active findings"
+            return "ACTION", 2, f"{defender} active Defender alert(s)"
+        return "CLEAR", 0, "no active Defender alerts"
 
 
     def event_to_alert_row(self, event):
@@ -1166,10 +1158,11 @@ class TelemetryEngine(threading.Thread):
         lowered = (title + " " + detail).lower()
         if any(word in lowered for word in ("resolved", "closed", "dismissed", "remediated", "cleared", "archived")):
             status = "RESOLVED/CLOSED"
-        if (
+        if "site health calculated" in lowered and "unifi" in source.lower():
+            status = "NETWORK"
+        elif (
             "inventory loaded" in lowered
             or "api live" in lowered
-            or "site health calculated" in lowered
             or "not configured" in lowered
             or "returned no active items" in lowered
         ):
@@ -1195,6 +1188,7 @@ class TelemetryEngine(threading.Thread):
                     "returned_alerts": 0,
                     "resolved_alerts": 0,
                     "defender_alerts": 0,
+                    "defender_critical": 0,
                     "defender_returned_alerts": 0,
                     "defender_resolved_alerts": 0,
                     "graph_alerts": 0,
@@ -1248,12 +1242,17 @@ class TelemetryEngine(threading.Thread):
         returned_alerts = sum(int(r.get("returned_alerts", r.get("alerts", 0))) for r in results)
         resolved_alerts = sum(int(r.get("resolved_alerts", 0)) for r in results)
         defender_alerts = sum(int(r.get("defender_alerts", 0)) for r in results)
+        defender_critical = sum(int(r.get("defender_critical", 0)) for r in results)
         defender_returned_alerts = sum(int(r.get("defender_returned_alerts", r.get("defender_alerts", 0))) for r in results)
         defender_resolved_alerts = sum(int(r.get("defender_resolved_alerts", 0)) for r in results)
         graph_alerts = sum(int(r.get("graph_alerts", 0)) for r in results)
         graph_returned_alerts = sum(int(r.get("graph_returned_alerts", r.get("graph_alerts", 0))) for r in results)
         graph_resolved_alerts = sum(int(r.get("graph_resolved_alerts", 0)) for r in results)
-        critical = sum(int(r.get("critical", 0)) for r in results)
+        # Global security criticality should come from Defender only.
+        # Graph Security, Intune compliance and UniFi network health are visible context,
+        # but they do not drive the headline Critical/High state.
+        microsoft_critical = defender_critical
+        critical = defender_critical
         unifi_connected = sum(int(r.get("unifi_connected", 0)) for r in results)
         unifi_sites = sum(int(r.get("unifi_sites", 0)) for r in results)
         unifi_devices = sum(int(r.get("unifi_devices", 0)) for r in results)
@@ -1280,6 +1279,7 @@ class TelemetryEngine(threading.Thread):
             "critical": critical,
             "active_alerts": active_alerts,
             "defender_alerts": defender_alerts,
+            "defender_critical": defender_critical,
             "graph_alerts": graph_alerts,
             "noncompliant": noncompliant,
         })
@@ -1302,12 +1302,14 @@ class TelemetryEngine(threading.Thread):
                 "returned_alerts": returned_alerts,
                 "resolved_alerts": resolved_alerts,
                 "defender_alerts": defender_alerts,
+                "defender_critical": defender_critical,
                 "defender_returned_alerts": defender_returned_alerts,
                 "defender_resolved_alerts": defender_resolved_alerts,
                 "graph_alerts": graph_alerts,
                 "graph_returned_alerts": graph_returned_alerts,
                 "graph_resolved_alerts": graph_resolved_alerts,
                 "critical": critical,
+                "microsoft_critical": microsoft_critical,
                 "wan_health": wan_health,
                 "unifi_connected": unifi_connected,
                 "unifi_sites": unifi_sites,
@@ -1381,7 +1383,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x")
         tk.Label(header, text="Smartbox Security Dasher 3000", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 28, "bold")).pack(side="left")
-        tk.Label(header, text="real-time infrastructure, compliance and threat correlation", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(12,0))
+        tk.Label(header, text="Defender-led security priority with compliance and network context", bg=BG, fg=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=18, pady=(12,0))
         tk.Button(header, text="Setup connectors", command=self.open_setup, bg="#1C2740", fg=TEXT, activebackground="#243455", relief="flat", padx=14, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
         tk.Button(header, text="Export UniFi debug", command=self.export_unifi_debug, bg="#162034", fg=TEXT, activebackground="#243455", relief="flat", padx=12, pady=8, font=("Segoe UI", 9, "bold")).pack(side="right", padx=(0, 8))
 
@@ -1408,7 +1410,7 @@ class SentinelApp(tk.Tk):
             cards.grid_columnconfigure(i, weight=1)
         self.card(cards, 0, 0, "Priority state", "priority_state", BLUE)
         self.card(cards, 0, 1, "Active unresolved alerts", "alerts", RED)
-        self.card(cards, 0, 2, "Compliant gap", "noncompliant", AMBER)
+        self.card(cards, 0, 2, "Compliance gap", "noncompliant", AMBER)
         self.card(cards, 1, 0, "Managed devices", "devices", GREEN)
         self.card(cards, 1, 1, "Critical", "critical", PURPLE)
 
@@ -1421,13 +1423,13 @@ class SentinelApp(tk.Tk):
 
         self.unifi_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         for label, key, color in [
-            ("UniFi", "unifi_status", BLUE),
-            ("UniFi sites", "unifi_sites", GREEN),
-            ("UniFi network devices", "unifi_devices", BLUE),
-            ("Active UniFi alerts", "unifi_alerts", AMBER),
-            ("Healthy sites", "unifi_healthy_sites", GREEN),
-            ("Degraded sites", "unifi_degraded_sites", AMBER),
-            ("Critical sites", "unifi_critical_sites", RED),
+            ("Network health", "unifi_status", BLUE),
+            ("Sites", "unifi_sites", GREEN),
+            ("Network devices", "unifi_devices", BLUE),
+            ("UniFi alerts", "unifi_alerts", AMBER),
+            ("Healthy", "unifi_healthy_sites", GREEN),
+            ("Degraded", "unifi_degraded_sites", AMBER),
+            ("Offline/Critical", "unifi_critical_sites", RED),
         ]:
             box = tk.Frame(self.unifi_bar, bg=PANEL)
             box.pack(side="left", fill="x", expand=True, padx=10, pady=8)
@@ -1440,12 +1442,12 @@ class SentinelApp(tk.Tk):
         self.unifi_site_health_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
         site_header = tk.Frame(self.unifi_site_health_bar, bg=PANEL)
         site_header.pack(fill="x", padx=12, pady=(8, 2))
-        self.unifi_site_health_title = tk.Label(site_header, text="All UniFi sites", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
+        self.unifi_site_health_title = tk.Label(site_header, text="Network sites", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold"))
         self.unifi_site_health_title.pack(side="left")
         self.unifi_site_health_summary = tk.Label(site_header, text="Waiting for UniFi site health...", bg=PANEL, fg=MUTED, font=("Segoe UI", 8, "bold"))
         self.unifi_site_health_summary.pack(side="right")
 
-        self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=108)
+        self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=132)
         self.unifi_site_table_scrollbar = tk.Scrollbar(self.unifi_site_health_bar, orient="vertical", command=self.unifi_site_table_canvas.yview, bg=PANEL, troughcolor=BG)
         self.unifi_site_table_canvas.configure(yscrollcommand=self.unifi_site_table_scrollbar.set)
         self.unifi_site_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 8))
@@ -1457,12 +1459,6 @@ class SentinelApp(tk.Tk):
         self.unifi_site_table_canvas.bind("<Configure>", self._on_unifi_site_table_canvas_configure)
         self.unifi_site_table_canvas.bind("<Enter>", self._bind_unifi_site_table_mousewheel)
         self.unifi_site_table_canvas.bind("<Leave>", self._unbind_unifi_site_table_mousewheel)
-
-        self.top_issues_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
-        self.top_issues_bar.pack(fill="x", pady=(8, 0))
-        tk.Label(self.top_issues_bar, text="Top live findings", bg=PANEL, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=12, pady=(8, 2))
-        self.top_issues_text = tk.Label(self.top_issues_bar, text="Waiting for alerts...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9), justify="left", wraplength=900)
-        self.top_issues_text.pack(anchor="w", padx=12, pady=(0, 8))
 
 
         self.platform_bar = tk.Frame(left, bg=PANEL, highlightthickness=1, highlightbackground="#22304C")
@@ -1487,11 +1483,11 @@ class SentinelApp(tk.Tk):
 
         table_header = tk.Frame(self.alert_table_panel, bg=PANEL)
         table_header.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(table_header, text="Connector alert table", bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(side="left")
+        tk.Label(table_header, text="Security alert table", bg=PANEL, fg=TEXT, font=("Segoe UI Variable Display", 16, "bold")).pack(side="left")
         self.alert_table_summary = tk.Label(table_header, text="Waiting for live rows...", bg=PANEL, fg=MUTED, font=("Segoe UI", 9, "bold"))
         self.alert_table_summary.pack(side="right")
 
-        self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=260)
+        self.alert_table_canvas = tk.Canvas(self.alert_table_panel, bg=PANEL, highlightthickness=0, bd=0, height=300)
         self.alert_table_scrollbar = tk.Scrollbar(self.alert_table_panel, orient="vertical", command=self.alert_table_canvas.yview, bg=PANEL, troughcolor=BG)
         self.alert_table_canvas.configure(yscrollcommand=self.alert_table_scrollbar.set)
         self.alert_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 10))
@@ -1506,7 +1502,7 @@ class SentinelApp(tk.Tk):
 
         self.spark = []
 
-        tk.Label(right, text="Verified signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
+        tk.Label(right, text="Signal feed", bg=BG, fg=TEXT, font=("Segoe UI Variable Display", 18, "bold")).pack(anchor="w")
 
         self.feed_canvas = tk.Canvas(right, bg=BG, highlightthickness=0, bd=0)
         self.feed_scrollbar = tk.Scrollbar(right, orient="vertical", command=self.feed_canvas.yview, bg=PANEL, troughcolor=BG, activebackground="#243455")
@@ -1563,7 +1559,7 @@ class SentinelApp(tk.Tk):
             return GREEN, "clear"
         if key == "noncompliant":
             if num >= 100:
-                return RED, "large compliance gap"
+                return RED, "compliance debt"
             if num >= 25:
                 return AMBER, "compliance drift"
             if num > 0:
@@ -1751,7 +1747,8 @@ class SentinelApp(tk.Tk):
             r.pack(fill="x", pady=2)
             tk.Label(r, text=row.get("source", ""), bg=bg, fg=TEXT, font=("Segoe UI", 8, "bold"), width=18, anchor="w").pack(side="left", padx=4, pady=5)
             tk.Label(r, text=sev, bg=bg, fg=color, font=("Segoe UI", 8, "bold"), width=10, anchor="w").pack(side="left", padx=4, pady=5)
-            tk.Label(r, text=status, bg=bg, fg=GREEN if status == "ACTIVE" else MUTED, font=("Segoe UI", 8, "bold"), width=14, anchor="w").pack(side="left", padx=4, pady=5)
+            status_fg = GREEN if status == "ACTIVE" else BLUE if status == "NETWORK" else MUTED
+            tk.Label(r, text=status, bg=bg, fg=status_fg, font=("Segoe UI", 8, "bold"), width=14, anchor="w").pack(side="left", padx=4, pady=5)
             text_value = row.get("title", "")
             detail = row.get("detail", "")
             if detail:
@@ -1820,7 +1817,7 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "unifi_bar"):
             if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
                 if not self.unifi_bar.winfo_manager():
-                    self.unifi_bar.pack(fill="x", pady=(8, 0), before=self.top_issues_bar)
+                    self.unifi_bar.pack(fill="x", pady=(8, 0), )
             else:
                 if self.unifi_bar.winfo_manager():
                     self.unifi_bar.pack_forget()
@@ -1828,7 +1825,7 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "unifi_site_health_bar"):
             if network_live or int(metrics.get("unifi_connected", 0) or 0) > 0:
                 if not self.unifi_site_health_bar.winfo_manager():
-                    self.unifi_site_health_bar.pack(fill="x", pady=(8, 0), before=self.top_issues_bar)
+                    self.unifi_site_health_bar.pack(fill="x", pady=(8, 0), )
             else:
                 if self.unifi_site_health_bar.winfo_manager():
                     self.unifi_site_health_bar.pack_forget()
@@ -1982,28 +1979,17 @@ class SentinelApp(tk.Tk):
 
         self.render_unifi_site_table(m.get("unifi_site_health", []) or [])
 
-        top_events = [
-            e for e in payload["events"]
-            if str(e.get("severity", "")).lower() in ("critical", "high", "medium")
-            and "not configured" not in str(e.get("title", "")).lower()
-        ]
-        if top_events:
-            summary = "  •  ".join([f"{e.get('source','')}: {e.get('title','')}" for e in top_events[:3]])
-            self.top_issues_text.config(text=summary, fg=TEXT)
-        else:
-            self.top_issues_text.config(text="No critical or medium live findings returned.", fg=MUTED)
-
         state_text, state_color = self.overall_state(m)
 
         if hasattr(self, "priority_explain_text"):
             self.priority_explain_text.config(
-                text=f"{state_text}: {m.get('priority_reason', 'live counts')}. Returned {m.get('returned_alerts', 0)} total alert objects; {m.get('resolved_alerts', 0)} are resolved/closed.",
+                text=f"{state_text}: {m.get('priority_reason', 'live counts')}. Headline priority is Defender-only. Intune compliance, Graph Security and UniFi are shown below as context, but do not drive HIGH/CRITICAL.",
                 fg=state_color if state_color != GREEN else TEXT
             )
         live = ", ".join(payload["sources"]["live"]) or "no configured live connector"
         self.state_badge.config(text=state_text, fg=state_color)
         unifi_bit = f" • UniFi sites {m.get('unifi_sites', 0)} • UniFi devices {m.get('unifi_devices', 0)} • UniFi alerts {m.get('unifi_alerts', 0)} • UniFi degraded {m.get('unifi_degraded_sites', 0)} • UniFi critical {m.get('unifi_critical_sites', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.state_detail.config(text=f"Reason: {m.get('priority_reason', 'live counts')} • Devices {m.get('devices', 0)} • Active {m.get('active_alerts', m.get('alerts', 0))} • Returned {m.get('returned_alerts', 0)} • Resolved/closed {m.get('resolved_alerts', 0)} • Critical {m.get('critical', 0)} • Non-compliant {m.get('noncompliant', 0)}{unifi_bit}")
+        self.state_detail.config(text=f"Defender priority reason: {m.get('priority_reason', 'live counts')} • Defender active {m.get('defender_alerts', 0)} • Defender critical {m.get('defender_critical', 0)} • Intune compliance gap {m.get('noncompliant', 0)} • Graph active {m.get('graph_alerts', 0)}{unifi_bit}")
         self.live_badge.config(text=f"LIVE: {live.upper()}", fg=GREEN if live != "none" else MUTED)
 
         self.spark.append(m.get("alerts", 0))
@@ -2034,7 +2020,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
 
         unifi_footer = f" | UniFi: {m.get('unifi_alerts', 0)}" if int(m.get("unifi_connected", 0) or 0) > 0 else ""
-        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | critical: {m.get('critical', 0)} | non-compliant: {m.get('noncompliant', 0)}")
+        self.status_var.set(f"Updated {dt.datetime.now().strftime('%H:%M:%S')} | state: {state_text.lower()} | live: {live} | active: {m.get('active_alerts', m.get('alerts', 0))} | returned: {m.get('returned_alerts', 0)} | resolved/closed: {m.get('resolved_alerts', 0)} | Defender critical: {m.get('defender_critical', 0)} | compliance gap: {m.get('noncompliant', 0)}")
 
     def draw_spark(self):
         if not hasattr(self, "canvas"):
