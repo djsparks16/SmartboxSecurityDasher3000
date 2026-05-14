@@ -1710,6 +1710,8 @@ class SentinelApp(tk.Tk):
         self.security_signals_canvas = None
         self.optional_metric_keys = ["wan_health"]
         self.optional_bars = []
+        # Remember the user's table sort choices across telemetry refreshes.
+        self.table_sort_state = {}
         self.status_var = tk.StringVar(value="Starting telemetry engine...")
         self._setup_style()
         self._build()
@@ -1789,7 +1791,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=30,
+                  rowheight=34,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -1797,6 +1799,7 @@ class SentinelApp(tk.Tk):
                   background="#132133",
                   foreground="#B9CBE1",
                   relief="flat",
+                  anchor="center",
                   font=(self.font_ui, 9, "bold"))
         style.map("Dasher.Treeview",
                   background=[("selected", "#17385A")],
@@ -2078,12 +2081,14 @@ class SentinelApp(tk.Tk):
         # self.platform_bar.pack(fill="x", pady=(8, 0))  # Dropped from Overview for a cleaner status-led front page.
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
-        self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(8, 0))
+        self.overview_full_feed_shell.configure(height=310)
+        self.overview_full_feed_shell.pack_propagate(False)
+        self.overview_full_feed_shell.pack(fill="both", expand=True, pady=(10, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(10, 6))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(full_feed_header, text="Color-coded live event table · severity first, newest items first", bg=GLASS, fg=MUTED, font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 24, "bold")).pack(side="left")
+        tk.Label(full_feed_header, text="Click any header to sort · newest and highest severity first by default", bg=GLASS, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -2096,18 +2101,15 @@ class SentinelApp(tk.Tk):
             style="Dasher.Treeview",
             yscrollcommand=self.overview_full_feed_scrollbar.set,
             selectmode="browse",
-            height=22,
+            height=14,
         )
-        self.overview_full_feed_table.heading("severity", text="Severity")
-        self.overview_full_feed_table.heading("source", text="Source")
-        self.overview_full_feed_table.heading("time", text="Time")
-        self.overview_full_feed_table.heading("title", text="Alert / finding")
-        self.overview_full_feed_table.heading("detail", text="Detail")
-        self.overview_full_feed_table.column("severity", width=96, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("source", width=168, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("time", width=158, anchor="w", stretch=False)
-        self.overview_full_feed_table.column("title", width=420, anchor="w", stretch=True)
-        self.overview_full_feed_table.column("detail", width=760, anchor="w", stretch=True)
+        self.setup_tree_columns(self.overview_full_feed_table, [
+            ("severity", "Severity", 110),
+            ("source", "Source", 180),
+            ("time", "Time", 170),
+            ("title", "Alert / finding", 560),
+            ("detail", "Detail", 760),
+        ])
         self.overview_full_feed_table.pack(side="left", fill="both", expand=True)
         self.overview_full_feed_scrollbar.config(command=self.overview_full_feed_table.yview)
         self.overview_full_feed_table.tag_configure("sev_critical", background="#25121A", foreground="#F8CAD6")
@@ -2277,21 +2279,39 @@ class SentinelApp(tk.Tk):
     def _tree_sort_value(self, raw):
         value = "" if raw is None else str(raw).strip()
         if value == "":
-            return (2, "")
+            return (3, "")
 
-        # Numeric sort first.
+        # Severity should sort by operational importance, not alphabetically.
+        sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
+        upper = value.upper()
+        if upper in sev_rank:
+            return (0, sev_rank[upper])
+
+        # Known status words also get an intentional order.
+        status_rank = {"ACTIVE": 0, "NETWORK": 1, "INFO": 2, "RESOLVED/CLOSED": 3, "HEALTHY": 4, "DEGRADED": 1, "CRITICAL": 0, "VISIBLE": 5}
+        if upper in status_rank:
+            return (0, status_rank[upper])
+
+        # Numeric sort, including commas and percentages.
         try:
             cleaned = value.replace(",", "").replace("%", "")
-            return (0, float(cleaned))
+            return (1, float(cleaned))
         except Exception:
             pass
 
-        # ISO-ish dates and common timestamp strings sort acceptably as text
-        # once normalized to lowercase.
-        return (1, value.lower())
+        # ISO-ish dates and common timestamp strings sort acceptably as text once normalized.
+        return (2, value.lower())
+
+    def _heading_base_text(self, tree, column):
+        try:
+            return getattr(tree, "_heading_texts", {}).get(column, column)
+        except Exception:
+            return column
 
     def sort_treeview(self, tree, column, reverse=False, remember=True):
         try:
+            if column not in tree["columns"]:
+                return
             rows = [(self._tree_sort_value(tree.set(item, column)), item) for item in tree.get_children("")]
             rows.sort(reverse=reverse)
             for index, (_, item) in enumerate(rows):
@@ -2301,10 +2321,10 @@ class SentinelApp(tk.Tk):
                 self.table_sort_state[str(tree)] = (column, reverse)
 
             for col in tree["columns"]:
-                heading = tree.heading(col).get("text", col).replace(" ▲", "").replace(" ▼", "")
+                heading = self._heading_base_text(tree, col)
                 if col == column:
                     heading += " ▼" if reverse else " ▲"
-                tree.heading(col, text=heading, command=lambda c=col: self._toggle_tree_sort(tree, c))
+                tree.heading(col, text=heading, anchor="center", command=lambda c=col, t=tree: self._toggle_tree_sort(t, c))
         except Exception:
             pass
 
@@ -2312,6 +2332,15 @@ class SentinelApp(tk.Tk):
         current_col, current_reverse = self.table_sort_state.get(str(tree), (None, False))
         next_reverse = (not current_reverse) if current_col == column else False
         self.sort_treeview(tree, column, next_reverse, remember=True)
+
+    def setup_tree_columns(self, tree, columns, center_all=False):
+        """Create sortable, visually aligned Treeview columns."""
+        tree._heading_texts = {key: label for key, label, width in columns}
+        for key, label, width in columns:
+            tree.heading(key, text=label, anchor="center", command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
+            numericish = key in {"devices", "online", "offline", "degraded", "unknown", "days"}
+            anchor = "center" if center_all or numericish or key in {"severity", "status", "time", "source"} else "w"
+            tree.column(key, width=width, anchor=anchor, stretch=(key not in {"severity", "status", "time"}))
 
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
@@ -2323,9 +2352,7 @@ class SentinelApp(tk.Tk):
         frame = tk.Frame(panel, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
-        for key, label, width in columns:
-            tree.heading(key, text=label, command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
-            tree.column(key, width=width, anchor="w", stretch=True)
+        self.setup_tree_columns(tree, columns)
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
@@ -3436,6 +3463,13 @@ class SentinelApp(tk.Tk):
         if not events:
             tree.insert("", "end", values=("INFO", "System", "", "Waiting for live signal feed data.", "No events returned yet."), tags=("sev_info",))
 
+        # Keep the feed useful after every poll: preserve manual sort, otherwise severity first.
+        state = self.table_sort_state.get(str(tree))
+        if state:
+            self.sort_treeview(tree, state[0], state[1], remember=False)
+        else:
+            self.sort_treeview(tree, "severity", False, remember=False)
+
     def draw_trend(self, key, values, color):
         if key not in self.trend_canvases:
             return
@@ -3593,13 +3627,15 @@ class SentinelApp(tk.Tk):
     def default_sort_tables(self):
         # First-load defaults only. Once the user clicks a header, repolls preserve that choice.
         sort_targets = [
+            ("overview_full_feed_table", "severity", False),
             ("defender_alert_table", "time", True),
             ("defender_signal_table", "time", True),
             ("intune_noncompliant_table", "last_sync", True),
             ("intune_stale_table", "days", True),
-            ("intune_posture_table", "issue", False),
-            ("unifi_site_table", "status", False),
-            ("software_new_table", "first_seen", True),
+            ("intune_posture_table", "type", False),
+            ("unifi_sites_table", "status", False),
+            ("unifi_notes_table", "severity", False),
+            ("software_new_table", "name", False),
             ("software_all_table", "devices", True),
         ]
         for attr, col, rev in sort_targets:
