@@ -1978,7 +1978,7 @@ class SentinelApp(tk.Tk):
 
         left = tk.Frame(body, bg=BG)
         left.pack(side="left", fill="both", expand=True)
-        # Right-side overview signal rail removed; full signal feed now lives in the main overview body.
+        # Right-side Overview signal rail removed. Full signal feed now owns the lower Overview area.
         self.feed = None
         self.feed_canvas = None
 
@@ -2090,10 +2090,10 @@ class SentinelApp(tk.Tk):
         self.overview_full_feed_window = self.overview_full_feed_canvas.create_window((0, 0), window=self.overview_full_feed, anchor="nw")
         self.overview_full_feed.bind("<Configure>", lambda e: self.overview_full_feed_canvas.configure(scrollregion=self.overview_full_feed_canvas.bbox("all")))
         self.overview_full_feed_canvas.bind("<Configure>", lambda e: self.overview_full_feed_canvas.itemconfigure(self.overview_full_feed_window, width=e.width))
-        self.overview_full_feed_canvas.bind("<Enter>", self._bind_overview_feed_mousewheel)
-        self.overview_full_feed_canvas.bind("<Leave>", self._unbind_overview_feed_mousewheel)
-        self.overview_full_feed.bind("<Enter>", self._bind_overview_feed_mousewheel)
-        self.overview_full_feed.bind("<Leave>", self._unbind_overview_feed_mousewheel)
+        self.overview_full_feed_canvas.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
+        self.overview_full_feed_canvas.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
+        self.overview_full_feed.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
+        self.overview_full_feed.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         for label, key, color in [
             ("Windows devices", "windows", BLUE),
             ("iPhone / iPad", "ios", GREEN),
@@ -2845,6 +2845,54 @@ class SentinelApp(tk.Tk):
     def _on_feed_canvas_configure(self, event):
         if hasattr(self, "feed_canvas") and hasattr(self, "feed_window"):
             self.feed_canvas.itemconfigure(self.feed_window, width=event.width)
+
+    def _overview_full_feed_mousewheel(self, event):
+        canvas = getattr(self, "overview_full_feed_canvas", None)
+        if canvas is None:
+            return
+        try:
+            delta = -1 * int(event.delta / 120) if getattr(event, "delta", 0) else 0
+            canvas.yview_scroll(delta, "units")
+        except Exception:
+            pass
+
+    def _overview_full_feed_mousewheel_linux_up(self, event):
+        canvas = getattr(self, "overview_full_feed_canvas", None)
+        if canvas is not None:
+            try:
+                canvas.yview_scroll(-3, "units")
+            except Exception:
+                pass
+
+    def _overview_full_feed_mousewheel_linux_down(self, event):
+        canvas = getattr(self, "overview_full_feed_canvas", None)
+        if canvas is not None:
+            try:
+                canvas.yview_scroll(3, "units")
+            except Exception:
+                pass
+
+    def _bind_overview_full_feed_mousewheel(self, event=None):
+        canvas = getattr(self, "overview_full_feed_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.bind_all("<MouseWheel>", self._overview_full_feed_mousewheel)
+            canvas.bind_all("<Button-4>", self._overview_full_feed_mousewheel_linux_up)
+            canvas.bind_all("<Button-5>", self._overview_full_feed_mousewheel_linux_down)
+        except Exception:
+            pass
+
+    def _unbind_overview_full_feed_mousewheel(self, event=None):
+        canvas = getattr(self, "overview_full_feed_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+        except Exception:
+            pass
 
     def _feed_mousewheel(self, event):
         if getattr(self, "feed_canvas", None):
