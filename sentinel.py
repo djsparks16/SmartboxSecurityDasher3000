@@ -170,6 +170,7 @@ class Config:
     defaults = {
         "demo_mode": False,
         "poll_seconds": 8,
+        "software_poll_hours": 6,
         "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
         "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "site_name_map": "", "enabled": False},
         "datto": {"api_url": "", "access_token": "", "enabled": False},
@@ -369,8 +370,13 @@ class MicrosoftGraphConnector:
         except Exception:
             pass
 
-    def should_skip_software_poll(self, state, min_age_minutes=30):
-        # detectedApps can be expensive and rate-limited. Only refresh periodically.
+    def should_skip_software_poll(self, state, min_age_minutes=None):
+        # detectedApps can be expensive and rate-limited. Keep it on a slow lane.
+        if min_age_minutes is None:
+            try:
+                min_age_minutes = max(60, int(float(self.cfg.get("software_poll_hours", 6)) * 60))
+            except Exception:
+                min_age_minutes = 360
         backoff_until = parse_dt_safe(state.get("backoff_until"))
         now = dt.datetime.now(dt.timezone.utc)
         if backoff_until:
@@ -444,7 +450,7 @@ class MicrosoftGraphConnector:
 
         detected_apps_source = "v1.0"
         software_state = self.load_software_state()
-        skip_software_poll, software_skip_reason = self.should_skip_software_poll(software_state, min_age_minutes=30)
+        skip_software_poll, software_skip_reason = self.should_skip_software_poll(software_state)
         if skip_software_poll:
             detected_apps = software_state.get("apps", []) or []
             detected_apps_source = software_state.get("source") or "cache"
@@ -2347,6 +2353,11 @@ class SentinelApp(tk.Tk):
                 tree.tag_configure("sev_medium", foreground="#FFE36E", background="#1D2531")
                 tree.tag_configure("sev_info", foreground="#65D1FF", background="#092235")
                 tree.tag_configure("sev_low", foreground="#8DFF82", background="#0B2A25")
+                tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
+                tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
+                tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
+                tree.tag_configure("os_android", foreground="#FFE36E", background="#1D2531")
+                tree.tag_configure("os_other", foreground="#C9D6E5", background="#0B1F31")
             except Exception:
                 pass
 
@@ -2410,18 +2421,19 @@ class SentinelApp(tk.Tk):
             child.destroy()
         tabs = [
             ("Overview", self.tab_overview),
-            ("Defender", self.tab_defender),
-            ("Intune", self.tab_intune),
-            ("UniFi", self.tab_unifi),
-            ("Software", self.tab_software),
+            ("🛡  Defender", self.tab_defender),
+            ("👤  Intune", self.tab_intune),
+            ("📶  UniFi", self.tab_unifi),
+            ("💾  Software", self.tab_software),
         ]
         self.main_tab_buttons = {}
         for label, frame in tabs:
-            shell = tk.Frame(self.main_tab_bar, bg=BG, width=112, height=38)
+            tab_w = 112 if label == "Overview" else 132
+            shell = tk.Frame(self.main_tab_bar, bg=BG, width=tab_w, height=38)
             shell.pack(side="left", padx=(0, 8), pady=(0, 2))
             shell.pack_propagate(False)
 
-            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, bd=0, width=112, height=38)
+            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, bd=0, width=tab_w, height=38)
             canvas.pack(fill="both", expand=True)
             btn = tk.Label(
                 canvas,
@@ -2433,13 +2445,13 @@ class SentinelApp(tk.Tk):
                 pady=0,
                 cursor="hand2"
             )
-            win = canvas.create_window((56, 19), window=btn, width=104, height=30)
+            win = canvas.create_window((tab_w // 2, 19), window=btn, width=tab_w - 8, height=30)
 
-            def draw(active=False, c=canvas):
+            def draw(active=False, c=canvas, w=tab_w):
                 c.delete("panel")
                 bg = "#223147" if active else "#111925"
                 border = BLUE if active else HAIRLINE
-                pts = self._rounded_points(2, 2, 110, 36, 16)
+                pts = self._rounded_points(2, 2, w-2, 36, 16)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
                 c.tag_lower("panel")
                 btn.configure(bg=bg, fg=TEXT if active else MUTED)
@@ -2598,6 +2610,11 @@ class SentinelApp(tk.Tk):
         tree.tag_configure("good", foreground="#8DFF82", background="#0B2A25")
         tree.tag_configure("info", foreground="#65D1FF", background="#092235")
         tree.tag_configure("alt", foreground="#DCEBFA", background="#0B1F31")
+        tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
+        tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
+        tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
+        tree.tag_configure("os_android", foreground="#FFE36E", background="#1D2531")
+        tree.tag_configure("os_other", foreground="#C9D6E5", background="#0B1F31")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2692,6 +2709,36 @@ class SentinelApp(tk.Tk):
             return f"■ {n}" if n else str(n)
         return str(n)
 
+    def _os_visual_tag(self, os_value):
+        raw = str(os_value or "").strip().lower()
+        if "windows" in raw:
+            return "os_windows"
+        if raw in ("ios", "ipados") or "iphone" in raw or "ipad" in raw:
+            return "os_ios"
+        if "mac" in raw or "darwin" in raw:
+            return "os_macos"
+        if "android" in raw:
+            return "os_android"
+        return "os_other"
+
+    def _decorate_os_cell(self, os_value):
+        raw = str(os_value or "Other").strip() or "Other"
+        low = raw.lower()
+        if "windows" in low:
+            return "▦  " + raw
+        if low in ("ios", "ipados") or "iphone" in low or "ipad" in low:
+            return "●  " + raw
+        if "mac" in low or "darwin" in low:
+            return "◆  " + raw
+        if "android" in low:
+            return "▲  " + raw
+        return "◇  " + raw
+
+    def _intune_row_tag(self, row_type, os_value=None):
+        if row_type in ("unencrypted", "jailbreak"):
+            return "bad"
+        return self._os_visual_tag(os_value)
+
     def _source_icon_label(self, source):
         raw = str(source or "")
         low = raw.lower()
@@ -2771,6 +2818,11 @@ class SentinelApp(tk.Tk):
         # healthy rows red.
         if tree is getattr(self, "unifi_sites_table", None) and tag in ("good", "warn", "bad", "info", "high"):
             row_tag = tag
+        elif tree in (getattr(self, "intune_noncompliant_table", None), getattr(self, "intune_stale_table", None)):
+            # Make Intune inventory rows visually useful: OS drives the row lane colour.
+            row_tag = self._os_visual_tag(values[1] if len(values) > 1 else "")
+        elif tree is getattr(self, "intune_posture_table", None):
+            row_tag = tag if tag in ("bad", "warn", "good", "info", "high") else self._os_visual_tag(values[2] if len(values) > 2 else "")
         else:
             row_tag = self._table_tag_from_values(values, tag)
         # Add an alternate-row tag when there is no stronger severity tag.
@@ -2838,7 +2890,7 @@ class SentinelApp(tk.Tk):
         # Defender tab
         defender_wrap = tk.Frame(self.tab_defender, bg=BG)
         defender_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(defender_wrap, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(defender_wrap, text="🛡  Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
         tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(defender_wrap, bg=BG)
@@ -2881,7 +2933,7 @@ class SentinelApp(tk.Tk):
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
         intune_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(intune_wrap, text="Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(intune_wrap, text="👤  Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
         tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(intune_wrap, bg=BG)
@@ -2964,7 +3016,7 @@ class SentinelApp(tk.Tk):
         # UniFi tab
         unifi_wrap = tk.Frame(self.tab_unifi, bg=BG)
         unifi_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(unifi_wrap, text="UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(unifi_wrap, text="📶  UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
         tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         status_shell = tk.Frame(unifi_wrap, bg=BG)
@@ -3025,7 +3077,7 @@ class SentinelApp(tk.Tk):
         # Software tab
         software_wrap = tk.Frame(self.tab_software, bg=BG)
         software_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(software_wrap, text="Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(software_wrap, text="💾  Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
         tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         sw_row = tk.Frame(software_wrap, bg=BG)
@@ -4337,7 +4389,7 @@ class SentinelApp(tk.Tk):
             for d in (m.get("noncompliant_devices", []) or [])[:500]:
                 self.insert_table_row(self.intune_noncompliant_table, [
                     "👤  " + str(d.get("name", "unknown")),
-                    d.get("os", ""),
+                    self._decorate_os_cell(d.get("os", "")),
                     d.get("user", ""),
                     d.get("compliance", ""),
                     short_ts(d.get("last_sync", "")),
@@ -4347,7 +4399,7 @@ class SentinelApp(tk.Tk):
             for d in (m.get("stale_devices", []) or [])[:500]:
                 self.insert_table_row(self.intune_stale_table, [
                     "🥖  " + str(d.get("name", "unknown")),
-                    d.get("os", ""),
+                    self._decorate_os_cell(d.get("os", "")),
                     d.get("last_sync_days", ""),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
@@ -4358,7 +4410,7 @@ class SentinelApp(tk.Tk):
                 self.insert_table_row(self.intune_posture_table, [
                     "🔑  Unencrypted",
                     "👤  " + str(d.get("name", "unknown")),
-                    d.get("os", ""),
+                    self._decorate_os_cell(d.get("os", "")),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
                 ], tag="bad")
@@ -4366,7 +4418,7 @@ class SentinelApp(tk.Tk):
                 self.insert_table_row(self.intune_posture_table, [
                     "⚠  Jailbreak/root flag",
                     "👤  " + str(d.get("name", "unknown")),
-                    d.get("os", ""),
+                    self._decorate_os_cell(d.get("os", "")),
                     d.get("user", ""),
                     short_ts(d.get("last_sync", "")),
                 ], tag="bad")
