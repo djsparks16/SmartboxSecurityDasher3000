@@ -1790,7 +1790,7 @@ class SentinelApp(tk.Tk):
                   background=GLASS_2,
                   foreground=TEXT,
                   fieldbackground=GLASS_2,
-                  rowheight=30,
+                  rowheight=31,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 9))
@@ -2168,6 +2168,7 @@ class SentinelApp(tk.Tk):
         self.overview_full_feed_table.tag_configure("sev_info", background="#0B2638", foreground="#D7F2FF")
         self.overview_full_feed_table.tag_configure("sev_low", background="#0A241B", foreground="#DDFCEA")
         self.overview_full_feed_table.tag_configure("oddrow", background="#0E1D2C", foreground="#D8E8F8")
+        self.overview_full_feed_table.tag_configure("alt", background="#101D2D", foreground="#E7F2FF")
         self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
         self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
         self.overview_full_feed_canvas = self.overview_full_feed_table
@@ -2442,6 +2443,13 @@ class SentinelApp(tk.Tk):
         return "w"
 
     def setup_tree_columns(self, tree, columns):
+        # Keep human labels on the widget so inserts can render status/severity
+        # values as compact "bubble" text consistently across every tab.
+        try:
+            tree._smart_columns = list(columns)
+            tree._smart_col_labels = {str(k): str(label) for k, label, _ in columns}
+        except Exception:
+            pass
         for key, label, width in columns:
             anchor = self._column_anchor(key, label)
             tree.heading(key, text=label, anchor="center", command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
@@ -2461,11 +2469,13 @@ class SentinelApp(tk.Tk):
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        tree.tag_configure("bad", foreground="#FFD8E3", background="#22131C")
-        tree.tag_configure("warn", foreground="#FFF1A8", background="#202014")
-        tree.tag_configure("high", foreground="#FFE3B7", background="#231A10")
-        tree.tag_configure("good", foreground="#DDFCEA", background="#0A241B")
-        tree.tag_configure("info", foreground="#D8E8F8", background="#0B2638")
+        # Screenshot-style table bands: soft glass rows with pill-readable foregrounds.
+        tree.tag_configure("bad", foreground="#FFE4EA", background="#2B0A14")
+        tree.tag_configure("warn", foreground="#FFF4B8", background="#31270A")
+        tree.tag_configure("high", foreground="#FFE8C6", background="#2D1806")
+        tree.tag_configure("good", foreground="#E5FFE5", background="#11290D")
+        tree.tag_configure("info", foreground="#DFF6FF", background="#0C2638")
+        tree.tag_configure("alt", foreground="#E7F2FF", background="#101D2D")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2475,8 +2485,89 @@ class SentinelApp(tk.Tk):
         for item in tree.get_children():
             tree.delete(item)
 
+    def _bubble_token(self, value, kind="status"):
+        raw = str(value if value is not None else "").strip()
+        if not raw:
+            return ""
+        upper = raw.upper()
+        aliases = {
+            "CRITICAL": "CRIT",
+            "RESOLVED/CLOSED": "RESOLVED/CLOSED",
+            "NONCOMPLIANT": "NONCOMPLIANT",
+            "NON-COMPLIANT": "NONCOMPLIANT",
+            "COMPLIANT": "COMPLIANT",
+            "HEALTHY": "HEALTHY",
+            "DEGRADED": "DEGRADED",
+            "VISIBLE": "VISIBLE",
+            "ACTIVE": "ACTIVE",
+            "INFO": "INFO",
+            "MEDIUM": "MEDIUM",
+            "HIGH": "HIGH",
+            "LOW": "LOW",
+            "OK": "OK",
+            "GOOD": "GOOD",
+            "CHECK": "CHECK",
+            "THROTTLED": "THROTTLED",
+        }
+        label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
+        # Tk Treeview does not support true per-cell rounded rectangles, so the
+        # pill is drawn as padded text and backed by the row color. It keeps the
+        # same compact bubble rhythm as the Overview tables without custom canvas code.
+        return f"  {label}  "
+
+    def _should_bubble_column(self, tree, column_key, index, value):
+        key = str(column_key).lower()
+        label = str(getattr(tree, "_smart_col_labels", {}).get(column_key, "")).lower()
+        raw = str(value if value is not None else "").strip().lower()
+        bubble_cols = ("severity", "status", "compliance", "os", "finding")
+        bubble_values = (
+            "info", "low", "medium", "high", "critical", "active", "resolved/closed",
+            "resolved", "closed", "noncompliant", "non-compliant", "compliant",
+            "healthy", "degraded", "critical", "visible", "unencrypted", "jailbreak/root flag",
+            "android", "ios", "macos", "windows", "ok", "check", "throttled"
+        )
+        return any(x in key or x in label for x in bubble_cols) or raw in bubble_values
+
+    def _bubble_row_values(self, tree, values):
+        cols = list(tree["columns"]) if hasattr(tree, "__getitem__") else []
+        out = []
+        for idx, value in enumerate(values):
+            col = cols[idx] if idx < len(cols) else ""
+            if self._should_bubble_column(tree, col, idx, value):
+                out.append(self._bubble_token(value, "severity" if "severity" in str(col).lower() else "status"))
+            else:
+                out.append(value)
+        return out
+
+    def _table_tag_from_values(self, values, fallback=None):
+        text = " ".join(str(v).lower() for v in values)
+        if any(x in text for x in ("critical", "unencrypted", "jailbreak/root")):
+            return "bad"
+        if any(x in text for x in ("high", "offline")):
+            return "high"
+        if any(x in text for x in ("medium", "noncompliant", "non-compliant", "degraded", "throttled", "check")):
+            return "warn"
+        if any(x in text for x in ("active", "info", "visible", "android", "ios", "macos", "windows")):
+            return fallback or "info"
+        if any(x in text for x in ("healthy", "compliant", "good", "ok")):
+            return "good"
+        return fallback
+
     def insert_table_row(self, tree, values, tag=None):
-        tree.insert("", "end", values=values, tags=(tag,) if tag else ())
+        values = list(values)
+        values = self._bubble_row_values(tree, values)
+        row_tag = self._table_tag_from_values(values, tag)
+        # Add an alternate-row tag when there is no stronger severity tag.
+        try:
+            idx = len(tree.get_children(""))
+            tags = []
+            if row_tag:
+                tags.append(row_tag)
+            elif idx % 2:
+                tags.append("alt")
+            tree.insert("", "end", values=values, tags=tuple(tags))
+        except Exception:
+            tree.insert("", "end", values=values, tags=(row_tag,) if row_tag else ())
 
 
     def focus_card(self, parent, title, color, bucket, key, width_pack=True):
