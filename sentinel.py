@@ -3086,8 +3086,8 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Defender view"), BLUE)
-        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Alert focus"), RED)
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: (self.nav_to(self.tab_defender, "Defender view"), self.after(80, lambda: self._select_defender_subtab_by_name("defender view"))), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: (self.nav_to(self.tab_defender, "Incidents & alerts"), self.after(80, lambda: self._select_defender_subtab_by_name("alert focus"))), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
         self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
         self.neon_sidebar_item(self.left_nav, "Vulnerabilities", "◆", lambda: self.nav_to(self.tab_defender, "Vulnerabilities"), RED)
@@ -7539,6 +7539,247 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _frame_bounds(self, w):
+        try:
+            return (w.winfo_rootx(), w.winfo_rooty(), w.winfo_width(), w.winfo_height())
+        except Exception:
+            return (0, 0, 0, 0)
+
+    def _candidate_outer_panels(self, root):
+        panels = []
+        try:
+            def walk(w):
+                try:
+                    bg = str(w.cget("bg")).lower()
+                except Exception:
+                    bg = ""
+                try:
+                    cls = w.winfo_class()
+                except Exception:
+                    cls = ""
+                try:
+                    width = w.winfo_width()
+                    height = w.winfo_height()
+                except Exception:
+                    width = height = 0
+                if cls in ("Frame", "Canvas") and bg in (PANEL.lower(), BG2.lower(), "#071724", "#06131f", "#071521") and width > 220 and height > 70:
+                    panels.append(w)
+                try:
+                    for child in w.winfo_children():
+                        walk(child)
+                except Exception:
+                    pass
+            walk(root)
+        except Exception:
+            pass
+        return panels
+
+    def _text_label_bounds(self, root, exact=None, contains=None):
+        try:
+            def walk(w):
+                try:
+                    txt = str(w.cget("text"))
+                    if (exact is not None and txt == exact) or (contains is not None and contains in txt):
+                        return w
+                except Exception:
+                    pass
+                try:
+                    for child in w.winfo_children():
+                        found = walk(child)
+                        if found is not None:
+                            return found
+                except Exception:
+                    pass
+                return None
+            lbl = walk(root)
+            if lbl is None:
+                return None, None
+            return lbl, self._frame_bounds(lbl)
+        except Exception:
+            return None, None
+
+    def _panel_containing_label(self, root, exact=None, contains=None):
+        """Find the largest useful card panel containing a label."""
+        lbl, lb = self._text_label_bounds(root, exact=exact, contains=contains)
+        if lbl is None or lb is None:
+            return None
+        lx, ly, lw, lh = lb
+        center_x, center_y = lx + max(1, lw) / 2, ly + max(1, lh) / 2
+        best = None
+        best_area = 0
+        for p in self._candidate_outer_panels(root):
+            x, y, w, h = self._frame_bounds(p)
+            if x <= center_x <= x + w and y <= center_y <= y + h:
+                area = w * h
+                # Prefer actual outer panels, not tiny title strips.
+                if area > best_area and h >= 80:
+                    best = p
+                    best_area = area
+        return best
+
+    def _clean_outer_outline(self, panel, color, thickness=2):
+        """Only outline the chosen outer panel. Clear outlines below it."""
+        if panel is None:
+            return
+        try:
+            panel.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+        try:
+            for child in panel.winfo_children():
+                try:
+                    child.configure(highlightthickness=0)
+                except Exception:
+                    pass
+                try:
+                    for sub in child.winfo_children():
+                        try:
+                            sub.configure(highlightthickness=0)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_row1_true_outer_outlines(self, metrics):
+        """Apply Row 1 outlines to the real outer Defender priority and heartbeat panels."""
+        try:
+            active = self._any_metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._any_metric_count(metrics, "critical", "defender_critical", "defender_high")
+            graph = self._any_metric_count(metrics, "graph_incidents", "m365_incidents")
+            defender_color = RED if high else ORANGE if active or graph else GREEN
+            heartbeat_color = GREEN if getattr(self, "last_payload", None) else ORANGE
+
+            hero_panel = self._panel_containing_label(self.tab_overview, exact="Defender priority")
+            hb_panel = self._panel_containing_label(self.tab_overview, exact="Live heartbeat")
+
+            self._clean_outer_outline(hero_panel, defender_color, 2)
+            self._clean_outer_outline(hb_panel, heartbeat_color, 2)
+        except Exception:
+            pass
+
+    def _ensure_defender_health_subtab(self):
+        """Create a distinct Defender View page for connector/security health."""
+        try:
+            nb = getattr(self, "defender_tables", None) or getattr(self, "defender_tabs", None)
+            if nb is None:
+                return
+            try:
+                existing = [nb.tab(tab_id, "text").strip().lower() for tab_id in nb.tabs()]
+                if "defender view" in existing:
+                    return
+            except Exception:
+                pass
+
+            self.defender_health_page = tk.Frame(nb, bg=BG)
+            nb.insert(0, self.defender_health_page, text="Defender view")
+
+            grid = tk.Frame(self.defender_health_page, bg=BG)
+            grid.pack(fill="x", padx=10, pady=(10, 6))
+
+            self.defender_health_cards = {}
+            cards = [
+                ("connector", "Connector status", "Microsoft Graph / Defender", BLUE),
+                ("alerts", "Alert pipeline", "Incidents and alerts", ORANGE),
+                ("tvm", "TVM access", "Recommendations / vulnerabilities", PURPLE),
+                ("machines", "Machine inventory", "MDE machine readiness", BLUE),
+            ]
+            for i, (key, title, hint, color) in enumerate(cards):
+                panel = tk.Frame(grid, bg=PANEL, highlightthickness=1, highlightbackground=BORDER)
+                panel.grid(row=0, column=i, sticky="nsew", padx=5)
+                grid.grid_columnconfigure(i, weight=1)
+                tk.Label(panel, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+                value = tk.Label(panel, text="Awaiting data", bg=PANEL, fg=color, font=(self.font_display, 18, "bold"))
+                value.pack(anchor="w", padx=12)
+                detail = tk.Label(panel, text=hint, bg=PANEL, fg=MUTED, font=(self.font_ui, 9))
+                detail.pack(anchor="w", padx=12, pady=(2, 12))
+                self.defender_health_cards[key] = {"panel": panel, "value": value, "detail": detail}
+
+            self.defender_health_table = self.table_panel(self.defender_health_page, "Defender connector health / API signal", [
+                ("area", "Area", 180),
+                ("state", "State", 150),
+                ("detail", "Detail", 900),
+            ], height=18)
+        except Exception:
+            pass
+
+    def _paint_defender_health_view(self, payload=None):
+        """Defender View = health/status. Alerts remain in Incidents & alerts / Alert focus."""
+        try:
+            payload = payload or getattr(self, "last_payload", None)
+            if not payload:
+                return
+            self._ensure_defender_health_subtab()
+            metrics = payload.get("metrics", {}) or {}
+            rows = payload.get("alert_rows", []) or []
+            cards = getattr(self, "defender_health_cards", {}) or {}
+
+            active = self._any_metric_count(metrics, "active_alerts", "defender_alerts")
+            graph = self._any_metric_count(metrics, "graph_incidents", "m365_incidents")
+            recs = self._any_metric_count(metrics, "defender_recommendations")
+            vulns = self._any_metric_count(metrics, "defender_vulnerabilities")
+            machines = self._any_metric_count(metrics, "defender_machines")
+
+            def set_card(key, value, detail, color):
+                card = cards.get(key)
+                if not card:
+                    return
+                try:
+                    card["value"].configure(text=str(value), fg=color)
+                    card["detail"].configure(text=str(detail))
+                    card["panel"].configure(highlightbackground=color, highlightcolor=color, highlightthickness=1)
+                except Exception:
+                    pass
+
+            microsoft_errors = [r for r in rows if "microsoftgraphconnector" in str(r).lower() or "connector degraded" in str(r).lower() or "forbidden" in str(r).lower() or "too many requests" in str(r).lower()]
+            connector_state = "DEGRADED" if microsoft_errors else "CONNECTED"
+            set_card("connector", connector_state, "Microsoft security connector polling", ORANGE if microsoft_errors else GREEN)
+            set_card("alerts", f"{active} active", f"{graph} M365/Graph context item(s)", ORANGE if active or graph else GREEN)
+            set_card("tvm", f"{recs} recs / {vulns} vulns", "TVM API access", ORANGE if recs or vulns else BLUE)
+            set_card("machines", machines, "MDE machines returned", GREEN if machines else BLUE)
+
+            tree = getattr(self, "defender_health_table", None)
+            if tree is not None:
+                try:
+                    self._configure_sexy_table_tags(tree)
+                except Exception:
+                    pass
+                for item in tree.get_children():
+                    tree.delete(item)
+
+                def ins(area, state, detail, tag):
+                    tree.insert("", "end", values=[area, self._bubble_token(state, "status"), detail], tags=(tag,))
+
+                ins("Connector", connector_state, "Live payload present. Check degraded rows below if present.", "review" if microsoft_errors else "done")
+                ins("Incidents / alerts", "ACTIVE" if active or graph else "CLEAR", f"{active} Defender active, {graph} M365/Graph context.", "review" if active or graph else "done")
+                ins("TVM", "ACTIVE" if recs or vulns else "CHECK", f"{recs} recommendations, {vulns} vulnerabilities.", "review" if recs or vulns else "info")
+                ins("Machines", "ACTIVE" if machines else "CHECK", f"{machines} machine rows/count returned.", "done" if machines else "info")
+                for r in microsoft_errors[:20]:
+                    ins("Connector diagnostic", "CHECK", str(r.get("detail") or r.get("title") or r)[:900], "review")
+        except Exception:
+            pass
+
+    def _select_defender_subtab_by_name(self, name):
+        try:
+            nb = getattr(self, "defender_tables", None) or getattr(self, "defender_tabs", None)
+            if nb is None:
+                return
+            target = str(name or "").strip().lower()
+            aliases = {
+                "defender view": ("defender view",),
+                "alert focus": ("incidents & alerts", "security alerts", "alerts", "incidents"),
+            }.get(target, (target,))
+            for tab_id in nb.tabs():
+                label = nb.tab(tab_id, "text").strip().lower()
+                if label in aliases or any(a in label for a in aliases):
+                    nb.select(tab_id)
+                    break
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -7557,10 +7798,11 @@ class SentinelApp(tk.Tk):
             self._repair_vulnerability_tab_only(metrics)
             self._paint_defender_focus_live(payload)
             self._repair_clean_outer_outlines(metrics)
+            self._repair_row1_true_outer_outlines(metrics)
             self._hide_blank_overview_top_strip()
             self._enlarge_overview_row1()
             self._repair_software_tables_live(metrics)
-            self._paint_defender_view_live(payload)
+            self._paint_defender_health_view(payload)
             self._paint_defender_focus_live(payload)
             self._repair_clean_outer_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
