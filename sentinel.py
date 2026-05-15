@@ -2754,6 +2754,7 @@ class SentinelApp(tk.Tk):
         self.spark = []
 
         self._build_focus_tabs()
+        self._rebuild_defender_page_v2()
         self._normalize_defender_tables()
         self._enforce_soc_console_overview()
         self._polish_all_table_chrome()
@@ -3042,10 +3043,11 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Security alerts"), BLUE)
-        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Security alerts"), RED)
-        self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal events"), PURPLE)
-        self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Recommendations"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Incidents & alerts"), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Incidents & alerts"), RED)
+        self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Vulnerabilities", "◆", lambda: self.nav_to(self.tab_defender, "Vulnerabilities"), RED)
         self.neon_sidebar_item(self.left_nav, "Machines / forensics", "⌬", lambda: self.nav_to(self.tab_defender, "Machines / forensics"), BLUE)
 
         section("Intune", PURPLE)
@@ -3623,6 +3625,134 @@ class SentinelApp(tk.Tk):
         widget.delete("1.0", "end")
         widget.insert("1.0", value)
         widget.config(state="disabled")
+
+
+    def _rebuild_defender_page_v2(self):
+        """Replace the old stitched Defender page with one clean tab system.
+
+        Tabs:
+        - Incidents & alerts
+        - Signal feed
+        - Security recommendations
+        - Vulnerabilities
+        - Machines / forensics
+        """
+        try:
+            for child in self.tab_defender.winfo_children():
+                child.destroy()
+        except Exception:
+            pass
+
+        defender_wrap = tk.Frame(self.tab_defender, bg=BG)
+        defender_wrap.pack(fill="both", expand=True, padx=6, pady=6)
+
+        title = tk.Frame(defender_wrap, bg=BG)
+        title.pack(anchor="w", padx=8, pady=(0, 4))
+        self.glow_icon(title, "🛡", ORANGE, size=22, bg=BG).pack(side="left", padx=(0, 10))
+        tk.Label(title, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 22, "bold")).pack(side="left")
+
+        tk.Label(
+            defender_wrap,
+            text="Microsoft 365 Defender incidents, Defender for Endpoint alerts, TVM recommendations, vulnerabilities and machine readiness.",
+            bg=BG,
+            fg=MUTED,
+            font=(self.font_ui, 10),
+        ).pack(anchor="w", padx=8, pady=(0, 8))
+
+        cards = tk.Frame(defender_wrap, bg=BG)
+        cards.pack(fill="x")
+        self.focus_card(cards, "Defender priority", GREEN, "defender", "priority_state")
+        self.focus_card(cards, "Active alerts", BLUE, "defender", "defender_alerts")
+        self.focus_card(cards, "M365 incidents", ORANGE, "defender", "graph_incidents")
+        self.focus_card(cards, "TVM recommendations", PURPLE, "defender", "defender_recommendations")
+        self.focus_card(cards, "Vulnerabilities", RED, "defender", "defender_vulnerabilities")
+        self.focus_card(cards, "Machines", BLUE, "defender", "defender_machines")
+
+        tab_bar = tk.Frame(defender_wrap, bg=BG)
+        tab_bar.pack(fill="x", padx=6, pady=(6, 0))
+
+        self.defender_tables = ttk.Notebook(defender_wrap, style="SubHidden.TNotebook")
+        self.defender_tables.pack(fill="both", expand=True, padx=0, pady=6)
+
+        self.defender_alert_tab = tk.Frame(self.defender_tables, bg=BG)
+        self.defender_signal_tab = tk.Frame(self.defender_tables, bg=BG)
+        self.defender_recommendations_page = tk.Frame(self.defender_tables, bg=BG)
+        self.defender_vulnerabilities_page = tk.Frame(self.defender_tables, bg=BG)
+        self.defender_machines_page = tk.Frame(self.defender_tables, bg=BG)
+
+        self.defender_tables.add(self.defender_alert_tab, text="Incidents & alerts")
+        self.defender_tables.add(self.defender_signal_tab, text="Signal feed")
+        self.defender_tables.add(self.defender_recommendations_page, text="Security recommendations")
+        self.defender_tables.add(self.defender_vulnerabilities_page, text="Vulnerabilities")
+        self.defender_tables.add(self.defender_machines_page, text="Machines / forensics")
+
+        self._build_subtab_pills(tab_bar, self.defender_tables, [
+            ("Incidents & alerts", self.defender_alert_tab),
+            ("Signal feed", self.defender_signal_tab),
+            ("Security recommendations", self.defender_recommendations_page),
+            ("Vulnerabilities", self.defender_vulnerabilities_page),
+            ("Machines / forensics", self.defender_machines_page),
+        ])
+
+        self.defender_alert_table = self.table_panel(self.defender_alert_tab, "Defender / Microsoft security incidents & alerts", [
+            ("severity", "Severity", 120),
+            ("time", "Time", 170),
+            ("title", "Alert / finding", 620),
+            ("status", "Status", 150),
+            ("detail", "Detail", 880),
+        ], height=22)
+
+        self.defender_signal_table = self.table_panel(self.defender_signal_tab, "Microsoft security signal feed", [
+            ("time", "Time", 170),
+            ("severity", "Severity", 120),
+            ("source", "Source", 220),
+            ("signal", "Signal", 520),
+            ("detail", "Detail", 880),
+        ], height=22)
+
+        self.defender_recommendations_table = self.table_panel(self.defender_recommendations_page, "Security recommendations / TVM", [
+            ("title", "Recommendation", 500),
+            ("severity", "Severity", 130),
+            ("category", "Category", 210),
+            ("impact", "Impact", 130),
+            ("status", "Status", 160),
+            ("detail", "Detail", 850),
+        ], height=22)
+
+        self.defender_vulnerabilities_table = self.table_panel(self.defender_vulnerabilities_page, "Vulnerabilities", [
+            ("id", "CVE / ID", 170),
+            ("severity", "Severity", 130),
+            ("cvss", "CVSS", 100),
+            ("published", "Published", 170),
+            ("updated", "Updated", 170),
+            ("detail", "Detail", 920),
+        ], height=22)
+
+        self.defender_machines_table = self.table_panel(self.defender_machines_page, "Machines / forensic readiness", [
+            ("name", "Machine", 340),
+            ("risk", "Risk / exposure", 170),
+            ("health", "Health", 170),
+            ("os", "OS", 200),
+            ("last_seen", "Last seen", 190),
+            ("ip", "IP", 190),
+        ], height=22)
+
+        note = tk.Label(
+            self.defender_machines_page,
+            text="Forensic collection is an action permission. This dashboard reads readiness/inventory. To collect packages, add an explicit action workflow later.",
+            bg=BG,
+            fg="#8FB8D4",
+            font=(self.font_ui, 9, "bold"),
+        )
+        note.pack(anchor="w", padx=12, pady=(2, 8))
+
+        self._lock_defender_table_shapes()
+        try:
+            if self.last_payload:
+                self._stable_paint_all_tables(self.last_payload)
+        except Exception:
+            pass
+
 
     def _build_focus_tabs(self):
         # Defender tab
@@ -5100,29 +5230,25 @@ class SentinelApp(tk.Tk):
     def _lock_defender_table_shapes(self):
         """Prevent Defender pages from reverting to older/basic table layouts."""
         try:
-            if getattr(self, "overview_defender_feed_table", None) is not None:
-                self._force_table_shape(self.overview_defender_feed_table, [
-                    ("severity", "Severity", 120),
-                    ("time", "Time", 170),
-                    ("title", "Alert / finding", 620),
-                    ("status", "Status", 150),
-                    ("detail", "Detail", 880),
-                ])
-            if getattr(self, "defender_alert_table", None) is not None:
-                self._force_table_shape(self.defender_alert_table, [
-                    ("severity", "Severity", 120),
-                    ("time", "Time", 170),
-                    ("title", "Alert / finding", 620),
-                    ("status", "Status", 150),
-                    ("detail", "Detail", 880),
-                ])
-            if getattr(self, "defender_signal_table", None) is not None:
-                self._force_table_shape(self.defender_signal_table, [
+            for name in ("overview_defender_feed_table", "defender_alert_table"):
+                tree = getattr(self, name, None)
+                if tree is not None:
+                    self._force_table_shape(tree, [
+                        ("severity", "Severity", 120),
+                        ("time", "Time", 170),
+                        ("title", "Alert / finding", 620),
+                        ("status", "Status", 150),
+                        ("detail", "Detail", 880),
+                    ])
+
+            tree = getattr(self, "defender_signal_table", None)
+            if tree is not None:
+                self._force_table_shape(tree, [
                     ("time", "Time", 170),
                     ("severity", "Severity", 120),
                     ("source", "Source", 220),
                     ("signal", "Signal", 520),
-                    ("detail", "Detail", 820),
+                    ("detail", "Detail", 880),
                 ])
         except Exception:
             pass
@@ -5143,8 +5269,8 @@ class SentinelApp(tk.Tk):
         status = self._defender_row_status(row)
         tag = self._stable_event_tag(sev, row.get("source",""), row.get("title",""), row.get("detail",""))
         source = self._stable_source_label(row.get("source",""))
-        title = str(row.get("title", ""))[:170]
-        detail = str(row.get("detail", ""))[:280]
+        title = str(row.get("title", ""))[:180]
+        detail = str(row.get("detail", ""))[:300]
         time_v = short_ts(row.get("timestamp", ""))
 
         try:
@@ -5152,28 +5278,15 @@ class SentinelApp(tk.Tk):
         except Exception:
             cols = []
 
-        # Keep table shape sane even if an old renderer touched it.
-        if tree is getattr(self, "defender_alert_table", None) or tree is getattr(self, "overview_defender_feed_table", None):
-            if tuple(cols) != ("severity", "time", "title", "status", "detail"):
-                tree.configure(columns=("severity", "time", "title", "status", "detail"))
-                self.setup_tree_columns(tree, [
-                    ("severity", "Severity", 120),
-                    ("time", "Time", 170),
-                    ("title", "Alert / finding", 620),
-                    ("status", "Status", 150),
-                    ("detail", "Detail", 880),
-                ])
-                cols = list(tree["columns"])
-
         values_by_col = {
             "severity": self._bubble_token(sev, "severity"),
             "time": time_v,
             "title": title,
+            "signal": title,
             "status": self._bubble_token(status, "status"),
             "detail": detail,
             "source": source,
             "type": "Incident" if "incident" in str(row.get("source","")).lower() or "incident" in title.lower() else "Alert",
-            "signal": title,
         }
         values = [values_by_col.get(str(c), "") for c in cols]
         try:
@@ -5335,11 +5448,11 @@ class SentinelApp(tk.Tk):
                     sev = str(r.get("severity", "INFO")).upper()
                     tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
                     self._safe_insert_tree(dsig, [
+                        short_ts(r.get("timestamp", "")),
                         self._bubble_token(sev, "severity"),
                         self._stable_source_label(r.get("source","")),
-                        short_ts(r.get("timestamp", "")),
-                        str(r.get("title", ""))[:150],
-                        str(r.get("detail", ""))[:240],
+                        str(r.get("title", ""))[:180],
+                        str(r.get("detail", ""))[:300],
                     ], tag)
 
 
@@ -5366,7 +5479,7 @@ class SentinelApp(tk.Tk):
                         "Permission/API",
                         "",
                         self._bubble_token("CHECK", "status"),
-                        metrics.get("defender_recommendation_error", "")[:300],
+                        ("Missing application role SecurityRecommendation.Read.All in WindowsDefenderATP, or Defender TVM not available. " + metrics.get("defender_recommendation_error", ""))[:300],
                     ], "info")
 
             vuln_tree = getattr(self, "defender_vulnerabilities_table", None)
@@ -5391,7 +5504,7 @@ class SentinelApp(tk.Tk):
                         "",
                         "",
                         "",
-                        metrics.get("defender_vulnerability_error", "")[:300],
+                        ("Missing application role Vulnerability.Read.All in WindowsDefenderATP, or Defender TVM not available. " + metrics.get("defender_vulnerability_error", ""))[:300],
                     ], "info")
 
             machine_tree = getattr(self, "defender_machines_table", None)
@@ -5415,7 +5528,7 @@ class SentinelApp(tk.Tk):
                         self._bubble_token("CHECK", "status"),
                         "",
                         "",
-                        metrics.get("defender_machine_error", "")[:300],
+                        ("Missing application role Machine.Read.All in WindowsDefenderATP, or machines API unavailable. " + metrics.get("defender_machine_error", ""))[:300],
                     ], "info")
 
 
