@@ -32,6 +32,7 @@ APP_NAME = "Smartbox Security by Marc"
 CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
+INCIDENT_CACHE_FILE = CONFIG_DIR / "incident_cache.json"
 
 BG = "#020812"
 PANEL = "#061827"
@@ -276,8 +277,62 @@ class MicrosoftGraphConnector:
             pages += 1
         return items
 
+
+    def load_incident_state(self):
+        try:
+            if INCIDENT_CACHE_FILE.exists():
+                data = json.loads(INCIDENT_CACHE_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {"updated": "", "incidents": [], "backoff_until": "", "last_error": "", "source": ""}
+
+    def save_incident_state(self, incidents, source="Graph incidents", last_error="", backoff_until=""):
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            INCIDENT_CACHE_FILE.write_text(json.dumps({
+                "updated": now_iso(),
+                "incidents": incidents[:1000] if isinstance(incidents, list) else [],
+                "source": source,
+                "last_error": last_error,
+                "backoff_until": backoff_until,
+            }, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def should_skip_incident_poll(self, state, min_age_minutes=15):
+        try:
+            backoff_until = parse_dt_safe(state.get("backoff_until"))
+            now = dt.datetime.now(dt.timezone.utc)
+            if backoff_until:
+                if backoff_until.tzinfo is None:
+                    backoff_until = backoff_until.replace(tzinfo=dt.timezone.utc)
+                if backoff_until > now:
+                    return True, f"Graph incidents backoff active until {short_ts(backoff_until.isoformat())}"
+            updated = parse_dt_safe(state.get("updated"))
+            if updated and state.get("incidents"):
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=dt.timezone.utc)
+                age = int((now - updated).total_seconds() / 60)
+                if age < min_age_minutes:
+                    return True, f"Using cached Graph incidents, refreshed {age} minute(s) ago"
+        except Exception:
+            pass
+        return False, ""
+
+
     def fetch_graph_incidents(self, headers):
-        """Fetch Microsoft 365 Defender incidents via Graph with safe fallbacks."""
+        """Fetch Microsoft 365 Defender incidents with cache/backoff protection.
+
+        Graph security incidents can throttle hard. On 429 we keep the last good
+        incident rows visible instead of turning the dashboard into an error wall.
+        """
+        state = self.load_incident_state()
+        skip, reason = self.should_skip_incident_poll(state, min_age_minutes=15)
+        if skip:
+            return state.get("incidents", []) or [], state.get("source") or "cache", reason
+
         urls = [
             "https://graph.microsoft.com/v1.0/security/incidents",
             "https://graph.microsoft.com/beta/security/incidents",
@@ -285,9 +340,19 @@ class MicrosoftGraphConnector:
         last_error = ""
         for url in urls:
             try:
-                return self.graph_get_all(url, headers=headers, max_pages=10), url, ""
+                rows = self.graph_get_all(url, headers=headers, max_pages=3)
+                self.save_incident_state(rows, source=url, last_error="", backoff_until="")
+                return rows, url, ""
             except Exception as e:
                 last_error = str(e)
+                if "429" in last_error or "TooManyRequests" in last_error or "Too Many Requests" in last_error:
+                    until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=30)
+                    cached = state.get("incidents", []) or []
+                    self.save_incident_state(cached, source=state.get("source") or "cache", last_error=last_error, backoff_until=until.isoformat())
+                    return cached, state.get("source") or "cache", f"Graph incidents throttled; using cache. {last_error[:220]}"
+        cached = state.get("incidents", []) or []
+        if cached:
+            return cached, state.get("source") or "cache", f"Graph incidents unavailable; using cache. {last_error[:220]}"
         return [], "", last_error
 
 
@@ -494,8 +559,8 @@ class MicrosoftGraphConnector:
             graph_incidents, graph_incidents_used_url, graph_incident_error = self.fetch_graph_incidents(graph_headers)
             if graph_incident_error:
                 events.append({
-                    "severity": "medium",
-                    "title": "Microsoft Graph security incidents query failed",
+                    "severity": "info" if graph_incidents else "medium",
+                    "title": "Microsoft Graph security incidents cache/backoff" if graph_incidents else "Microsoft Graph security incidents query failed",
                     "detail": graph_incident_error[:300],
                     "source": "Graph Incidents",
                 })
@@ -2598,6 +2663,7 @@ class SentinelApp(tk.Tk):
         self.spark = []
 
         self._build_focus_tabs()
+        self._normalize_defender_tables()
         self._enforce_soc_console_overview()
         self._polish_all_table_chrome()
         self._bind_overview_action_navigation()
@@ -4800,19 +4866,41 @@ class SentinelApp(tk.Tk):
         return "ACTIVE"
 
 
+
+    def _normalize_defender_tables(self):
+        """Make Defender tab table use the same visual structure as Overview."""
+        try:
+            for tree_name in ("defender_alert_table",):
+                tree = getattr(self, tree_name, None)
+                if tree is None:
+                    continue
+                tree.configure(columns=("severity", "time", "title", "status", "detail"))
+                self.setup_tree_columns(tree, [
+                    ("severity", "Severity", 120),
+                    ("time", "Time", 170),
+                    ("title", "Alert / finding", 560),
+                    ("status", "Status", 145),
+                    ("detail", "Detail", 820),
+                ])
+        except Exception:
+            pass
+
+
     def _defender_m365_rows(self, payload):
         """One source of truth for Overview Defender table and Defender tab."""
         rows = payload.get("alert_rows", []) or []
         out = []
         for r in rows:
-            if self._is_defender_related_row(r.get("source", ""), r.get("title", ""), r.get("detail", "")):
-                out.append(r)
+            title_l = str(r.get("title", "")).lower()
+            detail_l = str(r.get("detail", "")).lower()
+            source_l = str(r.get("source", "")).lower()
 
-        # Keep Graph incident status rows visible because they explain M365 incident counts.
-        for r in rows:
-            title = str(r.get("title", "")).lower()
-            source = str(r.get("source", "")).lower()
-            if ("incident" in title or "graph incidents" in source) and r not in out:
+            # Do not let connector-health rows dominate the incident table.
+            is_query_health = "query live" in title_l or "cache/backoff" in title_l or "query failed" in title_l
+            if is_query_health and "incident row" in detail_l:
+                continue
+
+            if self._is_defender_related_row(source_l, title_l, detail_l):
                 out.append(r)
 
         sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
@@ -4840,10 +4928,11 @@ class SentinelApp(tk.Tk):
             detail_v = str(r.get("detail", ""))[:250]
 
             cols = list(tree["columns"])
-            if len(cols) == 6:
+            if cols == ["severity", "time", "title", "status", "detail"] or tuple(cols) == ("severity", "time", "title", "status", "detail"):
+                values = [sev_v, time_v, title_v, status_v, detail_v]
+            elif len(cols) == 6:
                 values = [time_v, status_v, sev_v, source_v, title_v, detail_v]
             elif len(cols) == 5:
-                # Overview table order: severity, time, title, status, detail
                 values = [sev_v, time_v, title_v, status_v, detail_v]
             else:
                 values = [sev_v, time_v, source_v, title_v, detail_v]
@@ -4852,17 +4941,17 @@ class SentinelApp(tk.Tk):
 
         if not rows:
             cols = list(tree["columns"])
-            empty = [
-                self._bubble_token("INFO", "severity"),
-                "",
-                "No Defender/M365 rows returned",
-                self._bubble_token("INFO", "status"),
-                "Check Microsoft Graph SecurityIncident.Read.All and Defender API permissions.",
-            ]
-            if len(cols) == 6:
+            if cols == ["severity", "time", "title", "status", "detail"] or tuple(cols) == ("severity", "time", "title", "status", "detail") or len(cols) == 5:
+                empty = [
+                    self._bubble_token("INFO", "severity"),
+                    "",
+                    "No Defender/M365 rows returned",
+                    self._bubble_token("INFO", "status"),
+                    "Check Microsoft Graph SecurityIncident.Read.All, Defender API permissions, and Graph throttling/backoff.",
+                ]
+            else:
                 empty = ["", self._bubble_token("INFO", "status"), self._bubble_token("INFO", "severity"), "Microsoft 365 Defender", "No Defender/M365 rows returned", "Check connector health."]
             self._safe_insert_tree(tree, empty, "info")
-
 
     def _stable_paint_all_tables(self, payload):
         """Last-mile table renderer.
