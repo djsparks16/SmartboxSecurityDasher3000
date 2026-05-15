@@ -2131,21 +2131,21 @@ class SentinelApp(tk.Tk):
         return row
 
     def neon_button(self, parent, label, icon, command, color=BLUE, width=150, active=False):
-        shell = tk.Frame(parent, bg=BG, width=width, height=42)
+        shell = tk.Frame(parent, bg=BG, width=width, height=36)
         shell.pack_propagate(False)
-        canvas = tk.Canvas(shell, bg=BG, width=width, height=42, highlightthickness=0, bd=0)
+        canvas = tk.Canvas(shell, bg=BG, width=width, height=36, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
 
         fill = "#0E2A44" if active else "#061827"
         border = color if active else "#183A55"
-        pts = self._rounded_points(2, 3, width - 2, 39, 14)
+        pts = self._rounded_points(2, 3, width - 2, 33, 12)
         canvas.create_polygon(pts, smooth=True, splinesteps=18, fill=fill, outline=border, width=1.8)
         canvas.create_line(14, 3, width - 18, 3, fill=color if active else "#183A55", width=1)
 
         row = tk.Frame(canvas, bg=fill)
         self.glow_icon(row, icon, color, size=14, bg=fill, halo=False).pack(side="left", padx=(8, 5))
         tk.Label(row, text=label, bg=fill, fg="#F7FBFF" if active else "#9BE8FF", font=(self.font_ui, 9, "bold")).pack(side="left")
-        canvas.create_window(width // 2, 21, window=row, width=width - 14, height=32)
+        canvas.create_window(width // 2, 18, window=row, width=width - 14, height=28)
 
         def invoke(event=None):
             try:
@@ -2259,7 +2259,7 @@ class SentinelApp(tk.Tk):
         title_box.pack(side="left", fill="x", expand=True)
         tk.Label(title_box, text=title.upper(), bg="#071827", fg="#CDEBFF", font=(self.font_ui, 9, "bold")).pack(anchor="w")
         val = tk.Label(title_box, text="--", bg="#071827", fg=color, font=(self.font_display, 24, "bold"))
-        val.pack(anchor="w", pady=(6, 0))
+        val.pack(anchor="w", pady=(4, 0))
         hint = tk.Label(body, text=subtitle or "Live telemetry", bg="#071827", fg="#AFC9DE", font=(self.font_ui, 9), anchor="w")
         hint.pack(fill="x", pady=(8, 0))
         if not hasattr(self, "neon_tiles"):
@@ -2350,7 +2350,7 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=10, pady=10)
+        shell.pack(fill="both", expand=True, padx=8, pady=6)
 
         main_shell = tk.Frame(shell, bg=BG)
         main_shell.pack(fill="both", expand=True)
@@ -2379,7 +2379,7 @@ class SentinelApp(tk.Tk):
         self.main_tab_names = []
         self.main_tab_buttons = {}
         self.main_tab_bar = tk.Frame(content_shell, bg=BG)
-        self.main_tab_bar.pack(fill="x", pady=(10, 4))
+        self.main_tab_bar.pack(fill="x", pady=(4, 2))
 
         self.main_tabs = ttk.Notebook(content_shell, style="MainHidden.TNotebook")
         self.main_tabs.pack(fill="both", expand=True)
@@ -2400,12 +2400,12 @@ class SentinelApp(tk.Tk):
         body = self.make_scrollable_page(self.tab_overview, show_scrollbar=True)
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.overview_focus_bar.pack(fill="x", pady=(0, 8))
+        self.overview_focus_bar.pack(fill="x", pady=(0, 4))
         tk.Label(self.overview_focus_bar, text="SOC COMMAND OVERVIEW", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender • Intune • Software • UniFi • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
-        self.hero_strip.pack(fill="x", pady=(0, 8))
+        self.hero_strip.pack(fill="x", pady=(0, 4))
 
         self.hero_priority_shell, self.hero_priority_panel = self.rounded_panel(self.hero_strip, fill=PANEL, border=HAIRLINE, radius=24, padding=1)
         self.hero_priority_shell.configure(height=150, width=1160)
@@ -2420,7 +2420,7 @@ class SentinelApp(tk.Tk):
         self.hero_priority_value = tk.Label(self.hero_priority_panel, text="DEFENDER ACTION", bg=PANEL, fg=ORANGE, font=(self.font_display, 30, "bold"))
         self.hero_priority_value.pack(anchor="w", padx=22, pady=(16, 0))
         self.hero_priority_detail = tk.Label(self.hero_priority_panel, text="5 active Defender alert(s) need triage.", bg=PANEL, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
-        self.hero_priority_detail.pack(anchor="w", padx=22, pady=(6, 0))
+        self.hero_priority_detail.pack(anchor="w", padx=22, pady=(4, 0))
         self.hero_priority_meta = tk.Label(self.hero_priority_panel, text="Medium and informational Defender alerts stay visible in the focus table.", bg=PANEL, fg="#C4D2E3", font=(self.font_ui, 11), justify="left")
         self.hero_priority_meta.pack(anchor="w", padx=22, pady=(6, 12))
 
@@ -2440,7 +2440,7 @@ class SentinelApp(tk.Tk):
         self.heartbeat_canvas.pack(fill="x", padx=14, pady=(0, 12))
 
         self.overview_status_cards = tk.Frame(body, bg=BG)
-        self.overview_status_cards.pack(fill="x", pady=(0, 8))
+        self.overview_status_cards.pack(fill="x", pady=(0, 4))
         self.overview_status = {}
         for title, key, color in [
             ("Defender", "overview_defender", ORANGE),
@@ -2490,7 +2490,7 @@ class SentinelApp(tk.Tk):
         self.trend_strip = tk.Frame(body, bg=BG)
         # Trend strip hidden from Overview to keep the front page readable.
         # Detailed sortable tables carry the operational view.
-        # self.trend_strip.pack(fill="x", pady=(0, 8))
+        # self.trend_strip.pack(fill="x", pady=(0, 4))
         for col in range(2):
             self.trend_strip.grid_columnconfigure(col, weight=1)
 
@@ -2621,8 +2621,8 @@ class SentinelApp(tk.Tk):
         self.unifi_site_table_canvas = tk.Canvas(self.unifi_site_health_bar, bg=PANEL, highlightthickness=0, bd=0, height=150)
         self.unifi_site_table_scrollbar = tk.Scrollbar(self.unifi_site_health_bar, orient="vertical", command=self.unifi_site_table_canvas.yview, bg=PANEL, troughcolor=BG)
         self.unifi_site_table_canvas.configure(yscrollcommand=self.unifi_site_table_scrollbar.set)
-        self.unifi_site_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 8))
-        self.unifi_site_table_scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 8))
+        self.unifi_site_table_canvas.pack(side="left", fill="both", expand=True, padx=(12, 0), pady=(0, 4))
+        self.unifi_site_table_scrollbar.pack(side="right", fill="y", padx=(0, 12), pady=(0, 4))
 
         self.unifi_site_table = tk.Frame(self.unifi_site_table_canvas, bg=PANEL)
         self.unifi_site_table_window = self.unifi_site_table_canvas.create_window((0, 0), window=self.unifi_site_table, anchor="nw")
@@ -2645,7 +2645,7 @@ class SentinelApp(tk.Tk):
         self.overview_defender_feed_summary.pack(side="right")
 
         self.overview_defender_feed_table_wrap = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
-        self.overview_defender_feed_table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        self.overview_defender_feed_table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 4))
         self.overview_defender_feed_scrollbar = tk.Scrollbar(self.overview_defender_feed_table_wrap, orient="vertical")
         self.overview_defender_feed_scrollbar.pack(side="right", fill="y")
         self.overview_defender_feed_table = ttk.Treeview(
@@ -2682,7 +2682,7 @@ class SentinelApp(tk.Tk):
         tk.Label(full_feed_header, text="Color-coded live event table  •  severity first, newest items first", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
-        self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        self.overview_full_feed_table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 4))
         self.overview_full_feed_scrollbar = tk.Scrollbar(self.overview_full_feed_table_wrap, orient="vertical")
         self.overview_full_feed_scrollbar.pack(side="right", fill="y")
         self.overview_full_feed_table = ttk.Treeview(
@@ -3086,7 +3086,7 @@ class SentinelApp(tk.Tk):
         for label, icon, frame, color in tabs:
             def go(f=frame):
                 self.select_main_tab(f)
-            shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=142, active=(frame == self.tab_overview))
+            shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=130, active=(frame == self.tab_overview))
             shell.pack(side="left", padx=(0, 10), pady=(0, 4))
             self.main_tab_buttons[frame] = {"shell": shell, "label": label, "icon": icon, "color": color}
         self.select_main_tab(self.tab_overview)
@@ -3112,7 +3112,7 @@ class SentinelApp(tk.Tk):
             for label, icon, tab_frame, color in tabs:
                 def go(f=tab_frame):
                     self.select_main_tab(f)
-                shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=142, active=(tab_frame == frame))
+                shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=130, active=(tab_frame == frame))
                 shell.pack(side="left", padx=(0, 10), pady=(0, 4))
                 self.main_tab_buttons[tab_frame] = {"shell": shell, "label": label, "icon": icon, "color": color}
         except Exception as e:
@@ -3299,7 +3299,7 @@ class SentinelApp(tk.Tk):
         tk.Label(header, text="signal-coloured rows  •  glass bands  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         frame = tk.Frame(panel, bg=PANEL)
-        frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        frame.pack(fill="both", expand=True, padx=12, pady=(0, 4))
         tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height, style="Dasher.Treeview")
         self.setup_tree_columns(tree, columns)
         yscroll = tk.Scrollbar(frame, orient="vertical", command=tree.yview, bg=PANEL, troughcolor=GLASS)
@@ -3601,7 +3601,7 @@ class SentinelApp(tk.Tk):
         top.pack(fill="x", padx=12, pady=(10, 4))
         tk.Label(top, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(side="left")
         text_frame = tk.Frame(panel, bg=PANEL)
-        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        text_frame.pack(fill="both", expand=True, padx=12, pady=(0, 4))
         widget = tk.Text(
             text_frame,
             bg=GLASS_2,
@@ -3657,7 +3657,7 @@ class SentinelApp(tk.Tk):
             bg=BG,
             fg=MUTED,
             font=(self.font_ui, 10),
-        ).pack(anchor="w", padx=8, pady=(0, 8))
+        ).pack(anchor="w", padx=8, pady=(0, 4))
 
         cards = tk.Frame(defender_wrap, bg=BG)
         cards.pack(fill="x")
@@ -3669,7 +3669,7 @@ class SentinelApp(tk.Tk):
         self.focus_card(cards, "Machines", BLUE, "defender", "defender_machines")
 
         tab_bar = tk.Frame(defender_wrap, bg=BG)
-        tab_bar.pack(fill="x", padx=6, pady=(6, 0))
+        tab_bar.pack(fill="x", padx=6, pady=(4, 0))
 
         self.defender_tables = ttk.Notebook(defender_wrap, style="SubHidden.TNotebook")
         self.defender_tables.pack(fill="both", expand=True, padx=0, pady=6)
@@ -3758,7 +3758,7 @@ class SentinelApp(tk.Tk):
         defender_title.pack(anchor="w", padx=8, pady=(0, 4))
         self.glow_icon(defender_title, "🛡", ORANGE, size=20, bg=BG).pack(side="left", padx=(0, 8))
         tk.Label(defender_title, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
+        tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 4))
 
         row = tk.Frame(defender_wrap, bg=BG)
         row.pack(fill="x")
@@ -3860,7 +3860,7 @@ class SentinelApp(tk.Tk):
         intune_title.pack(anchor="w", padx=8, pady=(0, 4))
         self.glow_icon(intune_title, "👤", BLUE, size=20, bg=BG).pack(side="left", padx=(0, 8))
         tk.Label(intune_title, text="Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
+        tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 4))
 
         row = tk.Frame(intune_wrap, bg=BG)
         row.pack(fill="x")
@@ -3946,7 +3946,7 @@ class SentinelApp(tk.Tk):
         unifi_title.pack(anchor="w", padx=8, pady=(0, 4))
         self.glow_icon(unifi_title, "📶", BLUE, size=20, bg=BG).pack(side="left", padx=(0, 8))
         tk.Label(unifi_title, text="UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
+        tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 4))
 
         status_shell = tk.Frame(unifi_wrap, bg=BG)
         status_shell.pack(fill="x")
@@ -4010,7 +4010,7 @@ class SentinelApp(tk.Tk):
         software_title.pack(anchor="w", padx=8, pady=(0, 4))
         self.glow_icon(software_title, "💾", GREEN, size=20, bg=BG).pack(side="left", padx=(0, 8))
         tk.Label(software_title, text="Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
-        tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
+        tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 4))
 
         sw_row = tk.Frame(software_wrap, bg=BG)
         sw_row.pack(fill="x")
@@ -4794,7 +4794,7 @@ class SentinelApp(tk.Tk):
                 tk.Label(top, text=sev.upper(), bg=bg, fg=color, font=(self.font_ui, 8, "bold")).pack(side="left")
                 tk.Label(top, text=event.get("source", "source"), bg=bg, fg="#8D9BB5", font=(self.font_ui, 8, "bold")).pack(side="right")
                 tk.Label(f, text=event.get("title", "event"), bg=bg, fg=TEXT, font=(self.font_ui, 10, "bold"), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(4,0))
-                tk.Label(f, text=event.get("detail", ""), bg=bg, fg=MUTED, font=(self.font_ui, 8), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(0, 8))
+                tk.Label(f, text=event.get("detail", ""), bg=bg, fg=MUTED, font=(self.font_ui, 8), wraplength=330, justify="left").pack(anchor="w", padx=12, pady=(0, 4))
 
             self.feed.update_idletasks()
             self.feed_canvas.configure(scrollregion=self.feed_canvas.bbox("all"))
@@ -5570,7 +5570,7 @@ class SentinelApp(tk.Tk):
             utree = getattr(self, "unifi_sites_table", None)
             if utree is not None:
                 self._safe_tree_clear(utree)
-                for s in (metrics.get("unifi_site_health", []) or [])[:500]:
+                for s in (metrics.get("unifi_site_health", []) or metrics.get("unifi_sites_rows", []) or metrics.get("unifi_sites_detail", []) or [])[:500]:
                     tag = self._unifi_status_tag(s.get("status", "VISIBLE"))
                     self._safe_insert_tree(utree, [
                         s.get("name",""),
@@ -5587,7 +5587,7 @@ class SentinelApp(tk.Tk):
             newt = getattr(self, "software_new_table", None)
             if newt is not None:
                 self._safe_tree_clear(newt)
-                for a in (metrics.get("new_software", []) or [])[:500]:
+                for a in (metrics.get("new_software", []) or metrics.get("new_apps", []) or [])[:500]:
                     self._safe_insert_tree(newt, [
                         a.get("displayName",""),
                         a.get("version",""),
@@ -5599,7 +5599,7 @@ class SentinelApp(tk.Tk):
             allt = getattr(self, "software_all_table", None)
             if allt is not None:
                 self._safe_tree_clear(allt)
-                for a in (metrics.get("detected_apps", []) or [])[:1000]:
+                for a in (metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])[:1000]:
                     self._safe_insert_tree(allt, [
                         a.get("displayName",""),
                         a.get("version",""),
@@ -5615,6 +5615,59 @@ class SentinelApp(tk.Tk):
 
 
 
+
+    def _set_focus_value_safe(self, bucket, key, value, hint=None, color=None):
+        try:
+            card = getattr(self, "focus_cards", {}).get(bucket, {}).get(key)
+            if not card:
+                return
+            if card.get("value") is not None:
+                card["value"].configure(text=str(value), fg=color or card.get("base", BLUE))
+            if hint is not None and card.get("hint") is not None:
+                card["hint"].configure(text=str(hint))
+        except Exception:
+            pass
+
+    def _repair_section_cards(self, metrics):
+        try:
+            total = int(metrics.get("devices", metrics.get("intune_devices", 0)) or 0)
+            noncomp = int(metrics.get("noncompliant", metrics.get("noncompliant_count", 0)) or 0)
+            stale = int(metrics.get("stale_30_count", 0) or 0)
+            unenc = int(metrics.get("unencrypted_count", 0) or 0)
+            compliant = max(0, total - noncomp)
+            rate = f"{round((compliant / total) * 100)}%" if total else "--"
+
+            self._set_focus_value_safe("intune", "devices", total or "--", "Intune inventory", BLUE)
+            self._set_focus_value_safe("intune", "noncompliant", noncomp or 0, "Non-compliant devices", RED if noncomp else GREEN)
+            self._set_focus_value_safe("intune", "stale_30_count", stale or 0, "Last sync older than 30 days", ORANGE if stale else GREEN)
+            self._set_focus_value_safe("intune", "unencrypted_count", unenc or 0, "Encryption gap", RED if unenc else GREEN)
+            self._set_focus_value_safe("intune", "compliant", compliant, "Compliant devices", GREEN)
+            self._set_focus_value_safe("intune", "compliance_rate", rate, "Compliance rate", GREEN if total and noncomp == 0 else ORANGE)
+            self._set_focus_value_safe("intune", "jailbreak_count", int(metrics.get("jailbreak_count", 0) or 0), "Jailbreak/root flags", RED)
+            self._set_focus_value_safe("intune", "no_user_count", int(metrics.get("no_user_count", 0) or 0), "No primary user", AMBER)
+
+            sites = int(metrics.get("unifi_sites", 0) or 0)
+            devices = int(metrics.get("unifi_devices", 0) or 0)
+            offline = int(metrics.get("unifi_offline_sites", 0) or 0)
+            healthy = int(metrics.get("unifi_healthy_sites", max(0, sites - offline - int(metrics.get("unifi_degraded_sites", 0) or 0))) or 0)
+            degraded = int(metrics.get("unifi_degraded_sites", 0) or 0)
+            alerts = int(metrics.get("unifi_alerts", 0) or 0)
+
+            self._set_focus_value_safe("unifi", "unifi_sites", sites or "--", "Sites", GREEN if sites else BLUE)
+            self._set_focus_value_safe("unifi", "unifi_devices", devices or "--", "Devices", BLUE)
+            self._set_focus_value_safe("unifi", "unifi_offline_sites", offline or 0, "Offline sites", RED if offline else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_healthy_sites", healthy or 0, "Healthy sites", GREEN)
+            self._set_focus_value_safe("unifi", "unifi_degraded_sites", degraded or 0, "Degraded sites", ORANGE if degraded else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_alerts", alerts or 0, "UniFi alerts", ORANGE if alerts else GREEN)
+
+            detected = int(metrics.get("detected_apps_count", metrics.get("detected_apps_returned", 0)) or 0)
+            new_sw = int(metrics.get("new_software_count", 0) or 0)
+            self._set_focus_value_safe("software", "detected_apps_count", detected or "--", "Detected apps", BLUE)
+            self._set_focus_value_safe("software", "new_software_count", new_sw or 0, "Newly observed", ORANGE if new_sw else GREEN)
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Fallback renderer that repopulates all table widgets from the same payload.
 
@@ -5625,6 +5678,11 @@ class SentinelApp(tk.Tk):
         if not payload:
             return
         metrics = payload.get("metrics", {}) or {}
+        try:
+            self._recolor_overview_action_icons(metrics)
+            self._repair_section_cards(metrics)
+        except Exception:
+            pass
         rows = payload.get("alert_rows", []) or []
 
         def clear(tree):
@@ -5735,37 +5793,37 @@ class SentinelApp(tk.Tk):
         tree = getattr(self, "intune_noncompliant_table", None)
         if tree is not None:
             clear(tree)
-            for d in (metrics.get("noncompliant_devices", []) or [])[:500]:
+            for d in (metrics.get("noncompliant_devices", []) or metrics.get("intune_noncompliant_devices", []) or [])[:500]:
                 insert(tree, [d.get("name",""), d.get("os",""), d.get("user",""), d.get("compliance",""), short_ts(d.get("last_sync",""))], "warn")
 
         tree = getattr(self, "intune_stale_table", None)
         if tree is not None:
             clear(tree)
-            for d in (metrics.get("stale_devices", []) or [])[:500]:
+            for d in (metrics.get("stale_devices", []) or metrics.get("stale_30_devices", []) or metrics.get("intune_stale_devices", []) or [])[:500]:
                 insert(tree, [d.get("name",""), d.get("os",""), d.get("user",""), d.get("compliance",""), short_ts(d.get("last_sync",""))], "warn")
 
         # UniFi
         tree = getattr(self, "unifi_sites_table", None)
         if tree is not None:
             clear(tree)
-            for s in (metrics.get("unifi_site_health", []) or [])[:500]:
+            for s in (metrics.get("unifi_site_health", []) or metrics.get("unifi_sites_rows", []) or metrics.get("unifi_sites_detail", []) or [])[:500]:
                 insert(tree, [s.get("name",""), s.get("status",""), s.get("total",0), s.get("online",0), s.get("offline",0), s.get("degraded",0), s.get("unknown",0), s.get("detail","")], "good" if str(s.get("status","")).upper() == "HEALTHY" else "warn")
 
         # Software
         tree = getattr(self, "software_new_table", None)
         if tree is not None:
             clear(tree)
-            for a in (metrics.get("new_software", []) or [])[:500]:
+            for a in (metrics.get("new_software", []) or metrics.get("new_apps", []) or [])[:500]:
                 insert(tree, [a.get("displayName",""), a.get("version",""), a.get("publisher",""), a.get("deviceCount",0)], "warn")
-            if not (metrics.get("new_software", []) or []):
+            if not (metrics.get("new_software", []) or metrics.get("new_apps", []) or []):
                 insert(tree, ["No newly observed software", "", "", ""], "info")
 
         tree = getattr(self, "software_all_table", None)
         if tree is not None:
             clear(tree)
-            for a in (metrics.get("detected_apps", []) or [])[:1000]:
+            for a in (metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])[:1000]:
                 insert(tree, [a.get("displayName",""), a.get("version",""), a.get("publisher",""), a.get("deviceCount",0)], "info")
-            if not (metrics.get("detected_apps", []) or []):
+            if not (metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or []):
                 insert(tree, ["No detected apps returned", "", "", ""], "info")
 
         # Defender enrichment
