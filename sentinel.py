@@ -1955,7 +1955,7 @@ class SentinelApp(tk.Tk):
             wrap,
             text=icon,
             bg=bg,
-            fg="#FFFFFF",
+            fg=color,
             font=(self.font_ui, size, "bold"),
             bd=0,
             highlightthickness=0,
@@ -1979,51 +1979,72 @@ class SentinelApp(tk.Tk):
         shell.pack_propagate(False)
         canvas = tk.Canvas(shell, bg=BG, width=width, height=42, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
+
         fill = "#0E2A44" if active else "#061827"
         border = color if active else "#183A55"
         pts = self._rounded_points(2, 3, width - 2, 39, 14)
-        canvas.create_polygon(pts, smooth=True, splinesteps=18, fill=fill, outline=border, width=1.6)
-        canvas.create_line(14, 3, width - 18, 3, fill=color if active else "#183B55", width=1)
+        canvas.create_polygon(pts, smooth=True, splinesteps=18, fill=fill, outline=border, width=1.8)
+        canvas.create_line(14, 3, width - 18, 3, fill=color if active else "#183A55", width=1)
+
         row = tk.Frame(canvas, bg=fill)
-        self.glow_icon(row, icon, color, size=14, bg=fill, halo=False).pack(side="left", padx=(8, 4))
+        self.glow_icon(row, icon, color, size=14, bg=fill, halo=False).pack(side="left", padx=(8, 5))
         tk.Label(row, text=label, bg=fill, fg="#F7FBFF" if active else "#9BE8FF", font=(self.font_ui, 9, "bold")).pack(side="left")
         canvas.create_window(width // 2, 21, window=row, width=width - 14, height=32)
-        for w in (shell, canvas, row):
-            w.bind("<Button-1>", lambda e: command())
+
+        def invoke(event=None):
             try:
-                w.configure(cursor="hand2")
+                command()
+            except Exception as e:
+                try:
+                    self.status_var.set(f"Navigation error: {e}")
+                except Exception:
+                    pass
+
+        def bind_tree(widget):
+            try:
+                widget.configure(cursor="hand2")
             except Exception:
                 pass
+            try:
+                widget.bind("<Button-1>", invoke, add="+")
+            except Exception:
+                pass
+            try:
+                for child in widget.winfo_children():
+                    bind_tree(child)
+            except Exception:
+                pass
+
+        bind_tree(shell)
         return shell
 
     def neon_sidebar_item(self, parent, label, icon, command, color=BLUE, active=False):
-        row_bg = "#0A1B2C"
-        active_bg = "#0E2F4C"
+        row_bg = "#061827"
+        active_bg = "#0B3554"
         row = tk.Frame(parent, bg=active_bg if active else row_bg, height=36, highlightthickness=1 if active else 0, highlightbackground=color)
         row.pack(fill="x", padx=10, pady=2)
         row.pack_propagate(False)
 
         icon_w = self.glow_icon(row, icon, color, size=12, bg=row.cget("bg"), halo=False)
         icon_w.pack(side="left", padx=(8, 6))
-        label_w = tk.Label(row, text=label, bg=row.cget("bg"), fg="#F4FBFF" if active else "#B7D8F0", font=(self.font_ui, 9, "bold"), anchor="w")
+        label_w = tk.Label(row, text=label, bg=row.cget("bg"), fg="#FFFFFF" if active else "#9EDFFF", font=(self.font_ui, 9, "bold"), anchor="w")
         label_w.pack(side="left", fill="x", expand=True)
 
-        item = {"row": row, "label": label_w, "icon": icon_w, "color": color, "active": active}
-        if hasattr(self, "nav_rows"):
-            self.nav_rows.append(item)
+        if not hasattr(self, "nav_rows"):
+            self.nav_rows = []
+        self.nav_rows.append({"row": row, "label": label_w, "color": color})
 
         def invoke(event=None):
             try:
                 for nav in getattr(self, "nav_rows", []):
                     r = nav.get("row")
                     l = nav.get("label")
-                    bg = row_bg
                     try:
-                        r.configure(bg=bg, highlightthickness=0)
-                        l.configure(bg=bg, fg="#B7D8F0")
+                        r.configure(bg=row_bg, highlightthickness=0)
+                        l.configure(bg=row_bg, fg="#B7D8F0")
                         for child in r.winfo_children():
                             try:
-                                child.configure(bg=bg)
+                                child.configure(bg=row_bg)
                             except Exception:
                                 pass
                     except Exception:
@@ -2037,6 +2058,7 @@ class SentinelApp(tk.Tk):
                         pass
             except Exception:
                 pass
+
             try:
                 command()
             except Exception as e:
@@ -2045,7 +2067,7 @@ class SentinelApp(tk.Tk):
                 except Exception:
                     pass
 
-        def bind_all(widget):
+        def bind_tree(widget):
             try:
                 widget.configure(cursor="hand2")
             except Exception:
@@ -2056,11 +2078,11 @@ class SentinelApp(tk.Tk):
                 pass
             try:
                 for child in widget.winfo_children():
-                    bind_all(child)
+                    bind_tree(child)
             except Exception:
                 pass
 
-        bind_all(row)
+        bind_tree(row)
         return row
 
     def neon_metric_tile(self, parent, title, value_key, icon, color, subtitle="", bucket="overview", width_pack=True):
@@ -2280,8 +2302,8 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = self.glow_icon(top, icon_text, color, size=18, bg=PANEL)
-            dot.pack(side="left", padx=(0, 10))
+            dot = self.glow_icon(top, icon_text, color, size=22, bg=PANEL, halo=True)
+            dot.pack(side="left", padx=(0, 14))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
             tk.Label(title_col, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold"), anchor="w").pack(anchor="w")
@@ -2856,8 +2878,11 @@ class SentinelApp(tk.Tk):
                 shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=142, active=(tab_frame == frame))
                 shell.pack(side="left", padx=(0, 10), pady=(0, 4))
                 self.main_tab_buttons[tab_frame] = {"shell": shell, "label": label, "icon": icon, "color": color}
-        except Exception:
-            pass
+        except Exception as e:
+            try:
+                self.status_var.set(f"Tab ribbon error: {e}")
+            except Exception:
+                pass
 
     def _build_subtab_pills(self, bar, notebook, tabs):
         if not hasattr(self, "subtab_buttons"):
@@ -4401,6 +4426,8 @@ class SentinelApp(tk.Tk):
         rows = []
         for row in payload.get("alert_rows", []) or []:
             source = str(row.get("source", ""))
+            title = str(row.get("title", ""))
+            detail = str(row.get("detail", ""))
             if self._is_defender_related_row(source, title, detail):
                 rows.append(row)
 
@@ -4416,7 +4443,7 @@ class SentinelApp(tk.Tk):
         medium_count = sum(1 for r in rows if str(r.get("severity", "")).upper() == "MEDIUM")
         high_count = sum(1 for r in rows if str(r.get("severity", "")).upper() in ("HIGH", "CRITICAL"))
         if hasattr(self, "overview_defender_feed_summary"):
-            self.overview_defender_feed_summary.config(text=f"{active_count} active Defender item(s) · {high_count} high/critical · {medium_count} medium · click headers to sort")
+            self.overview_defender_feed_summary.config(text=f"{active_count} Defender/M365 item(s) · {high_count} high/critical · {medium_count} medium · click headers to sort")
 
         for row in rows[:150]:
             sev = str(row.get("severity", "INFO")).upper()
@@ -4427,10 +4454,32 @@ class SentinelApp(tk.Tk):
                 title = title[:115] + "..."
             if len(detail) > 170:
                 detail = detail[:167] + "..."
-            tree.insert("", "end", values=(self._bubble_token(sev, "severity"), short_ts(row.get("timestamp", "")), title, self._bubble_token(row.get("status", "ACTIVE"), "status"), detail), tags=(tag,))
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    self._bubble_token(sev, "severity"),
+                    short_ts(row.get("timestamp", "")),
+                    title,
+                    self._bubble_token(row.get("status", "ACTIVE"), "status"),
+                    detail,
+                ),
+                tags=(tag,),
+            )
 
         if not rows:
-            tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "", "No active Defender alerts returned yet.", self._bubble_token("INFO", "status"), "Defender / Microsoft security incidents & alerts will populate from Defender for Endpoint events."), tags=("sev_info",))
+            tree.insert(
+                "",
+                "end",
+                values=(
+                    self._bubble_token("INFO", "severity"),
+                    "",
+                    "No Defender or Microsoft 365 Defender rows returned yet.",
+                    self._bubble_token("INFO", "status"),
+                    "Check Graph incidents permissions and Defender API connector health.",
+                ),
+                tags=("sev_info",),
+            )
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -4742,13 +4791,15 @@ class SentinelApp(tk.Tk):
         ms_rows = []
         for r in rows:
             src = str(r.get("source", ""))
-            if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph"):
+            title = str(r.get("title", ""))
+            detail = str(r.get("detail", ""))
+            if self._is_defender_related_row(src, title, detail):
                 ms_rows.append(r)
 
         if hasattr(self, "defender_alert_table"):
             self.clear_table(self.defender_alert_table)
             if not ms_rows:
-                self.insert_table_row(self.defender_alert_table, ["", "INFO", "INFO", "Microsoft", "No Microsoft security rows returned", ""], tag="info")
+                self.insert_table_row(self.defender_alert_table, ["", "INFO", "INFO", "Microsoft 365 Defender", "No Defender/M365 security rows returned", ""], tag="info")
             for r in ms_rows[:2000]:
                 sev = str(r.get("severity", "INFO")).upper()
                 status = str(r.get("status", "ACTIVE"))
@@ -4763,7 +4814,7 @@ class SentinelApp(tk.Tk):
             if events:
                 for e in events[:500]:
                     src = str(e.get("source", ""))
-                    if src in ("Defender for Endpoint", "Graph Security", "Microsoft Graph", "Microsoft"):
+                    if self._is_defender_related_row(src, str(e.get("title", "")), str(e.get("detail", ""))):
                         sev = str(e.get("severity", "info")).upper()
                         ts = short_ts(e.get("timestamp", ""))
                         tag = "bad" if sev == "CRITICAL" else "high" if sev == "HIGH" else "warn" if sev == "MEDIUM" else "info"
