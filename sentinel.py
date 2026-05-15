@@ -10026,6 +10026,267 @@ class SentinelApp(tk.Tk):
 
 
 
+
+# -----------------------------------------------------------------------------
+# Marc final-touch hotfixes
+# These monkey patches intentionally run after the class is defined so they win
+# over older duplicated helper methods in the PoC file.
+# -----------------------------------------------------------------------------
+CYAN = BLUE
+YELLOW = AMBER
+
+def _sbx_children_recursive(self, root):
+    out = []
+    def walk(w):
+        out.append(w)
+        try:
+            for c in w.winfo_children():
+                walk(c)
+        except Exception:
+            pass
+    try:
+        walk(root)
+    except Exception:
+        pass
+    return out
+
+def _sbx_tab_color_for_text(self, text):
+    t = str(text or '').lower()
+    if 'defender' in t:
+        return GREEN
+    if 'intune' in t:
+        return PURPLE
+    if 'unifi' in t:
+        return BLUE
+    if 'software' in t or 'detected' in t or 'newly' in t:
+        return ORANGE
+    if 'overview' in t or 'house' in t or '🏠' in t or '⌂' in t:
+        return BLUE
+    return BLUE
+
+def _sbx_colour_only_hover(self):
+    """No size jumps: top tabs/sidebar keep colour only on hover."""
+    try:
+        roots = [getattr(self, 'left_nav', None), getattr(self, 'main_tab_bar', None)]
+        for root in roots:
+            if root is None:
+                continue
+            for w in _sbx_children_recursive(self, root):
+                try:
+                    txt = str(w.cget('text')).strip()
+                except Exception:
+                    txt = ''
+                try:
+                    if txt in ('⌂','⌐','⌁','▵','◇','□','▫'):
+                        sibs = ' '.join(str(c.cget('text')) for c in w.master.winfo_children() if hasattr(c, 'cget'))
+                        if 'Overview' in sibs:
+                            w.configure(text='🏠')
+                    elif txt == 'Overview':
+                        for c in w.master.winfo_children():
+                            try:
+                                ct = str(c.cget('text')).strip()
+                                if len(ct) <= 3 and ct != 'Overview':
+                                    c.configure(text='🏠')
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                try:
+                    base_font = w.cget('font')
+                    base_fg = w.cget('fg')
+                    context = txt
+                    try:
+                        context += ' ' + ' '.join(str(c.cget('text')) for c in w.master.winfo_children() if hasattr(c, 'cget'))
+                    except Exception:
+                        pass
+                    accent = _sbx_tab_color_for_text(self, context)
+                    def enter(_e, ww=w, font=base_font, fg=base_fg, color=accent):
+                        try:
+                            text = str(ww.cget('text')).strip()
+                            ww.configure(font=font, fg=(color if len(text) <= 3 else '#FFFFFF'))
+                        except Exception:
+                            pass
+                    def leave(_e, ww=w, font=base_font, fg=base_fg):
+                        try:
+                            ww.configure(font=font, fg=fg)
+                        except Exception:
+                            pass
+                    w.bind('<Enter>', enter)
+                    w.bind('<Leave>', leave)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+# Override the old grow installers: these names are called later by render code.
+SentinelApp._install_hover_grow_direct = _sbx_colour_only_hover
+SentinelApp._force_hover_grow_everywhere = _sbx_colour_only_hover
+SentinelApp._disable_grow_hover_and_lock_tab_colours = _sbx_colour_only_hover
+SentinelApp._force_overview_house_icon = _sbx_colour_only_hover
+
+def _sbx_metric_list(metrics, *keys):
+    for k in keys:
+        v = metrics.get(k)
+        if isinstance(v, list):
+            return v
+    return []
+
+def _sbx_clear_tree(tree):
+    try:
+        for i in tree.get_children():
+            tree.delete(i)
+    except Exception:
+        pass
+
+def _sbx_insert_tree(self, tree, values, tag='info'):
+    try:
+        try:
+            self._apply_extra_table_tags(tree)
+        except Exception:
+            try:
+                self._configure_sexy_table_tags(tree)
+            except Exception:
+                pass
+        cols = list(tree['columns'])
+        vals = list(values) + [''] * max(0, len(cols) - len(values))
+        tree.insert('', 'end', values=vals[:len(cols)], tags=(tag,))
+    except Exception:
+        pass
+
+def _sbx_software_tables_awake(self):
+    """Keep Software subtabs populated from real cache/live metrics or honest notes."""
+    try:
+        payload = getattr(self, 'last_payload', None) or {}
+        metrics = payload.get('metrics', {}) or {}
+        detected = _sbx_metric_list(metrics, 'detected_apps', 'software_all', 'detected_apps_rows', 'software_rows', 'all_software', 'detected_app_rows')
+        new_apps = _sbx_metric_list(metrics, 'new_software', 'new_apps', 'software_new_rows', 'newly_observed_apps')
+        count = metrics.get('detected_app_count', metrics.get('detected_apps_count', len(detected)))
+        source = metrics.get('detected_apps_source', 'Graph/cache')
+        err = metrics.get('detected_apps_error', '')
+        state = metrics.get('software_issue_state', 'ok')
+
+        for attr in ('software_all_table', 'software_detected_apps_table', 'software_detected_table'):
+            tree = getattr(self, attr, None)
+            if tree is None:
+                continue
+            _sbx_clear_tree(tree)
+            if detected:
+                for app in detected[:20000]:
+                    _sbx_insert_tree(self, tree, [
+                        '▤  ' + str(app.get('displayName') or app.get('name') or app.get('softwareName') or 'Unknown app'),
+                        app.get('version') or app.get('softwareVersion') or '',
+                        app.get('publisher') or app.get('vendor') or '',
+                        app.get('deviceCount') or app.get('devices') or app.get('machineCount') or 0,
+                        app.get('sizeInByte') or app.get('size') or '',
+                    ], 'info')
+            else:
+                _sbx_insert_tree(self, tree, ['▤  Detected apps counted', source, state, count, (err or 'No app row payload returned in this poll.')[:500]], 'info')
+
+        for attr in ('software_new_table', 'software_newly_observed_table'):
+            tree = getattr(self, attr, None)
+            if tree is None:
+                continue
+            _sbx_clear_tree(tree)
+            if new_apps:
+                for app in new_apps[:5000]:
+                    _sbx_insert_tree(self, tree, [
+                        '✦  ' + str(app.get('displayName') or app.get('name') or app.get('softwareName') or 'Unknown app'),
+                        app.get('version') or app.get('softwareVersion') or '',
+                        app.get('publisher') or app.get('vendor') or '',
+                        app.get('deviceCount') or app.get('devices') or app.get('machineCount') or 0,
+                        'NEW',
+                    ], 'warn')
+            else:
+                _sbx_insert_tree(self, tree, ['✦  No newly observed software', '', 'Baseline unchanged', metrics.get('new_software_count', 0), 'OK'], 'good')
+
+        for attr in ('software_notes_table', 'software_note_table'):
+            tree = getattr(self, attr, None)
+            if tree is None:
+                continue
+            _sbx_clear_tree(tree)
+            sev = 'MEDIUM' if '429' in str(err) or 'backoff' in str(state).lower() else 'INFO'
+            tag = 'warn' if sev == 'MEDIUM' else 'info'
+            _sbx_insert_tree(self, tree, [sev, 'Detected apps', f'{count} app(s) from {source}', f'Status: {state}'], tag)
+            _sbx_insert_tree(self, tree, ['INFO', 'Cache policy', '429/backoff keeps last real Graph inventory visible instead of fabricating rows.', (err or 'No connector error reported.')[:500]], 'info')
+
+        if hasattr(self, 'software_text'):
+            self.set_text_widget(self.software_text, '\n'.join([
+                'Software detection notes', '-' * 72,
+                f'Detected apps: {count}', f'Inventory source: {source}',
+                f'Newly observed: {metrics.get("new_software_count", 0)}', f'Status: {state}', '',
+                'Connector detail', '-' * 72, err or 'No detectedApps error reported in the latest poll.',
+            ]))
+    except Exception:
+        pass
+
+SentinelApp._force_software_tables_awake = _sbx_software_tables_awake
+SentinelApp._repair_software_tables_live = lambda self, metrics: _sbx_software_tables_awake(self)
+
+def _sbx_unifi_notes_awake(self):
+    try:
+        payload = getattr(self, 'last_payload', None) or {}
+        metrics = payload.get('metrics', {}) or {}
+        rows = payload.get('alert_rows', []) or []
+        tree = getattr(self, 'unifi_notes_table', None)
+        if tree is None:
+            return
+        _sbx_clear_tree(tree)
+        _sbx_insert_tree(self, tree, ['INFO', 'Polling source', f"/v1/sites + /v1/devices + /v1/hosts; client: {metrics.get('unifi_client_note','not checked')}; traffic: {metrics.get('unifi_traffic_note','not checked')}"], 'info')
+        _sbx_insert_tree(self, tree, ['INFO', 'Site summary', f"{metrics.get('unifi_sites',0)} site(s), {metrics.get('unifi_devices',0)} device(s), {metrics.get('unifi_degraded_sites',0)} degraded, {metrics.get('unifi_critical_sites',0)} offline."], 'info')
+        uni = [r for r in rows if str(r.get('source','')).lower() == 'unifi']
+        for r in uni[:250]:
+            sev = str(r.get('severity','INFO')).upper()
+            tag = self._stable_event_tag(sev, 'UniFi', r.get('title',''), r.get('detail','')) if hasattr(self, '_stable_event_tag') else 'info'
+            _sbx_insert_tree(self, tree, [sev, r.get('title',''), r.get('detail','')], tag)
+    except Exception:
+        pass
+
+_old_final_repair = getattr(SentinelApp, '_final_live_table_repair', None)
+def _sbx_final_live_table_repair(self):
+    try:
+        if _old_final_repair:
+            _old_final_repair(self)
+    except Exception:
+        pass
+    _sbx_software_tables_awake(self)
+    _sbx_unifi_notes_awake(self)
+    try:
+        _sbx_colour_only_hover(self)
+    except Exception:
+        pass
+SentinelApp._final_live_table_repair = _sbx_final_live_table_repair
+
+def _sbx_defender_icon_green_when_clear(self, metrics):
+    try:
+        active = int(metrics.get('defender_alerts', metrics.get('active_alerts', 0)) or 0)
+        high = int(metrics.get('defender_critical', metrics.get('critical', 0)) or 0)
+        color = RED if high else ORANGE if active else GREEN
+        card = getattr(self, 'overview_status', {}).get('overview_defender')
+        if card:
+            if card.get('value') is not None:
+                card['value'].configure(fg=color)
+            if card.get('dot') is not None:
+                try:
+                    self._set_glow_icon_color(card['dot'], color)
+                except Exception:
+                    pass
+            shell = card.get('shell')
+            if shell is not None and hasattr(self, '_set_rounded_panel_border'):
+                self._set_rounded_panel_border(shell, color, 2.2)
+    except Exception:
+        pass
+
+_old_update_cards = getattr(SentinelApp, '_update_overview_action_cards', None)
+def _sbx_update_overview_action_cards(self, metrics):
+    try:
+        if _old_update_cards:
+            _old_update_cards(self, metrics)
+    except Exception:
+        pass
+    _sbx_defender_icon_green_when_clear(self, metrics)
+SentinelApp._update_overview_action_cards = _sbx_update_overview_action_cards
+
+
 def main():
     app = SentinelApp()
     app.mainloop()
