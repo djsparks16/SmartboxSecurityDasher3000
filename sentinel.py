@@ -2403,7 +2403,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(content_shell, bg=BG)
         header.pack(fill="x")
         tk.Label(header, text="", bg=BG, fg=TEXT, font=(self.font_display, 1, "bold")).pack(side="left")
-        tk.Label(header, text="Defender priority • Intune estate • UniFi health  ●", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
+        tk.Label(header, text="", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
         tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
 
@@ -2419,7 +2419,7 @@ class SentinelApp(tk.Tk):
         self.main_tab_names = []
         self.main_tab_buttons = {}
         self.main_tab_bar = tk.Frame(content_shell, bg=BG)
-        self.main_tab_bar.pack(fill="x", pady=(0, 2))
+        self.main_tab_bar.pack(fill="x", pady=(0, 0))
 
         self.main_tabs = ttk.Notebook(content_shell, style="MainHidden.TNotebook")
         self.main_tabs.pack(fill="both", expand=True)
@@ -2442,7 +2442,7 @@ class SentinelApp(tk.Tk):
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 4))
         tk.Label(self.overview_focus_bar, text="", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
-        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender • Intune • Software • UniFi • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
+        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
         self.hero_strip.pack(fill="x", pady=(0, 4))
@@ -6270,6 +6270,139 @@ class SentinelApp(tk.Tk):
 
 
 
+
+
+    def _boost_sidebar_icon_glow(self):
+        """Give sidebar icon labels a brighter neon tint without changing navigation."""
+        try:
+            palette = {
+                "MICROSOFT DEFENDER": ORANGE,
+                "INTUNE": PURPLE,
+                "UNIFI": GREEN,
+                "SOFTWARE": ORANGE,
+                "OVERVIEW": BLUE,
+            }
+            current = BLUE
+
+            def walk(w):
+                nonlocal current
+                try:
+                    txt = str(w.cget("text"))
+                    if txt in palette:
+                        current = palette[txt]
+                        try:
+                            w.configure(fg=current)
+                        except Exception:
+                            pass
+                    # Icon labels in the sidebar are short glyphs/emoji and sit before text labels.
+                    if txt and len(txt) <= 3:
+                        try:
+                            w.configure(fg=current)
+                        except Exception:
+                            pass
+                    # Section row text can glow a little too.
+                    elif txt in ("Defender view", "Alert focus", "Full signal feed", "Recommendations", "Vulnerabilities", "Machines / forensics", "Device posture", "Non-compliant", "Stale devices", "Sites overview", "Alerts & events", "Detected apps", "Newly observed", "Notes", "Overview"):
+                        try:
+                            w.configure(fg="#BDEFFF")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    for child in w.winfo_children():
+                        walk(child)
+                except Exception:
+                    pass
+
+            walk(self.left_nav)
+        except Exception:
+            pass
+
+
+    def _repair_intune_platform_breakdown(self, metrics):
+        """Populate Intune platform breakdown labels from live metric keys."""
+        try:
+            platform_keys = {
+                "windows": ("windows", "windows_count", "platform_windows", "Windows"),
+                "ios": ("ios", "ios_count", "iphone_ipad", "iphone_ipad_count", "iOS"),
+                "mac": ("mac", "mac_count", "macos", "macos_count", "macOS"),
+                "android": ("android", "android_count", "Android"),
+                "other": ("other", "other_count", "unknown_os", "other_os_count", "Other"),
+            }
+
+            def first_count(names):
+                for key in names:
+                    value = metrics.get(key)
+                    if value not in (None, "", "--"):
+                        try:
+                            return int(value)
+                        except Exception:
+                            return value
+                # Some builds store a nested platform dict.
+                platforms = metrics.get("platforms") or metrics.get("platform_counts") or {}
+                for key in names:
+                    if isinstance(platforms, dict) and key in platforms:
+                        try:
+                            return int(platforms[key])
+                        except Exception:
+                            return platforms[key]
+                return "--"
+
+            # Known label dict variants.
+            label_maps = []
+            for attr in ("platform_labels", "intune_platform_labels", "platform_breakdown_labels"):
+                obj = getattr(self, attr, None)
+                if isinstance(obj, dict):
+                    label_maps.append(obj)
+
+            for logical, keys in platform_keys.items():
+                val = first_count(keys)
+                for label_map in label_maps:
+                    for candidate in (logical, logical.title(), keys[-1], keys[0]):
+                        lbl = label_map.get(candidate)
+                        if lbl is not None:
+                            try:
+                                lbl.configure(text=str(val))
+                            except Exception:
+                                pass
+
+            # Fallback: recursively find labels in the platform panel by nearby existing text.
+            try:
+                wanted = {
+                    "Windows": first_count(platform_keys["windows"]),
+                    "iPhone / iPad": first_count(platform_keys["ios"]),
+                    "Mac": first_count(platform_keys["mac"]),
+                    "Android": first_count(platform_keys["android"]),
+                    "Other": first_count(platform_keys["other"]),
+                }
+                def walk(parent):
+                    children = parent.winfo_children()
+                    for idx, child in enumerate(children):
+                        try:
+                            txt = str(child.cget("text"))
+                            if txt in wanted:
+                                # The value label is usually among the next few siblings or children of same card.
+                                for sib in children[idx+1:idx+4]:
+                                    try:
+                                        cur = str(sib.cget("text"))
+                                        if cur in ("--", "0", "") or cur.isdigit():
+                                            sib.configure(text=str(wanted[txt]))
+                                            break
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                        try:
+                            walk(child)
+                        except Exception:
+                            pass
+                walk(self.tab_intune)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
     def _repair_overview_hero_and_heartbeat(self, metrics):
         """Repair the main overview hero strip and heartbeat from live metrics."""
         try:
@@ -6453,7 +6586,9 @@ class SentinelApp(tk.Tk):
             self._repair_overview_cards_live(metrics)
             self._repair_tab_cards_live(metrics)
             self._repair_overview_hero_and_heartbeat(metrics)
+            self._repair_intune_platform_breakdown(metrics)
             self._boost_row2_icon_glow(metrics)
+            self._boost_sidebar_icon_glow()
         except Exception:
             pass
 
