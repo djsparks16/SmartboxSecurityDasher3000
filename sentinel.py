@@ -8160,7 +8160,7 @@ class SentinelApp(tk.Tk):
                                 texts.append(t)
                         joined = " ".join(texts)
                         is_nav_item = any(word in joined for word in (
-                            "Overview", "Defender", "Alert focus", "Full signal", "Recommendations",
+                            "Overview", "⌂", "Alert focus", "Full signal", "Recommendations",
                             "Vulnerabilities", "Machines", "Intune", "Non-compliant", "Stale",
                             "UniFi", "Software", "Detected apps", "Newly observed", "Notes"
                         ))
@@ -8208,6 +8208,294 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _force_overview_house_icon(self):
+        """Force every Overview nav/tab icon to a house glyph."""
+        try:
+            for root in (getattr(self, "left_nav", None), getattr(self, "main_tab_bar", None)):
+                if root is None:
+                    continue
+                for w in self._children_recursive(root) if hasattr(self, "_children_recursive") else root.winfo_children():
+                    try:
+                        txt = str(w.cget("text")).strip()
+                        if txt in ("⌂", "⌄", "⌃", "▵", "◇", "◈", "▫", "□", "⌐", "⌁"):
+                            # Only change glyphs close to an Overview text sibling.
+                            sib_text = " ".join(str(c.cget("text")) for c in w.master.winfo_children() if hasattr(c, "cget"))
+                            if "Overview" in sib_text:
+                                w.configure(text="⌂")
+                        elif txt == "Overview":
+                            for c in w.master.winfo_children():
+                                try:
+                                    ct = str(c.cget("text")).strip()
+                                    if len(ct) <= 3 and ct != "Overview":
+                                        c.configure(text="⌂")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _force_hover_grow_everywhere(self):
+        """Make hover grow impossible to miss on sidebar and main tab buttons."""
+        try:
+            roots = [getattr(self, "left_nav", None), getattr(self, "main_tab_bar", None)]
+            for root in roots:
+                if root is None:
+                    continue
+
+                def allw(r):
+                    out = []
+                    def walk(w):
+                        out.append(w)
+                        try:
+                            for c in w.winfo_children():
+                                walk(c)
+                        except Exception:
+                            pass
+                    walk(r)
+                    return out
+
+                # Bind each button-like row frame and every child inside it.
+                for frame in allw(root):
+                    try:
+                        texts = []
+                        for c in allw(frame):
+                            try:
+                                t = str(c.cget("text")).strip()
+                                if t:
+                                    texts.append(t)
+                            except Exception:
+                                pass
+                        joined = " ".join(texts)
+                        if not any(x in joined for x in (
+                            "Overview", "⌂", "Alert focus", "Full signal", "Recommendations",
+                            "Vulnerabilities", "Machines", "Device posture", "Non-compliant",
+                            "Stale devices", "Sites overview", "Alerts", "Detected apps",
+                            "Newly observed", "Notes", "Intune", "UniFi", "Software"
+                        )):
+                            continue
+                        if getattr(frame, "_smartbox_hover_bound", False):
+                            continue
+                        frame._smartbox_hover_bound = True
+
+                        widgets = allw(frame)
+                        saved = []
+                        for w in widgets:
+                            try:
+                                saved.append((w, w.cget("font"), w.cget("fg")))
+                                w.configure(cursor="hand2")
+                            except Exception:
+                                pass
+
+                        def enter(_e, saved=saved):
+                            for w, _font, _fg in saved:
+                                try:
+                                    txt = str(w.cget("text")).strip()
+                                    if not txt:
+                                        continue
+                                    if len(txt) <= 3:
+                                        w.configure(font=(self.font_ui, 20, "bold"), fg="#FFFFFF")
+                                    else:
+                                        w.configure(font=(self.font_ui, 12, "bold"), fg="#FFFFFF")
+                                except Exception:
+                                    pass
+
+                        def leave(_e, saved=saved):
+                            for w, font, fg in saved:
+                                try:
+                                    w.configure(font=font, fg=fg)
+                                except Exception:
+                                    pass
+
+                        for w in widgets:
+                            try:
+                                w.bind("<Enter>", enter, add="+")
+                                w.bind("<Leave>", leave, add="+")
+                            except Exception:
+                                pass
+                        try:
+                            frame.bind("<Enter>", enter, add="+")
+                            frame.bind("<Leave>", leave, add="+")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _collapse_overview_dead_strip(self):
+        """Collapse the real blank strip below top tabs and above Defender Priority."""
+        try:
+            # Locate the Defender Priority label y position.
+            labels = []
+            def walk(w):
+                try:
+                    if str(w.cget("text")).strip() == "Defender priority":
+                        labels.append(w)
+                except Exception:
+                    pass
+                try:
+                    for c in w.winfo_children():
+                        walk(c)
+                except Exception:
+                    pass
+            walk(self.tab_overview)
+            if not labels:
+                return
+            hero_y = min(l.winfo_rooty() for l in labels)
+
+            # Hide any wide blank frame/label directly above it.
+            candidates = []
+            def has_text(w):
+                try:
+                    for c in self._children_recursive(w):
+                        try:
+                            if str(c.cget("text")).strip():
+                                return True
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return False
+
+            for w in self._children_recursive(self.tab_overview):
+                try:
+                    if not w.winfo_ismapped():
+                        continue
+                    y = w.winfo_rooty()
+                    h = w.winfo_height()
+                    width = w.winfo_width()
+                    cls = w.winfo_class()
+                    if y < hero_y and width > 600 and 18 <= h <= 90 and cls in ("Frame", "Label", "Canvas") and not has_text(w):
+                        candidates.append((y, h, w))
+                except Exception:
+                    pass
+
+            # Hide the lowest blank thing immediately above the hero.
+            if candidates:
+                _y, _h, w = sorted(candidates, key=lambda t: t[0])[-1]
+                try:
+                    w.configure(height=1)
+                except Exception:
+                    pass
+                try:
+                    if w.winfo_manager() == "pack":
+                        w.pack_configure(pady=0, ipadx=0, ipady=0)
+                    elif w.winfo_manager() == "grid":
+                        w.grid_configure(pady=0, ipadx=0, ipady=0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _draw_overlay_border(self, shell, color, name):
+        """Draw visible outer border overlay even when highlightbackground is swallowed."""
+        try:
+            if shell is None:
+                return
+            overlay_name = f"_{name}_overlay_border"
+            old = getattr(self, overlay_name, None)
+            if old is not None:
+                try:
+                    old.destroy()
+                except Exception:
+                    pass
+
+            # Use place overlay inside shell so it outlines the real outer edge.
+            border = tk.Frame(shell, bg=color, bd=0, highlightthickness=0)
+            border.place(x=0, y=0, relwidth=1, relheight=1)
+            border.lower()
+
+            inner = tk.Frame(border, bg=PANEL, bd=0, highlightthickness=0)
+            inner.place(x=2, y=2, relwidth=1, relheight=1, width=-4, height=-4)
+            inner.lower()
+
+            setattr(self, overlay_name, border)
+        except Exception:
+            pass
+
+    def _find_panel_with_text_direct(self, root, text_value):
+        """Find largest visible panel containing an exact text label."""
+        try:
+            labels = []
+            for w in self._children_recursive(root):
+                try:
+                    if str(w.cget("text")).strip() == text_value:
+                        labels.append(w)
+                except Exception:
+                    pass
+            if not labels:
+                return None
+            label = labels[0]
+            lx, ly = label.winfo_rootx(), label.winfo_rooty()
+
+            panels = []
+            w = label.master
+            for _ in range(10):
+                if w is None:
+                    break
+                try:
+                    ww, hh = w.winfo_width(), w.winfo_height()
+                    bg = str(w.cget("bg")).lower()
+                    if ww > 250 and hh > 70 and bg in (PANEL.lower(), BG2.lower(), "#071724", "#06131f", "#071521"):
+                        panels.append((ww * hh, w))
+                except Exception:
+                    pass
+                w = getattr(w, "master", None)
+
+            if panels:
+                # choose largest non-page panel
+                panels = [(a, p) for a, p in panels if p.winfo_width() < self.winfo_width() * 0.88]
+                if panels:
+                    return sorted(panels, key=lambda t: t[0])[-1][1]
+        except Exception:
+            pass
+        return None
+
+    def _force_row1_visible_outlines(self, metrics):
+        """Visible Row 1 border fix: use overlay border on actual Row 1 panels."""
+        try:
+            active = self._safe_int(metrics.get("active_alerts", metrics.get("defender_alerts", 0))) if hasattr(self, "_safe_int") else int(metrics.get("active_alerts", 0) or 0)
+            high = self._safe_int(metrics.get("critical", metrics.get("defender_critical", metrics.get("defender_high", 0)))) if hasattr(self, "_safe_int") else int(metrics.get("critical", 0) or 0)
+            graph = self._safe_int(metrics.get("graph_incidents", metrics.get("m365_incidents", 0))) if hasattr(self, "_safe_int") else int(metrics.get("graph_incidents", 0) or 0)
+            hero_color = RED if high else ORANGE if active or graph else GREEN
+            heartbeat_color = GREEN if getattr(self, "last_payload", None) else ORANGE
+
+            hero = self._find_panel_with_text_direct(self.tab_overview, "Defender priority")
+            hb = self._find_panel_with_text_direct(self.tab_overview, "Live heartbeat")
+
+            for shell, color, nm in ((hero, hero_color, "hero"), (hb, heartbeat_color, "heartbeat")):
+                if shell is not None:
+                    try:
+                        shell.configure(highlightthickness=2, highlightbackground=color, highlightcolor=color)
+                    except Exception:
+                        pass
+                    self._draw_overlay_border(shell, color, nm)
+
+            self._forced_heartbeat_panel = hb
+            if not getattr(self, "_forced_heartbeat_pulse_started", False):
+                self._forced_heartbeat_pulse_started = True
+                self._pulse_forced_heartbeat_border()
+        except Exception:
+            pass
+
+    def _pulse_forced_heartbeat_border(self):
+        try:
+            hb = getattr(self, "_forced_heartbeat_panel", None)
+            if hb is not None and getattr(self, "last_payload", None):
+                pulse = getattr(self, "_forced_heartbeat_pulse", False)
+                self._forced_heartbeat_pulse = not pulse
+                color = "#7DFF57" if pulse else "#1FCB4F"
+                self._draw_overlay_border(hb, color, "heartbeat")
+            self.after(650, self._pulse_forced_heartbeat_border)
+        except Exception:
+            try:
+                self.after(1200, self._pulse_forced_heartbeat_border)
+            except Exception:
+                pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -8238,6 +8526,11 @@ class SentinelApp(tk.Tk):
             self._repair_clean_outer_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
+            self._force_overview_house_icon()
+            self._force_hover_grow_everywhere()
+            self._collapse_overview_dead_strip()
+            self._force_row1_visible_outlines(metrics)
+
             self._install_hover_grow_direct()
         except Exception:
             pass
