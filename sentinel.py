@@ -2995,6 +2995,7 @@ class SentinelApp(tk.Tk):
                 "detected apps": ("detected apps", "detected", "all software", "software inventory", "all"),
                 "notes": ("notes", "connector notes", "notes / help"),
                 "incidents & alerts": ("incidents", "alerts", "security alerts"),
+                "alert focus": ("alert focus", "focus", "triage"),
                 "signal feed": ("signal feed", "signal", "events"),
                 "security recommendations": ("security recommendations", "recommendations", "tvm"),
                 "vulnerabilities": ("vulnerabilities", "cve"),
@@ -3083,7 +3084,7 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Incidents & alerts"), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Alert focus"), BLUE)
         self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Incidents & alerts"), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
         self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
@@ -6741,6 +6742,263 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _soc_action_level(self, severity="", status="", title="", detail="", source=""):
+        """Return critical/action/review/good/info for live SOC rows."""
+        raw = " ".join(str(x or "") for x in (severity, status, title, detail, source)).lower()
+
+        resolved = any(x in raw for x in ("resolved", "closed", "remediated", "no active", "clear"))
+        if resolved and not any(x in raw for x in ("active", "failed", "critical", "high")):
+            return "good"
+
+        if any(x in raw for x in (
+            "critical", "high", "malicious", "credential", "phish", "ransom",
+            "exploit", "offline", "failed", "breach", "compromised"
+        )):
+            return "critical"
+
+        if any(x in raw for x in (
+            "active", "medium", "noncompliant", "non-compliant", "unencrypted",
+            "stale", "missing", "degraded", "vulnerab", "recommendation",
+            "exposed", "risk", "too many requests", "forbidden"
+        )):
+            return "action"
+
+        if any(x in raw for x in ("pending", "unknown", "check", "warning", "backoff", "throttle")):
+            return "review"
+
+        return "info"
+
+    def _level_color(self, level):
+        return {
+            "critical": RED,
+            "action": ORANGE,
+            "review": AMBER,
+            "good": GREEN,
+            "info": BLUE,
+        }.get(str(level or "").lower(), BLUE)
+
+    def _level_tag(self, level):
+        return {
+            "critical": "action",
+            "action": "review",
+            "review": "warn",
+            "good": "done",
+            "info": "info",
+        }.get(str(level or "").lower(), "info")
+
+    def _set_widget_outline(self, widget, color):
+        try:
+            widget.configure(highlightthickness=1, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+        try:
+            # Some cards draw their border on a canvas.
+            for child in widget.winfo_children():
+                try:
+                    child.configure(highlightthickness=1, highlightbackground=color, highlightcolor=color)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_overview_card_outlines(self, metrics):
+        """Dynamic card outlines: green good, orange action, red bad."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+            levels = {}
+
+            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
+            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+            levels["overview_defender"] = "critical" if high else "action" if active or graph else "good"
+
+            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count")
+            stale = self._metric_count(metrics, "stale_30_count", "stale_count")
+            unenc = self._metric_count(metrics, "unencrypted_count")
+            no_user = self._metric_count(metrics, "no_user_count")
+            levels["overview_intune"] = "critical" if unenc else "action" if noncomp or stale or no_user else "good"
+
+            offline = self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites")
+            degraded = self._metric_count(metrics, "unifi_degraded_sites")
+            levels["overview_unifi"] = "critical" if offline else "action" if degraded else "good"
+
+            sw_issue = str(metrics.get("software_issue_state", metrics.get("software_state", ""))).lower()
+            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
+            levels["overview_software"] = "action" if "throttle" in sw_issue or new_sw else "good"
+
+            for key, level in levels.items():
+                card = cards.get(key)
+                if not card:
+                    continue
+                color = self._level_color(level)
+                for obj_key in ("shell", "panel", "frame"):
+                    obj = card.get(obj_key)
+                    if obj is not None:
+                        self._set_widget_outline(obj, color)
+                if card.get("value") is not None:
+                    try:
+                        card["value"].configure(fg=color)
+                    except Exception:
+                        pass
+                if card.get("dot") is not None:
+                    self._set_glow_icon_color(card["dot"], color)
+        except Exception:
+            pass
+
+    def _focus_row_from_event(self, row):
+        sev = str(row.get("severity", "INFO")).upper()
+        status = str(row.get("status", "ACTIVE")).upper()
+        source = str(row.get("source", ""))
+        title = str(row.get("title", ""))
+        detail = str(row.get("detail", ""))
+        level = self._soc_action_level(sev, status, title, detail, source)
+        return {
+            "level": level,
+            "severity": sev,
+            "type": "Defender/M365",
+            "source": source,
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "time": row.get("timestamp", ""),
+        }
+
+    def _focus_row_from_recommendation(self, r):
+        sev = str(r.get("severity") or r.get("riskScore") or "INFO").upper()
+        title = str(r.get("title") or r.get("recommendationName") or r.get("name") or "Security recommendation")
+        detail = str(r.get("detail") or r.get("description") or r.get("remediation") or "")
+        status = str(r.get("status") or r.get("implementationStatus") or "CHECK").upper()
+        level = self._soc_action_level(sev, status, title, detail, "TVM recommendation")
+        return {
+            "level": level,
+            "severity": sev,
+            "type": "TVM recommendation",
+            "source": str(r.get("category") or r.get("productName") or "Defender TVM"),
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "time": "",
+        }
+
+    def _focus_row_from_vulnerability(self, v):
+        sev = str(v.get("severity") or "INFO").upper()
+        cve = str(v.get("id") or v.get("cveId") or v.get("name") or "Vulnerability")
+        cvss = str(v.get("cvss") or v.get("cvssV3") or v.get("cvssScore") or "")
+        detail = str(v.get("detail") or v.get("description") or "")
+        level = self._soc_action_level(sev, "ACTIVE", cve, detail, "Vulnerability")
+        return {
+            "level": level,
+            "severity": sev,
+            "type": "Vulnerability",
+            "source": cvss and f"CVSS {cvss}" or "Defender TVM",
+            "title": cve,
+            "status": "ACTIVE",
+            "detail": detail,
+            "time": v.get("updated") or v.get("updatedOn") or v.get("lastModified") or "",
+        }
+
+    def _focus_rows_live(self, payload):
+        metrics = payload.get("metrics", {}) or {}
+        rows = payload.get("alert_rows", []) or []
+        focus = []
+
+        for row in rows:
+            try:
+                is_security = self._is_defender_or_microsoft_security(row) if hasattr(self, "_is_defender_or_microsoft_security") else self._is_defender_related_row(row.get("source",""), row.get("title",""), row.get("detail",""))
+            except Exception:
+                joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
+                is_security = any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages", "phish", "malicious"))
+            if is_security:
+                f = self._focus_row_from_event(row)
+                if f["level"] in ("critical", "action", "review"):
+                    focus.append(f)
+
+        for r in self._metric_rows(metrics, "defender_recommendation_rows", "security_recommendation_rows", "tvm_recommendation_rows"):
+            f = self._focus_row_from_recommendation(r)
+            if f["level"] in ("critical", "action", "review"):
+                focus.append(f)
+
+        for v in self._metric_rows(metrics, "defender_vulnerability_rows", "vulnerability_rows", "tvm_vulnerability_rows", "machines_vulnerabilities_rows"):
+            f = self._focus_row_from_vulnerability(v)
+            if f["level"] in ("critical", "action", "review"):
+                focus.append(f)
+
+        order = {"critical": 0, "action": 1, "review": 2, "info": 3, "good": 4}
+        focus.sort(key=lambda x: (order.get(x.get("level"), 9), str(x.get("time", ""))), reverse=False)
+        return focus
+
+    def _ensure_defender_focus_tab(self):
+        """Add a real Alert Focus subtab/table if the build does not already have one."""
+        try:
+            if getattr(self, "defender_focus_table", None) is not None:
+                return
+
+            nb = getattr(self, "defender_tables", None) or getattr(self, "defender_tabs", None)
+            if nb is None:
+                return
+
+            self.defender_focus_page = tk.Frame(nb, bg=BG)
+            nb.add(self.defender_focus_page, text="Alert focus")
+
+            self.defender_focus_table = self.table_panel(self.defender_focus_page, "Action focus: high / critical / medium security issues", [
+                ("level", "Action", 130),
+                ("severity", "Severity", 120),
+                ("type", "Type", 190),
+                ("source", "Source", 220),
+                ("time", "Time", 170),
+                ("title", "Issue", 520),
+                ("status", "Status", 160),
+                ("detail", "Detail", 760),
+            ], height=22)
+        except Exception:
+            pass
+
+    def _paint_defender_focus_live(self, payload=None):
+        """Paint the triage cockpit table from live data only."""
+        try:
+            payload = payload or getattr(self, "last_payload", None)
+            if not payload:
+                return
+            self._ensure_defender_focus_tab()
+            tree = getattr(self, "defender_focus_table", None)
+            if tree is None:
+                return
+
+            self._configure_sexy_table_tags(tree)
+            for item in tree.get_children():
+                tree.delete(item)
+
+            focus = self._focus_rows_live(payload)
+            for f in focus[:500]:
+                level = str(f.get("level", "info")).upper()
+                tag = self._level_tag(f.get("level"))
+                tree.insert("", "end", values=[
+                    self._bubble_token(level, "status"),
+                    self._bubble_token(f.get("severity", "INFO"), "severity"),
+                    f.get("type", ""),
+                    self._stable_source_label(f.get("source", "")),
+                    short_ts(f.get("time", "")),
+                    "✦  " + str(f.get("title", ""))[:180],
+                    self._bubble_token(f.get("status", "ACTIVE"), "status"),
+                    str(f.get("detail", ""))[:300],
+                ], tags=(tag,))
+
+            if not focus:
+                tree.insert("", "end", values=[
+                    self._bubble_token("INFO", "severity"),
+                    self._bubble_token("INFO", "severity"),
+                    "Focus",
+                    "Microsoft security",
+                    "",
+                    "No high / critical / medium action rows returned",
+                    self._bubble_token("CLEAR", "status"),
+                    "No live Defender/M365/TVM rows currently require focus triage.",
+                ], tags=("done",))
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -6756,6 +7014,8 @@ class SentinelApp(tk.Tk):
             self._repair_defender_tab_priority_live(metrics)
             self._repair_intune_platform_breakdown(metrics)
             self._repair_defender_enrichment_tables_live(metrics)
+            self._paint_defender_focus_live(payload)
+            self._repair_overview_card_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
         except Exception:
