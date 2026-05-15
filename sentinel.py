@@ -8711,6 +8711,11 @@ class SentinelApp(tk.Tk):
             self._boost_sidebar_icon_glow()
             self._final_live_table_repair()
             self._repair_defender_clear_after_event_cleanup()
+            self._disable_grow_hover_and_lock_tab_colours()
+            self._recolour_row2_icons_by_state(metrics)
+            self._grow_row1_panels_height()
+            self._force_software_tables_awake()
+
             self._force_overview_house_icon()
             self._force_hover_grow_everywhere()
             self._collapse_overview_dead_strip()
@@ -9432,6 +9437,236 @@ class SentinelApp(tk.Tk):
         except Exception:
             return False
 
+
+    def _tab_accent_color(self, name):
+        name = str(name or "").lower()
+        if "overview" in name:
+            return CYAN
+        if "defender" in name:
+            return GREEN
+        if "intune" in name:
+            return PURPLE
+        if "unifi" in name:
+            return CYAN
+        if "software" in name:
+            return ORANGE
+        return BLUE
+
+    def _disable_grow_hover_and_lock_tab_colours(self):
+        """No more tab/icon growth. Keep colour accents stable instead."""
+        try:
+            roots = [getattr(self, "left_nav", None), getattr(self, "main_tab_bar", None)]
+            for root in roots:
+                if root is None:
+                    continue
+                widgets = self._children_recursive(root) if hasattr(self, "_children_recursive") else root.winfo_children()
+                for w in widgets:
+                    try:
+                        txt = str(w.cget("text")).strip()
+                    except Exception:
+                        continue
+
+                    # Better overview house icon.
+                    if txt in ("⌂", "⌐", "⌁", "▵", "◇", "□", "▫"):
+                        try:
+                            sibs = " ".join(str(c.cget("text")) for c in w.master.winfo_children() if hasattr(c, "cget"))
+                            if "Overview" in sibs:
+                                w.configure(text="⌂", fg=CYAN)
+                        except Exception:
+                            pass
+
+                    # Lock main tab text/icon colours by product.
+                    try:
+                        sibs = " ".join(str(c.cget("text")) for c in w.master.winfo_children() if hasattr(c, "cget"))
+                    except Exception:
+                        sibs = txt
+                    color = self._tab_accent_color(sibs or txt)
+                    if any(k in (sibs or txt) for k in ("Overview", "⌂", "Intune", "UniFi", "Software")):
+                        try:
+                            if len(txt) <= 3 or txt in ("Overview", "⌂", "Intune", "UniFi", "Software"):
+                                w.configure(fg=color if len(txt) <= 3 else TEXT)
+                        except Exception:
+                            pass
+
+                    # Override grow hover by rebinding to colour-only.
+                    try:
+                        base_font = w.cget("font")
+                        base_fg = w.cget("fg")
+                        def enter(_e, ww=w, fg=color):
+                            try:
+                                ww.configure(font=base_font, fg=fg if len(str(ww.cget("text")).strip()) <= 3 else "#FFFFFF")
+                            except Exception:
+                                pass
+                        def leave(_e, ww=w, font=base_font, fg=base_fg):
+                            try:
+                                ww.configure(font=font, fg=fg)
+                            except Exception:
+                                pass
+                        w.bind("<Enter>", enter)
+                        w.bind("<Leave>", leave)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _state_color_for_card(self, key, metrics):
+        key = str(key or "").lower()
+        if "defender" in key:
+            high = int(metrics.get("defender_high", metrics.get("defender_critical", metrics.get("critical", 0))) or 0)
+            active = int(metrics.get("active_alerts", metrics.get("defender_alerts", 0)) or 0)
+            graph = int(metrics.get("graph_incidents", metrics.get("m365_incidents", 0)) or 0)
+            return RED if high else YELLOW if active or graph else GREEN
+        if "intune" in key:
+            unenc = int(metrics.get("unencrypted_count", 0) or 0)
+            non = int(metrics.get("noncompliant", metrics.get("noncompliant_count", 0)) or 0)
+            stale = int(metrics.get("stale_30_count", 0) or 0)
+            return RED if unenc else YELLOW if non or stale else GREEN
+        if "unifi" in key:
+            offline = int(metrics.get("unifi_critical_sites", metrics.get("unifi_offline_sites", 0)) or 0)
+            deg = int(metrics.get("unifi_degraded_sites", 0) or 0)
+            return RED if offline else YELLOW if deg else GREEN
+        if "software" in key:
+            issue = str(metrics.get("software_issue_state", "")).lower()
+            new = int(metrics.get("new_software_count", 0) or 0)
+            return YELLOW if "throttle" in issue or new else GREEN
+        return CYAN
+
+    def _recolour_row2_icons_by_state(self, metrics):
+        """Row 2 icons should match state: green good, yellow action, red bad."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+            for key, card in cards.items():
+                color = self._state_color_for_card(key, metrics)
+                for icon_key in ("dot", "icon", "glyph"):
+                    icon = card.get(icon_key) if isinstance(card, dict) else None
+                    if icon is not None:
+                        try:
+                            icon.configure(fg=color)
+                        except Exception:
+                            pass
+                        try:
+                            self._set_glow_icon_color(icon, color)
+                        except Exception:
+                            pass
+                shell = card.get("shell") or card.get("panel") or card.get("frame") if isinstance(card, dict) else None
+                if shell is not None:
+                    try:
+                        shell.configure(highlightbackground=color, highlightcolor=color, highlightthickness=2)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _grow_row1_panels_height(self):
+        """Make Defender Priority and Heartbeat row a bit taller."""
+        try:
+            for attr in ("_overview_row1_hero_panel", "_overview_row1_heartbeat_panel", "_forced_heartbeat_panel", "_overview_hero_shell", "_overview_heartbeat_shell"):
+                w = getattr(self, attr, None)
+                if w is not None:
+                    try:
+                        w.configure(height=max(145, w.winfo_height()))
+                    except Exception:
+                        pass
+                    try:
+                        w.pack_configure(ipady=8)
+                    except Exception:
+                        pass
+                    try:
+                        w.grid_configure(ipady=8)
+                    except Exception:
+                        pass
+
+            # Fallback by labels.
+            for phrase in ("Defender priority", "Live heartbeat"):
+                try:
+                    panel = self._find_panel_with_text_direct(self.tab_overview, phrase) if hasattr(self, "_find_panel_with_text_direct") else None
+                    if panel is not None:
+                        panel.configure(height=max(145, panel.winfo_height()))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _force_software_tables_awake(self):
+        """Software tables should never feel dead: rows or honest diagnostics."""
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) or {}
+
+            detected = (
+                metrics.get("detected_apps", [])
+                or metrics.get("software_all", [])
+                or metrics.get("detected_apps_rows", [])
+                or metrics.get("software_rows", [])
+                or []
+            )
+            new_apps = metrics.get("new_software", []) or metrics.get("new_apps", []) or []
+
+            def clear(tree):
+                for item in tree.get_children():
+                    tree.delete(item)
+
+            def insert(tree, vals, tag="info"):
+                try:
+                    self._apply_extra_table_tags(tree)
+                except Exception:
+                    pass
+                cols = list(tree["columns"])
+                vals = list(vals)
+                vals += [""] * max(0, len(cols) - len(vals))
+                tree.insert("", "end", values=vals[:len(cols)], tags=(tag,))
+
+            for attr in ("software_all_table", "software_detected_apps_table", "software_detected_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                if detected:
+                    for app in detected[:2000]:
+                        insert(tree, [
+                            "▤  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                            app.get("version") or app.get("softwareVersion") or "",
+                            app.get("publisher") or app.get("vendor") or "",
+                            app.get("deviceCount") or app.get("devices") or app.get("machineCount") or 0,
+                        ], "info")
+                else:
+                    insert(tree, [
+                        "▤  Software inventory counted",
+                        metrics.get("detected_apps_source", "Graph/cache"),
+                        metrics.get("detected_apps_error", "") or "No row payload returned; showing count/card only.",
+                        metrics.get("detected_app_count", metrics.get("detected_apps_count", 0)),
+                    ], "info")
+
+            for attr in ("software_new_table", "software_newly_observed_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                if new_apps:
+                    for app in new_apps[:1000]:
+                        insert(tree, [
+                            "✦  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                            app.get("version", ""),
+                            app.get("publisher", ""),
+                            app.get("deviceCount", 0),
+                        ], "warn")
+                else:
+                    insert(tree, ["✦  No newly observed software", "Baseline unchanged", "", metrics.get("new_software_count", 0)], "good")
+
+            if hasattr(self, "software_text"):
+                self.set_text_widget(self.software_text, "\n".join([
+                    "Software inventory notes",
+                    "-" * 80,
+                    f"Detected apps counted: {metrics.get('detected_app_count', metrics.get('detected_apps_count', 0))}",
+                    f"Detected app rows available: {len(detected)}",
+                    f"Newly observed rows available: {len(new_apps)}",
+                    f"Source: {metrics.get('detected_apps_source', 'Graph/cache')}",
+                    metrics.get("detected_apps_error", "") or "No software connector error reported.",
+                ]))
+        except Exception:
+            pass
+
+
     def _repair_defender_clear_after_event_cleanup(self):
         """After Defender events are cleared, stop cached/resolved rows driving ACTION."""
         try:
@@ -9692,6 +9927,9 @@ class SentinelApp(tk.Tk):
             self._repair_defender_clear_after_event_cleanup()
             self.after(250, self._final_live_table_repair)
             self.after(300, self._repair_defender_clear_after_event_cleanup)
+            self.after(350, self._disable_grow_hover_and_lock_tab_colours)
+            self.after(400, self._grow_row1_panels_height)
+            self.after(450, self._force_software_tables_awake)
         except Exception:
             pass
 
