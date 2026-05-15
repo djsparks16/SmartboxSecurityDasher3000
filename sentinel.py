@@ -2993,6 +2993,8 @@ class SentinelApp(tk.Tk):
             synonyms = {
                 "newly observed": ("newly observed", "new", "observed"),
                 "detected apps": ("detected apps", "detected", "all software", "software inventory", "all"),
+                "newly observed": ("newly observed", "new", "observed"),
+                "notes": ("notes", "connector notes", "notes / help"),
                 "notes": ("notes", "connector notes", "notes / help"),
                 "incidents & alerts": ("incidents", "alerts", "security alerts"),
                 "alert focus": ("alert focus", "focus", "triage"),
@@ -3085,7 +3087,7 @@ class SentinelApp(tk.Tk):
 
         section("Microsoft Defender")
         self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Alert focus"), BLUE)
-        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Incidents & alerts"), RED)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Defender view"), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
         self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
         self.neon_sidebar_item(self.left_nav, "Vulnerabilities", "◆", lambda: self.nav_to(self.tab_defender, "Vulnerabilities"), RED)
@@ -7133,6 +7135,199 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _software_live_rows(self, metrics, kind="detected"):
+        """Return real software rows using all known metric key variants."""
+        if kind == "new":
+            keys = ("new_software", "new_apps", "software_new_rows", "newly_observed_apps")
+        elif kind == "notes":
+            keys = ("software_notes", "software_connector_notes", "detected_apps_notes")
+        else:
+            keys = ("detected_apps", "software_all", "detected_apps_rows", "software_rows", "all_software", "detected_app_rows")
+
+        for key in keys:
+            rows = metrics.get(key)
+            if isinstance(rows, list):
+                return rows
+        return []
+
+    def _software_cell(self, app, *keys, default=""):
+        for key in keys:
+            val = app.get(key)
+            if val not in (None, "", "--"):
+                return val
+        return default
+
+    def _repair_software_tables_live(self, metrics):
+        """Paint Software subtabs from live API rows only."""
+        try:
+            def clear(tree):
+                for item in tree.get_children():
+                    tree.delete(item)
+
+            def insert(tree, vals, tag="info"):
+                try:
+                    self._configure_sexy_table_tags(tree)
+                except Exception:
+                    pass
+                cols = list(tree["columns"])
+                vals = list(vals)
+                if len(vals) < len(cols):
+                    vals += [""] * (len(cols) - len(vals))
+                tree.insert("", "end", values=vals[:len(cols)], tags=(tag,))
+
+            detected = self._software_live_rows(metrics, "detected")
+            new_rows = self._software_live_rows(metrics, "new")
+
+            # Detected apps subtab/table.
+            for attr in ("software_all_table", "software_detected_apps_table", "software_detected_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for app in detected[:1500]:
+                    name = self._software_cell(app, "displayName", "name", "softwareName")
+                    version = self._software_cell(app, "version", "softwareVersion")
+                    publisher = self._software_cell(app, "publisher", "vendor")
+                    devices = self._software_cell(app, "deviceCount", "devices", "machineCount", default=0)
+                    tag = self._software_tag(app, False) if hasattr(self, "_software_tag") else "info"
+                    insert(tree, ["▤  " + str(name), version, publisher, self._decorate_count_cell(devices), app.get("sizeInByte") or app.get("size") or ""], tag)
+                if not detected:
+                    insert(tree, ["▤  No detected apps returned", "", "", "", "Awaiting live API data"], "info")
+
+            # Newly observed subtab/table.
+            for attr in ("software_new_table", "software_newly_observed_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for app in new_rows[:1000]:
+                    name = self._software_cell(app, "displayName", "name", "softwareName")
+                    version = self._software_cell(app, "version", "softwareVersion")
+                    publisher = self._software_cell(app, "publisher", "vendor")
+                    devices = self._software_cell(app, "deviceCount", "devices", "machineCount", default=0)
+                    insert(tree, ["✦  " + str(name), version, publisher, self._decorate_count_cell(devices), self._bubble_token("NEW", "status")], "review")
+                if not new_rows:
+                    insert(tree, ["✦  No newly observed software", "", "", "", self._bubble_token("INFO", "status")], "info")
+
+            # Notes subtab/table, if present. Show connector/API notes only, no invented rows.
+            notes = self._software_live_rows(metrics, "notes")
+            for attr in ("software_notes_table", "software_note_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for note in notes[:500]:
+                    if isinstance(note, dict):
+                        insert(tree, [
+                            self._bubble_token(note.get("severity", "INFO"), "severity"),
+                            note.get("source", "Software"),
+                            note.get("title") or note.get("message") or "",
+                            note.get("detail") or "",
+                        ], self._stable_event_tag(note.get("severity", "INFO"), note.get("source", ""), note.get("title", ""), note.get("detail", "")))
+                    else:
+                        insert(tree, [self._bubble_token("INFO", "severity"), "Software", str(note), ""], "info")
+                if not notes:
+                    insert(tree, [self._bubble_token("INFO", "severity"), "Software", "No software connector notes", ""], "info")
+        except Exception:
+            pass
+
+    def _os_icon(self, os_name):
+        raw = str(os_name or "")
+        low = raw.lower()
+        if "windows" in low:
+            return "▦  Windows"
+        if "android" in low:
+            return "◆  Android"
+        if "ios" in low or "iphone" in low or "ipad" in low:
+            return "●  iOS/iPadOS"
+        if "mac" in low:
+            return "◇  macOS"
+        if raw:
+            return "✦  " + raw
+        return ""
+
+    def _decorate_os_cell(self, os_name):
+        return self._os_icon(os_name)
+
+    def _ensure_defender_view_subtab(self):
+        """Ensure Defender View exists as a real subtab, not only a sidebar link."""
+        try:
+            nb = getattr(self, "defender_tables", None) or getattr(self, "defender_tabs", None)
+            if nb is None:
+                return
+
+            # Do not duplicate if it already exists.
+            try:
+                existing = [nb.tab(tab_id, "text").strip().lower() for tab_id in nb.tabs()]
+                if any(t in ("defender view", "incidents & alerts") for t in existing):
+                    return
+            except Exception:
+                pass
+
+            self.defender_view_page = tk.Frame(nb, bg=BG)
+            nb.insert(0, self.defender_view_page, text="Defender view")
+
+            self.defender_view_table = self.table_panel(self.defender_view_page, "Defender / Microsoft security incidents & alerts", [
+                ("severity", "Severity", 120),
+                ("time", "Time", 170),
+                ("title", "Alert / finding", 620),
+                ("status", "Status", 150),
+                ("detail", "Detail", 880),
+            ], height=22)
+        except Exception:
+            pass
+
+    def _repair_defender_view_subtab_live(self, payload=None):
+        """Paint the explicit Defender View subtab from incidents/alerts only."""
+        try:
+            payload = payload or getattr(self, "last_payload", None)
+            if not payload:
+                return
+            self._ensure_defender_view_subtab()
+            tree = getattr(self, "defender_view_table", None)
+            if tree is None:
+                return
+            rows = payload.get("alert_rows", []) or []
+
+            try:
+                self._configure_sexy_table_tags(tree)
+            except Exception:
+                pass
+            for item in tree.get_children():
+                tree.delete(item)
+
+            def is_row(r):
+                if hasattr(self, "_is_defender_incident_alert_only"):
+                    return self._is_defender_incident_alert_only(r)
+                joined = " ".join([str(r.get("source","")), str(r.get("title","")), str(r.get("detail",""))]).lower()
+                if any(x in joined for x in ("tvm", "vulnerability", "cve-", "security recommendation", "recommendation")):
+                    return False
+                return any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages", "phish", "malicious"))
+
+            for r in [x for x in rows if is_row(x)][:500]:
+                sev = str(r.get("severity", "INFO")).upper()
+                tag = self._row_action_tag(r) if hasattr(self, "_row_action_tag") else self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                tree.insert("", "end", values=[
+                    self._bubble_token(sev, "severity"),
+                    short_ts(r.get("timestamp", "")),
+                    "✦  " + str(r.get("title", ""))[:180],
+                    self._bubble_token(str(r.get("status", "ACTIVE")).upper(), "status"),
+                    str(r.get("detail", ""))[:300],
+                ], tags=(tag,))
+
+            if not tree.get_children():
+                tree.insert("", "end", values=[
+                    self._bubble_token("INFO", "severity"),
+                    "",
+                    "✦  No Defender/M365 incident or alert rows",
+                    self._bubble_token("CLEAR", "status"),
+                    "No live incident/alert rows returned in this poll.",
+                ], tags=("info",))
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -7151,6 +7346,8 @@ class SentinelApp(tk.Tk):
             self._repair_vulnerability_tab_only(metrics)
             self._paint_defender_focus_live(payload)
             self._repair_overview_outer_outlines_only(metrics)
+            self._repair_software_tables_live(metrics)
+            self._repair_defender_view_subtab_live(payload)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
         except Exception:
