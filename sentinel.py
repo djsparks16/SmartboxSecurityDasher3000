@@ -4532,6 +4532,10 @@ class SentinelApp(tk.Tk):
     def render(self, payload):
         self.last_payload = payload
         self._stable_paint_all_tables(payload)
+        try:
+            self._repair_section_cards(payload.get("metrics", {}) or {})
+        except Exception:
+            pass
         self.hard_repaint_all_tables(payload)
         self.after(100, lambda p=payload: self.hard_repaint_all_tables(p))
         m = payload["metrics"]
@@ -5704,66 +5708,101 @@ class SentinelApp(tk.Tk):
             pass
 
     def _repair_section_cards(self, metrics):
-        """Populate tab cards from live metrics, using all known key variants."""
+        """Populate tab cards from live metrics using the actual focus_card keys."""
         try:
-            # Intune cards
-            total = self._metric_count(metrics, "devices", "intune_devices", "device_count", "total_devices")
-            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count", "noncompliant_devices_count")
-            stale = self._metric_count(metrics, "stale_30_count", "stale_count", "stale_devices_count")
-            unenc = self._metric_count(metrics, "unencrypted_count", "unencrypted_devices_count")
-            no_user = self._metric_count(metrics, "no_user_count", "no_primary_user_count")
-            jailbreak = self._metric_count(metrics, "jailbreak_count", "jailbroken_count", "rooted_count")
-            compliant = self._metric_count(metrics, "compliant", "compliant_count")
+            def count(*keys):
+                for key in keys:
+                    value = metrics.get(key)
+                    if isinstance(value, (list, tuple, set)):
+                        return len(value)
+                    if value not in (None, "", "--"):
+                        try:
+                            return int(value)
+                        except Exception:
+                            return value
+                return 0
+
+            def first(*keys, default=""):
+                for key in keys:
+                    value = metrics.get(key)
+                    if value not in (None, "", "--"):
+                        return value
+                return default
+
+            # Intune cards. These keys must match the focus_card declarations.
+            total = count("devices", "intune_devices", "device_count", "total_devices")
+            noncomp = count("noncompliant", "noncompliant_count", "noncompliant_devices_count")
+            stale = count("stale_30_count", "stale_count", "stale_devices_count")
+            unenc = count("unencrypted_count", "unencrypted_devices_count")
+            no_user = count("no_user_count", "no_primary_user_count")
+            jailbroken = count("jailbroken_count", "jailbreak_count", "rooted_count")
+            compliant = count("compliant_devices", "compliant", "compliant_count")
             if not compliant and total:
-                compliant = max(0, total - noncomp)
-            rate = self._metric_first(metrics, "compliance_rate", default="")
-            if not rate:
-                rate = f"{round((compliant / total) * 100)}%" if total else "--"
+                compliant = max(0, int(total) - int(noncomp))
+            compliance_percent = first("compliance_percent", "compliance_rate", default="")
+            if compliance_percent == "" and total:
+                try:
+                    compliance_percent = f"{round((int(compliant) / int(total)) * 100)}%"
+                except Exception:
+                    compliance_percent = "--"
 
             self._set_focus_value_safe("intune", "devices", total or "--", "Intune inventory", BLUE)
             self._set_focus_value_safe("intune", "noncompliant", noncomp, "Non-compliant devices", RED if noncomp else GREEN)
             self._set_focus_value_safe("intune", "stale_30_count", stale, "Last sync older than 30 days", ORANGE if stale else GREEN)
             self._set_focus_value_safe("intune", "unencrypted_count", unenc, "Encryption gap", RED if unenc else GREEN)
-            self._set_focus_value_safe("intune", "compliant", compliant, "Compliant devices", GREEN)
-            self._set_focus_value_safe("intune", "compliance_rate", rate, "Compliance rate", GREEN if total and noncomp == 0 else ORANGE)
-            self._set_focus_value_safe("intune", "jailbreak_count", jailbreak, "Jailbreak/root flags", RED if jailbreak else GREEN)
+            self._set_focus_value_safe("intune", "compliant_devices", compliant, "Compliant devices", GREEN)
+            self._set_focus_value_safe("intune", "compliance_percent", compliance_percent or "--", "Compliance rate", GREEN if total and not noncomp else ORANGE)
+            self._set_focus_value_safe("intune", "jailbroken_count", jailbroken, "Jailbreak/root flags", RED if jailbroken else GREEN)
             self._set_focus_value_safe("intune", "no_user_count", no_user, "No primary user", AMBER if no_user else GREEN)
 
-            # UniFi cards
-            sites = self._metric_count(metrics, "unifi_sites", "site_count", "unifi_site_count")
-            devices = self._metric_count(metrics, "unifi_devices", "unifi_device_count")
-            offline = self._metric_count(metrics, "unifi_offline_sites", "offline_sites")
-            degraded = self._metric_count(metrics, "unifi_degraded_sites", "degraded_sites")
-            healthy = self._metric_count(metrics, "unifi_healthy_sites", "healthy_sites")
+            # UniFi cards and large status panel.
+            sites = count("unifi_sites", "site_count", "unifi_site_count")
+            devices = count("unifi_devices", "unifi_device_count")
+            critical = count("unifi_critical_sites", "unifi_offline_sites", "offline_sites")
+            degraded = count("unifi_degraded_sites", "degraded_sites")
+            healthy = count("unifi_healthy_sites", "healthy_sites")
             if not healthy and sites:
-                healthy = max(0, sites - offline - degraded)
-            alerts = self._metric_count(metrics, "unifi_alerts", "unifi_alert_count")
+                try:
+                    healthy = max(0, int(sites) - int(critical) - int(degraded))
+                except Exception:
+                    healthy = 0
+            alerts = count("unifi_alerts", "unifi_alert_count")
+            site_state = "CRITICAL" if critical else "DEGRADED" if degraded else "HEALTHY" if sites else "--"
+            site_color = RED if critical else ORANGE if degraded else GREEN if sites else BLUE
 
-            site_state = "CRITICAL" if offline else "DEGRADED" if degraded else "HEALTHY" if sites else "--"
-            self._set_focus_value_safe("unifi", "site_status", site_state, "Network site status", RED if offline else ORANGE if degraded else GREEN)
             self._set_focus_value_safe("unifi", "unifi_sites", sites or "--", "Sites", GREEN if sites else BLUE)
             self._set_focus_value_safe("unifi", "unifi_devices", devices or "--", "Devices", BLUE)
-            self._set_focus_value_safe("unifi", "unifi_offline_sites", offline, "Offline sites", RED if offline else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_critical_sites", critical, "Offline sites", RED if critical else GREEN)
             self._set_focus_value_safe("unifi", "unifi_healthy_sites", healthy, "Healthy sites", GREEN)
             self._set_focus_value_safe("unifi", "unifi_degraded_sites", degraded, "Degraded sites", ORANGE if degraded else GREEN)
             self._set_focus_value_safe("unifi", "unifi_alerts", alerts, "UniFi alerts", ORANGE if alerts else GREEN)
 
-            # Software cards
-            detected = self._metric_count(metrics, "detected_apps_count", "detected_apps_returned", "software_count")
+            try:
+                self.unifi_tab_status_big.configure(text=site_state, fg=site_color)
+                self.unifi_tab_status_hint.configure(text=f"{sites} site(s), {critical} offline, {degraded} degraded")
+            except Exception:
+                pass
+
+            # Software cards. The actual card key is detected_app_count, singular.
+            detected = count("detected_app_count", "detected_apps_count", "detected_apps_returned", "software_count")
             if not detected:
                 detected = len(metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])
-            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
+            new_sw = count("new_software_count", "new_apps_count")
             if not new_sw:
                 new_sw = len(metrics.get("new_software", []) or metrics.get("new_apps", []) or [])
-            self._set_focus_value_safe("software", "detected_apps_count", detected or "--", "Detected apps", BLUE)
-            self._set_focus_value_safe("software", "new_software_count", new_sw, "Newly observed", ORANGE if new_sw else GREEN)
-            self._set_focus_value_safe("software", "software_state", "THROTTLED" if str(metrics.get("software_issue_state","")).lower() == "throttled" else "OK", "Software inventory", ORANGE if str(metrics.get("software_issue_state","")).lower() == "throttled" else GREEN)
+            source = first("detected_apps_source", default="Graph")
+            issue = str(first("software_issue_state", default="OK")).upper()
 
-            # Defender enrichment cards
-            self._set_focus_value_safe("defender", "graph_incidents", self._metric_count(metrics, "graph_incidents", "m365_incidents"), "M365 incidents", ORANGE)
-            self._set_focus_value_safe("defender", "defender_recommendations", self._metric_count(metrics, "defender_recommendations"), "TVM recommendations", PURPLE)
-            self._set_focus_value_safe("defender", "defender_vulnerabilities", self._metric_count(metrics, "defender_vulnerabilities"), "Vulnerabilities", RED)
-            self._set_focus_value_safe("defender", "defender_machines", self._metric_count(metrics, "defender_machines"), "Machines", BLUE)
+            self._set_focus_value_safe("software", "detected_app_count", detected or "--", "Detected apps", BLUE)
+            self._set_focus_value_safe("software", "new_software_count", new_sw, "Newly observed", ORANGE if new_sw else GREEN)
+            self._set_focus_value_safe("software", "detected_apps_source", source, "Inventory source", BLUE)
+            self._set_focus_value_safe("software", "software_issue_state", issue, "DetectedApps status", ORANGE if "THROTTLE" in issue else GREEN)
+
+            # Defender enrichment cards.
+            self._set_focus_value_safe("defender", "graph_incidents", count("graph_incidents", "m365_incidents"), "M365 incidents", ORANGE)
+            self._set_focus_value_safe("defender", "defender_recommendations", count("defender_recommendations"), "TVM recommendations", PURPLE)
+            self._set_focus_value_safe("defender", "defender_vulnerabilities", count("defender_vulnerabilities"), "Vulnerabilities", RED)
+            self._set_focus_value_safe("defender", "defender_machines", count("defender_machines"), "Machines", BLUE)
         except Exception:
             pass
 
