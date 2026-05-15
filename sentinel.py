@@ -3086,8 +3086,8 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Alert focus"), BLUE)
-        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Defender view"), RED)
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Defender view"), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Alert focus"), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
         self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
         self.neon_sidebar_item(self.left_nav, "Vulnerabilities", "◆", lambda: self.nav_to(self.tab_defender, "Vulnerabilities"), RED)
@@ -7090,51 +7090,6 @@ class SentinelApp(tk.Tk):
             pass
 
 
-    def _paint_defender_focus_live(self, payload=None):
-        """Paint the triage cockpit table from live data only."""
-        try:
-            payload = payload or getattr(self, "last_payload", None)
-            if not payload:
-                return
-            self._ensure_defender_focus_tab()
-            tree = getattr(self, "defender_focus_table", None)
-            if tree is None:
-                return
-
-            self._configure_sexy_table_tags(tree)
-            for item in tree.get_children():
-                tree.delete(item)
-
-            focus = self._focus_rows_live(payload)
-            for f in focus[:500]:
-                level = str(f.get("level", "info")).upper()
-                tag = self._level_tag(f.get("level"))
-                tree.insert("", "end", values=[
-                    self._bubble_token(level, "status"),
-                    self._bubble_token(f.get("severity", "INFO"), "severity"),
-                    f.get("type", ""),
-                    self._stable_source_label(f.get("source", "")),
-                    short_ts(f.get("time", "")),
-                    "✦  " + str(f.get("title", ""))[:180],
-                    self._bubble_token(f.get("status", "ACTIVE"), "status"),
-                    str(f.get("detail", ""))[:300],
-                ], tags=(tag,))
-
-            if not focus:
-                tree.insert("", "end", values=[
-                    self._bubble_token("INFO", "severity"),
-                    self._bubble_token("INFO", "severity"),
-                    "Focus",
-                    "Microsoft security",
-                    "",
-                    "No high / critical / medium action rows returned",
-                    self._bubble_token("CLEAR", "status"),
-                    "No live Defender/M365/TVM rows currently require focus triage.",
-                ], tags=("done",))
-        except Exception:
-            pass
-
-
 
     def _software_live_rows(self, metrics, kind="detected"):
         """Return real software rows using all known metric key variants."""
@@ -7328,6 +7283,239 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _action_color_from_level(self, level):
+        level = str(level or "").lower()
+        if level in ("critical", "bad", "red"):
+            return RED
+        if level in ("action", "review", "orange", "warn"):
+            return ORANGE
+        if level in ("good", "clear", "green", "connected"):
+            return GREEN
+        return BLUE
+
+    def _outline_widget_only(self, widget, color, thickness=2):
+        try:
+            widget.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+
+    def _find_text_widget(self, parent, contains=None, exact=None):
+        try:
+            for child in parent.winfo_children():
+                try:
+                    txt = str(child.cget("text"))
+                    if (exact is not None and txt == exact) or (contains is not None and contains in txt):
+                        return child
+                except Exception:
+                    pass
+                found = self._find_text_widget(child, contains=contains, exact=exact)
+                if found is not None:
+                    return found
+        except Exception:
+            pass
+        return None
+
+    def _repair_hero_heartbeat_outlines(self, metrics):
+        """Hero and heartbeat outlines follow state: green good, orange action, red bad."""
+        try:
+            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
+            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+
+            level = "critical" if high else "action" if active or graph else "good"
+            color = self._action_color_from_level(level)
+
+            # Try stored hero shells first.
+            for name in ("overview_priority_shell", "overview_hero_shell", "priority_shell", "hero_shell", "defender_priority_shell"):
+                w = getattr(self, name, None)
+                if w is not None:
+                    self._outline_widget_only(w, color, 2)
+
+            # Fallback: outline the parent card containing "Defender priority".
+            try:
+                label = self._find_text_widget(self.tab_overview, exact="Defender priority")
+                if label is not None:
+                    parent = label.master
+                    for _ in range(2):
+                        if parent is not None:
+                            self._outline_widget_only(parent, color, 2)
+                            parent = getattr(parent, "master", None)
+            except Exception:
+                pass
+
+            # Heartbeat outline: connected green, connecting orange.
+            connected = bool(metrics)
+            hb_color = GREEN if connected else ORANGE
+            for name in ("heartbeat_shell", "heartbeat_panel", "overview_heartbeat_shell", "overview_heartbeat_panel"):
+                w = getattr(self, name, None)
+                if w is not None:
+                    self._outline_widget_only(w, hb_color, 2)
+
+            try:
+                hb = self._find_text_widget(self.tab_overview, contains="Live heartbeat")
+                if hb is not None:
+                    parent = hb.master
+                    for _ in range(2):
+                        if parent is not None:
+                            self._outline_widget_only(parent, hb_color, 2)
+                            parent = getattr(parent, "master", None)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _is_action_focus_row(self, row):
+        """Alert Focus = only rows that need triage, not resolved informational rows."""
+        joined = " ".join(str(row.get(k, "")) for k in ("severity", "status", "source", "title", "detail")).lower()
+        if any(x in joined for x in ("tvm", "vulnerability", "cve-", "security recommendation", "recommendation")):
+            return False
+        if any(x in joined for x in ("resolved", "closed", "remediated")) and not any(x in joined for x in ("active", "failed", "critical", "high")):
+            return False
+        return any(x in joined for x in ("critical", "high", "medium", "active", "malicious", "phish", "credential", "incident", "alert", "cache/backoff", "too many requests", "forbidden"))
+
+    def _paint_defender_view_live(self, payload=None):
+        """Defender View = all Defender/M365 incidents and alerts, including resolved context."""
+        try:
+            payload = payload or getattr(self, "last_payload", None)
+            if not payload:
+                return
+            self._ensure_defender_view_subtab()
+            tree = getattr(self, "defender_view_table", None)
+            if tree is None:
+                return
+
+            self._configure_sexy_table_tags(tree)
+            for item in tree.get_children():
+                tree.delete(item)
+
+            rows = payload.get("alert_rows", []) or []
+
+            def keep(r):
+                if hasattr(self, "_is_defender_incident_alert_only"):
+                    return self._is_defender_incident_alert_only(r)
+                joined = " ".join([str(r.get("source","")), str(r.get("title","")), str(r.get("detail",""))]).lower()
+                if any(x in joined for x in ("tvm", "vulnerability", "cve-", "security recommendation", "recommendation")):
+                    return False
+                return any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages", "phish", "malicious"))
+
+            for r in [x for x in rows if keep(x)][:500]:
+                sev = str(r.get("severity", "INFO")).upper()
+                tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                tree.insert("", "end", values=[
+                    self._bubble_token(sev, "severity"),
+                    short_ts(r.get("timestamp", "")),
+                    "✦  " + str(r.get("title", ""))[:180],
+                    self._bubble_token(str(r.get("status", "ACTIVE")).upper(), "status"),
+                    str(r.get("detail", ""))[:300],
+                ], tags=(tag,))
+
+            if not tree.get_children():
+                tree.insert("", "end", values=[
+                    self._bubble_token("INFO", "severity"), "", "No Defender/M365 incident or alert rows",
+                    self._bubble_token("CLEAR", "status"), "No live incident/alert rows returned in this poll."
+                ], tags=("info",))
+        except Exception:
+            pass
+
+    def _paint_defender_focus_live(self, payload=None):
+        """Alert Focus = triage queue only. Different from Defender View."""
+        try:
+            payload = payload or getattr(self, "last_payload", None)
+            if not payload:
+                return
+            self._ensure_defender_focus_tab()
+            tree = getattr(self, "defender_focus_table", None)
+            if tree is None:
+                return
+
+            self._configure_sexy_table_tags(tree)
+            for item in tree.get_children():
+                tree.delete(item)
+
+            rows = payload.get("alert_rows", []) or []
+
+            focus = []
+            for r in rows:
+                if not self._is_action_focus_row(r):
+                    continue
+                joined = " ".join(str(r.get(k, "")) for k in ("severity", "status", "source", "title", "detail")).lower()
+                if any(x in joined for x in ("resolved", "closed")):
+                    level = "review"
+                elif any(x in joined for x in ("critical", "high", "malicious", "phish", "credential")):
+                    level = "critical"
+                else:
+                    level = "action"
+                focus.append((level, r))
+
+            order = {"critical": 0, "action": 1, "review": 2}
+            focus.sort(key=lambda lr: order.get(lr[0], 9))
+
+            for level, r in focus[:500]:
+                sev = str(r.get("severity", "INFO")).upper()
+                tag = self._level_tag(level) if hasattr(self, "_level_tag") else ("action" if level == "critical" else "review")
+                tree.insert("", "end", values=[
+                    self._bubble_token(level.upper(), "status"),
+                    self._bubble_token(sev, "severity"),
+                    "Defender/M365",
+                    self._stable_source_label(r.get("source", "")),
+                    short_ts(r.get("timestamp", "")),
+                    "✦  " + str(r.get("title", ""))[:180],
+                    self._bubble_token(str(r.get("status", "ACTIVE")).upper(), "status"),
+                    str(r.get("detail", ""))[:300],
+                ], tags=(tag,))
+
+            if not focus:
+                tree.insert("", "end", values=[
+                    self._bubble_token("CLEAR", "status"),
+                    self._bubble_token("INFO", "severity"),
+                    "Focus",
+                    "Microsoft security",
+                    "",
+                    "No triage rows",
+                    self._bubble_token("CLEAR", "status"),
+                    "No active high / critical / medium Defender or M365 rows need focus.",
+                ], tags=("done",))
+        except Exception:
+            pass
+
+    def _install_sidebar_hover_grow(self):
+        """Make sidebar icons feel alive on hover by enlarging the glyph label."""
+        try:
+            def bind_icon(lbl):
+                try:
+                    txt = str(lbl.cget("text"))
+                    if not txt or len(txt) > 3:
+                        return
+                    base_font = lbl.cget("font")
+                    def enter(_e, w=lbl):
+                        try:
+                            w.configure(font=(self.font_ui, 15, "bold"))
+                        except Exception:
+                            pass
+                    def leave(_e, w=lbl):
+                        try:
+                            w.configure(font=base_font)
+                        except Exception:
+                            pass
+                    lbl.bind("<Enter>", enter, add="+")
+                    lbl.bind("<Leave>", leave, add="+")
+                except Exception:
+                    pass
+
+            def walk(w):
+                try:
+                    bind_icon(w)
+                    for child in w.winfo_children():
+                        walk(child)
+                except Exception:
+                    pass
+
+            walk(self.left_nav)
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -7347,9 +7535,12 @@ class SentinelApp(tk.Tk):
             self._paint_defender_focus_live(payload)
             self._repair_overview_outer_outlines_only(metrics)
             self._repair_software_tables_live(metrics)
-            self._repair_defender_view_subtab_live(payload)
+            self._paint_defender_view_live(payload)
+            self._paint_defender_focus_live(payload)
+            self._repair_hero_heartbeat_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
+            self._install_sidebar_hover_grow()
         except Exception:
             pass
 
