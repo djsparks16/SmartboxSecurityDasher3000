@@ -330,6 +330,22 @@ class MicrosoftGraphConnector:
                 return alert.get(key)
         return ""
 
+
+    def is_incident_active(self, incident):
+        raw = " ".join([
+            str(incident.get("status") or ""),
+            str(incident.get("classification") or ""),
+            str(incident.get("determination") or ""),
+        ]).lower()
+        closed_words = ("resolved", "redirected", "closed", "remediated", "suppressed")
+        return not any(word in raw for word in closed_words)
+
+    def incident_time(self, incident):
+        for key in ("lastUpdateDateTime", "createdDateTime", "lastModifiedDateTime", "lastActivityDateTime"):
+            if incident.get(key):
+                return incident.get(key)
+        return ""
+
     def app_key(self, app):
         return "|".join([
             str(app.get("displayName") or app.get("name") or "").strip().lower(),
@@ -407,6 +423,7 @@ class MicrosoftGraphConnector:
         # Full paged Intune inventory and Graph security alerts.
         devices_url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=100"
         graph_alerts_url = "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=100"
+        graph_incidents_url = "https://graph.microsoft.com/v1.0/security/incidents?$top=100&$orderby=lastUpdateDateTime desc"
         detected_apps_url = "https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$top=100"
         detected_apps_beta_url = "https://graph.microsoft.com/beta/deviceManagement/detectedApps?$top=100"
 
@@ -417,12 +434,14 @@ class MicrosoftGraphConnector:
 
         devices = []
         graph_alerts = []
+        graph_incidents = []
         defender_alerts = []
         detected_apps = []
         events = []
 
         device_error = None
         graph_alert_error = None
+        graph_incident_error = None
         defender_alert_error = None
         detected_apps_error = None
 
@@ -446,6 +465,17 @@ class MicrosoftGraphConnector:
                 "title": "Microsoft Graph security alerts query failed",
                 "detail": graph_alert_error[:180],
                 "source": "Graph Security",
+            })
+
+        try:
+            graph_incidents = self.graph_get_all(graph_incidents_url, headers=graph_headers, max_pages=10)
+        except Exception as e:
+            graph_incident_error = str(e)
+            events.append({
+                "severity": "medium",
+                "title": "Microsoft Graph security incidents query failed",
+                "detail": graph_incident_error[:180],
+                "source": "Graph Incidents",
             })
 
         detected_apps_source = "v1.0"
@@ -509,9 +539,9 @@ class MicrosoftGraphConnector:
                 "source": "Defender for Endpoint",
             })
 
-        if device_error and graph_alert_error and defender_alert_error:
+        if device_error and graph_alert_error and graph_incident_error and defender_alert_error:
             raise RuntimeError(
-                f"Microsoft failed. Intune: {device_error[:100]} | Graph alerts: {graph_alert_error[:100]} | Defender: {defender_alert_error[:100]}"
+                f"Microsoft failed. Intune: {device_error[:100]} | Graph alerts: {graph_alert_error[:100]} | Graph incidents: {graph_incident_error[:100]} | Defender: {defender_alert_error[:100]}"
             )
 
         os_counts = {"windows": 0, "ios": 0, "macos": 0, "android": 0, "other": 0}
@@ -551,13 +581,19 @@ class MicrosoftGraphConnector:
             self.save_software_state(app_keys, normalised_apps, source=detected_apps_source, last_error="", backoff_until="")
 
         graph_active = [a for a in graph_alerts if self.is_alert_active(a)]
+        incident_active = [i for i in graph_incidents if self.is_incident_active(i)]
         defender_active = [a for a in defender_alerts if self.is_alert_active(a)]
         graph_resolved = max(0, len(graph_alerts) - len(graph_active))
+        incident_resolved = max(0, len(graph_incidents) - len(incident_active))
         defender_resolved = max(0, len(defender_alerts) - len(defender_active))
 
         graph_high = [
             a for a in graph_active
             if str(a.get("severity", "")).lower() in ("high", "critical")
+        ]
+        incident_high = [
+            i for i in incident_active
+            if str(i.get("severity", "")).lower() in ("high", "critical")
         ]
         defender_high = [
             a for a in defender_active
@@ -576,6 +612,28 @@ class MicrosoftGraphConnector:
                 "detail": f"{short_ts(alert_ts)} | {device} | {status} | {a.get('category', 'Defender')}",
                 "timestamp": alert_ts,
                 "source": "Defender for Endpoint",
+            })
+
+        for i in incident_active[:25]:
+            incident_ts = self.incident_time(i)
+            sev = str(i.get("severity", "informational")).lower()
+            alert_count = i.get("alertCount") or i.get("alertsCount") or ""
+            impact = i.get("impactedAssets") or ""
+            detail_bits = [
+                short_ts(incident_ts),
+                f"status {i.get('status', 'unknown')}",
+                f"state {i.get('determination', i.get('classification', 'unknown'))}",
+            ]
+            if alert_count != "":
+                detail_bits.append(f"{alert_count} alert(s)")
+            if impact:
+                detail_bits.append(str(impact)[:80])
+            events.append({
+                "severity": "critical" if sev in ("high", "critical") else "medium" if sev == "medium" else "info",
+                "title": i.get("displayName") or i.get("incidentName") or "Microsoft 365 Defender incident",
+                "detail": " | ".join(detail_bits),
+                "timestamp": incident_ts,
+                "source": "Graph Incidents",
             })
 
         for a in graph_active[:10]:
@@ -608,6 +666,14 @@ class MicrosoftGraphConnector:
                 "source": "Microsoft Graph",
             })
 
+        if graph_incidents:
+            events.insert(1, {
+                "severity": "critical" if incident_high else "medium" if incident_active else "info",
+                "title": "Microsoft 365 Defender incidents live",
+                "detail": f"{len(incident_active)} active incident(s), {incident_resolved} resolved/closed returned, {len(incident_high)} high/critical active.",
+                "source": "Graph Incidents",
+            })
+
         if defender_alerts:
             events.insert(1, {
                 "severity": "critical" if defender_high else "medium",
@@ -616,10 +682,10 @@ class MicrosoftGraphConnector:
                 "source": "Defender for Endpoint",
             })
 
-        total_alerts_returned = len(graph_alerts) + len(defender_alerts)
-        total_active_alerts = len(graph_active) + len(defender_active)
-        total_resolved_alerts = graph_resolved + defender_resolved
-        total_critical = len(graph_high) + len(defender_high)
+        total_alerts_returned = len(graph_alerts) + len(graph_incidents) + len(defender_alerts)
+        total_active_alerts = len(graph_active) + len(incident_active) + len(defender_active)
+        total_resolved_alerts = graph_resolved + incident_resolved + defender_resolved
+        total_critical = len(graph_high) + len(incident_high) + len(defender_high)
 
         return {
             "source": "Microsoft + Defender",
@@ -656,6 +722,9 @@ class MicrosoftGraphConnector:
             "graph_alerts": len(graph_active),
             "graph_returned_alerts": len(graph_alerts),
             "graph_resolved_alerts": graph_resolved,
+            "graph_incidents": len(incident_active),
+            "graph_returned_incidents": len(graph_incidents),
+            "graph_resolved_incidents": incident_resolved,
             "critical": total_critical,
             "events": events,
         }
@@ -1495,6 +1564,9 @@ class TelemetryEngine(threading.Thread):
                     "graph_alerts": 0,
                     "graph_returned_alerts": 0,
                     "graph_resolved_alerts": 0,
+                    "graph_incidents": 0,
+                    "graph_returned_incidents": 0,
+                    "graph_resolved_incidents": 0,
                     "critical": 0,
                     "wan_health": 0,
                     "unifi_connected": 0,
@@ -1576,6 +1648,9 @@ class TelemetryEngine(threading.Thread):
         graph_alerts = sum(int(r.get("graph_alerts", 0)) for r in results)
         graph_returned_alerts = sum(int(r.get("graph_returned_alerts", r.get("graph_alerts", 0))) for r in results)
         graph_resolved_alerts = sum(int(r.get("graph_resolved_alerts", 0)) for r in results)
+        graph_incidents = sum(int(r.get("graph_incidents", 0)) for r in results)
+        graph_returned_incidents = sum(int(r.get("graph_returned_incidents", r.get("graph_incidents", 0))) for r in results)
+        graph_resolved_incidents = sum(int(r.get("graph_resolved_incidents", 0)) for r in results)
         # Global security criticality should come from Defender only.
         # Graph Security, Intune compliance and UniFi network health are visible context,
         # but they do not drive the headline Critical/High state.
@@ -1657,6 +1732,9 @@ class TelemetryEngine(threading.Thread):
                 "graph_alerts": graph_alerts,
                 "graph_returned_alerts": graph_returned_alerts,
                 "graph_resolved_alerts": graph_resolved_alerts,
+                "graph_incidents": graph_incidents,
+                "graph_returned_incidents": graph_returned_incidents,
+                "graph_resolved_incidents": graph_resolved_incidents,
                 "critical": critical,
                 "microsoft_critical": microsoft_critical,
                 "wan_health": wan_health,
@@ -2099,7 +2177,7 @@ class SentinelApp(tk.Tk):
         for i in range(4):
             cards.grid_columnconfigure(i, weight=1)
         self.card(cards, 0, 0, "Defender priority", "priority_state", ORANGE)
-        self.card(cards, 0, 1, "Active security alerts", "alerts", ORANGE)
+        self.card(cards, 0, 1, "Active security items", "alerts", ORANGE)
         self.card(cards, 0, 2, "Intune compliance gap", "noncompliant", AMBER)
         self.card(cards, 0, 3, "High/Critical Defender", "critical", RED)
         self.card(cards, 1, 0, "Intune devices", "devices", GREEN)
