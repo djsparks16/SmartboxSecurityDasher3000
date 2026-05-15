@@ -2065,6 +2065,7 @@ class SentinelApp(tk.Tk):
         self.after(350, self.pulse_overview_status)
         self.start_engine()
         self.after(250, self.drain_queue)
+        self.after(800, self._kill_tab_growth_hovers_final)
 
     def _init_fonts(self):
         try:
@@ -2211,42 +2212,43 @@ class SentinelApp(tk.Tk):
                     pass
 
         def hover_enter(event=None):
+            # Colour-only hover. No size or font changes, otherwise the tab bar jumps.
             try:
-                shell.configure(width=width + 10, height=40)
-                canvas.configure(width=width + 10, height=40)
                 for child in row.winfo_children():
                     try:
                         txt = str(child.cget("text"))
                         if txt:
-                            child.configure(font=(self.font_ui, 12 if len(txt) > 3 else 18, "bold"), fg="#FFFFFF")
+                            child.configure(fg="#FFFFFF")
                     except Exception:
                         pass
                     try:
                         for sub in child.winfo_children():
                             txt = str(sub.cget("text"))
                             if txt:
-                                sub.configure(font=(self.font_ui, 12 if len(txt) > 3 else 18, "bold"), fg="#FFFFFF")
+                                sub.configure(fg="#FFFFFF")
                     except Exception:
                         pass
+                canvas.delete("hoverline")
+                canvas.create_line(14, 32, width - 18, 32, fill=color, width=2, tags="hoverline")
             except Exception:
                 pass
 
         def hover_leave(event=None):
+            # Restore original colours only. Keep tab dimensions fixed.
             try:
-                shell.configure(width=width, height=36)
-                canvas.configure(width=width, height=36)
+                canvas.delete("hoverline")
                 for child in row.winfo_children():
                     try:
                         txt = str(child.cget("text"))
                         if txt:
-                            child.configure(font=(self.font_ui, 9 if len(txt) > 3 else 14, "bold"), fg="#F7FBFF" if active else "#9BE8FF")
+                            child.configure(fg="#F7FBFF" if active else "#9BE8FF")
                     except Exception:
                         pass
                     try:
                         for sub in child.winfo_children():
                             txt = str(sub.cget("text"))
                             if txt:
-                                sub.configure(font=(self.font_ui, 9 if len(txt) > 3 else 14, "bold"), fg="#F7FBFF" if active else "#9BE8FF")
+                                sub.configure(fg=color if len(txt) <= 3 else ("#F7FBFF" if active else "#9BE8FF"))
                     except Exception:
                         pass
             except Exception:
@@ -2322,10 +2324,11 @@ class SentinelApp(tk.Tk):
                     pass
 
         def hover_enter(event=None):
+            # Colour-only hover. Do not resize icons or text.
             try:
-                label_w.configure(font=(self.font_ui, 11, "bold"), fg="#FFFFFF")
+                label_w.configure(font=(self.font_ui, 9, "bold"), fg="#FFFFFF")
                 if hasattr(icon_w, "icon_label"):
-                    icon_w.icon_label.configure(font=(self.font_ui, 18, "bold"), fg="#FFFFFF")
+                    icon_w.icon_label.configure(font=(self.font_ui, 12, "bold"), fg="#FFFFFF")
                 row.configure(highlightthickness=1, highlightbackground=color)
             except Exception:
                 pass
@@ -9438,6 +9441,62 @@ class SentinelApp(tk.Tk):
             return False
 
 
+
+    def _kill_tab_growth_hovers_final(self):
+        """Final guard: top tabs and sidebar must never resize on hover."""
+        try:
+            roots = [getattr(self, "main_tab_bar", None), getattr(self, "left_nav", None)]
+            for root in roots:
+                if root is None:
+                    continue
+                stack = list(root.winfo_children())
+                while stack:
+                    w = stack.pop()
+                    try:
+                        stack.extend(w.winfo_children())
+                    except Exception:
+                        pass
+                    try:
+                        base_font = w.cget("font")
+                    except Exception:
+                        base_font = None
+                    try:
+                        base_fg = w.cget("fg")
+                    except Exception:
+                        base_fg = None
+
+                    def enter(_e, ww=w, font=base_font):
+                        try:
+                            if font:
+                                ww.configure(font=font)
+                        except Exception:
+                            pass
+                        try:
+                            ww.configure(fg="#FFFFFF")
+                        except Exception:
+                            pass
+
+                    def leave(_e, ww=w, font=base_font, fg=base_fg):
+                        try:
+                            if font:
+                                ww.configure(font=font)
+                        except Exception:
+                            pass
+                        try:
+                            if fg:
+                                ww.configure(fg=fg)
+                        except Exception:
+                            pass
+
+                    try:
+                        w.bind("<Enter>", enter)
+                        w.bind("<Leave>", leave)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
     def _tab_accent_color(self, name):
         name = str(name or "").lower()
         if "overview" in name:
@@ -9930,6 +9989,7 @@ class SentinelApp(tk.Tk):
             self.after(350, self._disable_grow_hover_and_lock_tab_colours)
             self.after(400, self._grow_row1_panels_height)
             self.after(450, self._force_software_tables_awake)
+            self.after(500, self._kill_tab_growth_hovers_final)
         except Exception:
             pass
 
