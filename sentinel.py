@@ -302,7 +302,7 @@ class MicrosoftGraphConnector:
             str(alert.get("determination") or ""),
             str(alert.get("assignedTo") or ""),
         ]).lower()
-        resolved_words = ("resolved", "dismissed", "closed", "remediated", "benignpositive", "falsepositive", "suppressed")
+        resolved_words = ("resolved", "dismissed", "closed", "remediated", "suppressed")
         return not any(word in raw for word in resolved_words)
 
 
@@ -413,7 +413,7 @@ class MicrosoftGraphConnector:
         # Dedicated Defender for Endpoint API. This normally needs Defender API permissions on the app:
         # Alert.Read.All and optionally Machine.Read.All for deeper enrichment later.
         defender_base = self.cfg["microsoft"].get("defender_api_url", "https://api.securitycenter.microsoft.com").rstrip("/")
-        defender_alerts_url = f"{defender_base}/api/alerts?$top=100"
+        defender_alerts_url = f"{defender_base}/api/alerts?$top=200"
 
         devices = []
         graph_alerts = []
@@ -502,7 +502,11 @@ class MicrosoftGraphConnector:
             hint = defender_alert_error[:180]
             if "403" in defender_alert_error or "Forbidden" in defender_alert_error:
                 hint = "403 Forbidden: add WindowsDefenderATP application permission Alert.Read.All, grant admin consent, and verify the Defender API URL/region."
-            events.append({
+            
+        # Defender tenants sometimes classify alerts as FalsePositive/BenignPositive
+        # while they are still visible in the portal. The active-alert filter above
+        # is intentionally relaxed so SOC operators still see them here.
+events.append({
                 "severity": "medium",
                 "title": "Microsoft Defender alert query failed",
                 "detail": hint,
@@ -1742,6 +1746,16 @@ class SentinelApp(tk.Tk):
         ]
 
     def rounded_panel(self, parent, fill=None, border=None, radius=18, padding=1):
+
+    def glow_icon(self, parent, icon, color, size=18, bg=None):
+        bg = bg or parent.cget("bg")
+        wrap = tk.Frame(parent, bg=bg)
+        glow = tk.Label(wrap, text=icon, bg=bg, fg=color, font=(self.font_ui, size + 6, "bold"))
+        glow.place(x=2, y=2)
+        glow.configure(fg=color)
+        main = tk.Label(wrap, text=icon, bg=bg, fg="#F7FBFF", font=(self.font_ui, size, "bold"))
+        main.pack()
+        return wrap
         parent_bg = parent.cget("bg") if hasattr(parent, 'cget') else BG
         shell = tk.Frame(parent, bg=parent_bg, bd=0, highlightthickness=0)
         canvas = tk.Canvas(shell, bg=parent_bg, highlightthickness=0, bd=0, relief="flat")
@@ -1947,7 +1961,7 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 17, "bold"), width=2)
+            dot = self.glow_icon(top, icon_text, color, size=15, bg=PANEL)
             dot.pack(side="left", padx=(0, 10))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
