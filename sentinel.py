@@ -4531,6 +4531,7 @@ class SentinelApp(tk.Tk):
         self._stable_paint_all_tables(payload)
         try:
             self._repair_section_cards(payload.get("metrics", {}) or {})
+            self._update_overview_action_cards(payload.get("metrics", {}) or {})
         except Exception:
             pass
         self.hard_repaint_all_tables(payload)
@@ -5635,6 +5636,103 @@ class SentinelApp(tk.Tk):
 
 
 
+
+    def _overview_action_color(self, key, metrics):
+        try:
+            if key == "overview_defender":
+                active = int(metrics.get("active_alerts", metrics.get("defender_alerts", 0)) or 0)
+                high = int(metrics.get("critical", metrics.get("defender_critical", 0)) or 0)
+                return RED if high else ORANGE if active else GREEN
+            if key == "overview_intune":
+                noncomp = int(metrics.get("noncompliant", metrics.get("noncompliant_count", 0)) or 0)
+                return RED if noncomp else GREEN
+            if key == "overview_unifi":
+                offline = int(metrics.get("unifi_critical_sites", metrics.get("unifi_offline_sites", 0)) or 0)
+                degraded = int(metrics.get("unifi_degraded_sites", 0) or 0)
+                return RED if offline else ORANGE if degraded else GREEN
+            if key == "overview_software":
+                state = str(metrics.get("software_issue_state", metrics.get("software_state", ""))).lower()
+                new_sw = int(metrics.get("new_software_count", 0) or 0)
+                return ORANGE if "throttle" in state or new_sw else GREEN
+        except Exception:
+            pass
+        return BLUE
+
+    def _recolor_overview_action_icons(self, metrics):
+        """Keep Overview row-2 icon glow and text synced to current action state."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+            for key, card in cards.items():
+                color = self._overview_action_color(key, metrics)
+                dot = card.get("dot")
+                if dot is not None:
+                    self._set_glow_icon_color(dot, color)
+                value = card.get("value")
+                if value is not None:
+                    try:
+                        value.configure(fg=color)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _update_overview_action_cards(self, metrics):
+        """Populate the four Overview action cards from real live metrics only."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+            if not cards:
+                return
+
+            active = int(metrics.get("active_alerts", metrics.get("defender_alerts", 0)) or 0)
+            high = int(metrics.get("critical", metrics.get("defender_critical", 0)) or 0)
+            graph = int(metrics.get("graph_incidents", metrics.get("graph_alerts", 0)) or 0)
+            if "overview_defender" in cards:
+                state = "ACTION" if active or high else "OK"
+                detail = f"{active} active Defender • {high} high/critical • {graph} Graph/M365 context"
+                color = self._overview_action_color("overview_defender", metrics)
+                cards["overview_defender"]["value"].configure(text=state, fg=color)
+                cards["overview_defender"]["detail"].configure(text=detail)
+                self._set_glow_icon_color(cards["overview_defender"]["dot"], color)
+
+            total = int(metrics.get("devices", metrics.get("intune_devices", 0)) or 0)
+            noncomp = int(metrics.get("noncompliant", metrics.get("noncompliant_count", 0)) or 0)
+            stale = int(metrics.get("stale_30_count", 0) or 0)
+            unenc = int(metrics.get("unencrypted_count", 0) or 0)
+            no_user = int(metrics.get("no_user_count", 0) or 0)
+            if "overview_intune" in cards:
+                state = "POSTURE RISK" if noncomp or stale or unenc or no_user else "OK"
+                detail = f"{noncomp} non-compliant • {stale} stale 30+ • {unenc} unencrypted • {no_user} no primary user"
+                color = self._overview_action_color("overview_intune", metrics)
+                cards["overview_intune"]["value"].configure(text=state, fg=color)
+                cards["overview_intune"]["detail"].configure(text=detail)
+                self._set_glow_icon_color(cards["overview_intune"]["dot"], color)
+
+            sites = int(metrics.get("unifi_sites", 0) or 0)
+            offline = int(metrics.get("unifi_critical_sites", metrics.get("unifi_offline_sites", 0)) or 0)
+            degraded = int(metrics.get("unifi_degraded_sites", 0) or 0)
+            online = int(metrics.get("unifi_online_sites", max(0, sites - offline)) or 0)
+            if "overview_unifi" in cards:
+                state = "NETWORK ISSUE" if offline or degraded else "OK"
+                detail = f"{sites} sites • {online} online • {degraded} degraded • {offline} offline"
+                color = self._overview_action_color("overview_unifi", metrics)
+                cards["overview_unifi"]["value"].configure(text=state, fg=color)
+                cards["overview_unifi"]["detail"].configure(text=detail)
+                self._set_glow_icon_color(cards["overview_unifi"]["dot"], color)
+
+            detected = int(metrics.get("detected_app_count", metrics.get("detected_apps_count", metrics.get("detected_apps_returned", 0))) or 0)
+            new_sw = int(metrics.get("new_software_count", 0) or 0)
+            sw_state = str(metrics.get("software_issue_state", metrics.get("software_state", "OK"))).upper()
+            if "overview_software" in cards:
+                state = "GRAPH THROTTLED" if "THROTTLE" in sw_state else "OK"
+                detail = f"{detected} detected apps returned this run • {new_sw} newly observed"
+                color = self._overview_action_color("overview_software", metrics)
+                cards["overview_software"]["value"].configure(text=state, fg=color)
+                cards["overview_software"]["detail"].configure(text=detail)
+                self._set_glow_icon_color(cards["overview_software"]["dot"], color)
+        except Exception:
+            pass
+
+
     def _set_focus_value_safe(self, bucket, key, value, hint=None, color=None):
         try:
             card = getattr(self, "focus_cards", {}).get(bucket, {}).get(key)
@@ -5830,6 +5928,10 @@ class SentinelApp(tk.Tk):
         metrics = payload.get("metrics", {}) or {}
         try:
             self._recolor_overview_action_icons(metrics)
+            self._update_overview_action_cards(metrics)
+        except Exception:
+            pass
+        try:
             self._repair_section_cards(metrics)
         except Exception:
             pass
