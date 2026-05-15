@@ -173,8 +173,8 @@ class Config:
         "software_poll_hours": 6,
         "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
         "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "site_name_map": "", "enabled": False},
-        "qualys": {"base_url": "https://qualysapi.qg3.apps.qualys.com", "username": "", "password": "", "enabled": False},
-        "azure": {"tenant_id": "", "client_id": "", "client_secret": "", "subscription_id": "", "enabled": False},
+        "datto": {"api_url": "", "access_token": "", "enabled": False},
+        "rocketcyber": {"base_url": "https://api-us.rocketcyber.com", "api_key": "", "enabled": False},
     }
 
     @classmethod
@@ -184,8 +184,8 @@ class Config:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         merged = json.loads(json.dumps(cls.defaults))
         cls._merge(merged, data)
-        for section in ("microsoft", "unifi", "qualys", "azure"):
-            for key in ("client_secret", "api_key", "access_token", "password"):
+        for section in ("microsoft", "unifi", "datto", "rocketcyber"):
+            for key in ("client_secret", "api_key", "access_token"):
                 if key in merged.get(section, {}):
                     merged[section][key] = SecretBox.unprotect(merged[section].get(key, ""))
         return merged
@@ -202,8 +202,8 @@ class Config:
     def save(cls, data):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         copy = json.loads(json.dumps(data))
-        for section in ("microsoft", "unifi", "qualys", "azure"):
-            for key in ("client_secret", "api_key", "access_token", "password"):
+        for section in ("microsoft", "unifi", "datto", "rocketcyber"):
+            for key in ("client_secret", "api_key", "access_token"):
                 if key in copy.get(section, {}):
                     copy[section][key] = SecretBox.protect(copy[section].get(key, ""))
         CONFIG_FILE.write_text(json.dumps(copy, indent=2), encoding="utf-8")
@@ -1293,322 +1293,63 @@ class UniFiConnector:
         }
 
 
-
-
-class QualysConnector:
-    """Qualys VMDR host and sev 3/4/5 detection probe kept off Overview metrics.
-
-    Uses the classic Qualys XML API with Basic auth. In setup, enter only the API host,
-    for example: https://qualysapi.qg1.apps.qualys.co.uk
-    """
+class DattoConnector:
     def __init__(self, cfg):
         self.cfg = cfg
 
     def enabled(self):
-        c = self.cfg.get("qualys", {})
-        return bool(c.get("enabled") and c.get("base_url") and c.get("username") and c.get("password"))
-
-    def _clean_base(self):
-        c = self.cfg.get("qualys", {})
-        base = str(c.get("base_url", "")).strip().rstrip("/")
-        if not base:
-            return base
-        # Accept pasted portal URLs and normalise them to the API host.
-        replacements = {
-            "https://qualysguard.qg1.apps.qualys.co.uk": "https://qualysapi.qg1.apps.qualys.co.uk",
-            "http://qualysguard.qg1.apps.qualys.co.uk": "https://qualysapi.qg1.apps.qualys.co.uk",
-        }
-        for old, new in replacements.items():
-            if base.lower().startswith(old.lower()):
-                base = new
-                break
-        # If a full endpoint was pasted, reduce back to the host. The connector adds paths.
-        for marker in ("/api/", "/msp/", "/fo/"):
-            idx = base.lower().find(marker)
-            if idx > -1:
-                base = base[:idx]
-        return base.rstrip("/")
-
-    def _headers(self):
-        c = self.cfg["qualys"]
-        token = base64.b64encode((str(c.get("username", "")) + ":" + str(c.get("password", ""))).encode()).decode()
-        return {
-            "Authorization": "Basic " + token,
-            "X-Requested-With": "SmartboxSOC",
-            "Accept": "application/xml, text/xml, */*",
-            "User-Agent": "SmartboxSOC/1.0",
-        }
-
-    def _get_xml(self, path, params=None, timeout=35):
-        base = self._clean_base()
-        path = "/" + str(path or "").lstrip("/")
-        query = urllib.parse.urlencode(params or {})
-        url = base + path + (("?" + query) if query else "")
-        req = urllib.request.Request(url, headers=self._headers(), method="GET")
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            raw = res.read().decode("utf-8", errors="replace")
-            return raw, url, getattr(res, "status", "200")
-
-    def _node_text(self, node, name, default=""):
-        found = node.find(name)
-        return (found.text or "").strip() if found is not None else default
-
-    def _host_identity(self, host):
-        return {
-            "id": self._node_text(host, "ID"),
-            "ip": self._node_text(host, "IP"),
-            "dns": self._node_text(host, "DNS"),
-            "netbios": self._node_text(host, "NETBIOS"),
-            "os": self._node_text(host, "OS"),
-            "last_scan": self._node_text(host, "LAST_SCAN_DATETIME") or self._node_text(host, "LAST_VM_SCANNED_DATE"),
-        }
-
-    def _parse_assets(self, raw):
-        import xml.etree.ElementTree as ET
-        assets = []
-        root = ET.fromstring(raw)
-        for host in root.findall(".//HOST")[:1000]:
-            assets.append(self._host_identity(host))
-        return assets
-
-    def _parse_detections(self, raw):
-        import xml.etree.ElementTree as ET
-        detections = []
-        host_seen = {}
-        root = ET.fromstring(raw)
-        for host in root.findall(".//HOST")[:1000]:
-            ident = self._host_identity(host)
-            asset_name = ident.get("dns") or ident.get("netbios") or ident.get("ip") or "unknown asset"
-            if ident.get("id") or ident.get("ip"):
-                host_seen[ident.get("id") or ident.get("ip")] = ident
-            for det in host.findall(".//DETECTION"):
-                sev_raw = self._node_text(det, "SEVERITY") or self._node_text(det, "SEVERITY_LEVEL")
-                qds_raw = self._node_text(det, "QDS") or self._node_text(det, "QDS_SCORE")
-                try:
-                    sev = int(sev_raw or 0)
-                except Exception:
-                    sev = 0
-                if sev not in (3, 4, 5):
-                    continue
-                detections.append({
-                    "severity": sev,
-                    "qid": self._node_text(det, "QID"),
-                    "host": asset_name,
-                    "ip": ident.get("ip", ""),
-                    "os": ident.get("os", ""),
-                    "status": self._node_text(det, "STATUS") or "Active",
-                    "port": self._node_text(det, "PORT"),
-                    "protocol": self._node_text(det, "PROTOCOL"),
-                    "qds": qds_raw,
-                    "first_found": self._node_text(det, "FIRST_FOUND_DATETIME"),
-                    "last_found": self._node_text(det, "LAST_FOUND_DATETIME") or self._node_text(det, "LAST_UPDATE_DATETIME"),
-                })
-        return list(host_seen.values()), detections
-
-    def _looks_like_qualys_xml(self, raw):
-        text = str(raw or "")[:500].lower()
-        return text.lstrip().startswith("<") and ("qualys" in text or "host_list" in text or "detection" in text or "about" in text)
+        c = self.cfg["datto"]
+        return c.get("enabled") and c.get("api_url") and c.get("access_token")
 
     def fetch(self):
         if not self.enabled():
             return None
-
-        assets = []
-        detections = []
-        notes = [f"Qualys base URL normalised to {self._clean_base()}"]
-
-        # Lightweight connectivity/auth probe. This mirrors the URL Marc tested successfully.
-        try:
-            raw_about, about_url, status = self._get_xml("/msp/about.php", {}, timeout=15)
-            notes.append(f"About probe OK ({status}) via {about_url}; response {len(raw_about)} bytes.")
-        except Exception as e:
-            notes.append("About probe failed: " + str(e)[:220])
-
-        # Host detection query. First try the focused VMDR sev filter, then fall back to a wider query.
-        detection_attempts = [
-            ("sev 3/4/5 active", {
-                "action": "list",
-                "severities": "3,4,5",
-                "status": "New,Active,Re-Opened",
-                "truncation_limit": "1000",
-                "show_results": "1",
-                "show_qds": "1",
-            }),
-            ("sev 3/4/5 any status", {
-                "action": "list",
-                "severities": "3,4,5",
-                "truncation_limit": "1000",
-                "show_results": "1",
-                "show_qds": "1",
-            }),
-            ("unfiltered sample", {
-                "action": "list",
-                "truncation_limit": "200",
-                "show_results": "1",
-                "show_qds": "1",
-            }),
-        ]
-        for label, params in detection_attempts:
-            try:
-                raw, url, status = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", params, timeout=45)
-                detected_hosts, found = self._parse_detections(raw)
-                assets.extend(detected_hosts)
-                notes.append(f"Host Detection {label} OK ({status}): {len(found)} sev 3/4/5 row(s), {len(detected_hosts)} host(s).")
-                if found:
-                    detections = found
-                    break
-                if not detections:
-                    detections = found
-            except Exception as e:
-                notes.append(f"Host Detection {label} failed: {str(e)[:220]}")
-
-        # Always keep a host inventory table available even if detections are empty or permission-limited.
-        try:
-            raw_assets, asset_url, status = self._get_xml("/api/2.0/fo/asset/host/", {
-                "action": "list",
-                "truncation_limit": "1000",
-            }, timeout=25)
-            inv_assets = self._parse_assets(raw_assets)
-            by_key = {a.get("id") or a.get("ip") or str(i): a for i, a in enumerate(assets)}
-            for a in inv_assets:
-                by_key.setdefault(a.get("id") or a.get("ip") or str(len(by_key)), a)
-            assets = list(by_key.values())[:1000]
-            notes.append(f"Host List OK ({status}): {len(inv_assets)} asset row(s).")
-        except Exception as e:
-            if not assets:
-                assets = [{"id": "error", "ip": "", "dns": "Qualys asset query warning", "netbios": "", "os": "", "last_scan": str(e)[:140]}]
-            notes.append("Host List query failed: " + str(e)[:220])
-
-        sev3 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 3)
-        sev4 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 4)
-        sev5 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 5)
+        c = self.cfg["datto"]
+        base = c["api_url"].rstrip("/")
+        headers = {"Authorization": f"Bearer {c['access_token']}", "Accept": "application/json"}
+        account = Http.request("GET", base + "/api/v2/account", headers=headers)
+        # Alert/device paths differ by platform version; use Swagger for final mapping.
         return {
-            "source": "Qualys",
+            "source": "Datto RMM",
             "live": True,
-            "dashboard_visible": False,
-            "qualys_assets": assets,
-            "qualys_asset_count": len(assets),
-            "qualys_detections": detections[:1000],
-            "qualys_detection_count": len(detections),
-            "qualys_sev3": sev3,
-            "qualys_sev4": sev4,
-            "qualys_sev5": sev5,
-            "qualys_notes": notes,
-            "events": [],
+            "devices": int(account.get("deviceCount", 0) or account.get("devices", 0) or 0),
+            "alerts": int(account.get("openAlertCount", 0) or 0),
+            "events": [{
+                "severity": "info",
+                "title": "Datto RMM account API reachable",
+                "detail": account.get("name", "Account endpoint returned JSON"),
+                "source": "Datto RMM",
+            }],
         }
 
 
-class AzureVmConnector:
-    """Azure Resource Manager VM inventory probe kept off the Overview metrics."""
+class RocketCyberConnector:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.token = ""
-        self.token_expiry = 0
 
     def enabled(self):
-        c = self.cfg.get("azure", {})
-        return bool(c.get("enabled") and c.get("tenant_id") and c.get("client_id") and c.get("client_secret") and c.get("subscription_id"))
-
-    def get_token(self):
-        if self.token and time.time() < self.token_expiry - 120:
-            return self.token
-        c = self.cfg["azure"]
-        url = f"https://login.microsoftonline.com/{c['tenant_id']}/oauth2/v2.0/token"
-        body = {
-            "client_id": c["client_id"],
-            "client_secret": c["client_secret"],
-            "grant_type": "client_credentials",
-            "scope": "https://management.azure.com/.default",
-        }
-        data = Http.request("POST", url, body=body)
-        self.token = data["access_token"]
-        self.token_expiry = time.time() + int(data.get("expires_in", 3600))
-        return self.token
-
-    def _resource_group_from_id(self, value):
-        parts = str(value).split("/")
-        try:
-            idx = [p.lower() for p in parts].index("resourcegroups")
-            return parts[idx + 1]
-        except Exception:
-            return ""
-
-    def _extract_power(self, vm):
-        statuses = (((vm.get("properties") or {}).get("instanceView") or {}).get("statuses") or []) if isinstance(vm, dict) else []
-        for status in statuses:
-            code = str(status.get("code", "")).lower()
-            if code.startswith("powerstate/"):
-                return status.get("displayStatus") or code.split("/", 1)[-1]
-        return "not queried"
-
-    def _vm_to_row(self, vm):
-        props = vm.get("properties", {}) if isinstance(vm, dict) else {}
-        storage = props.get("storageProfile", {}) if isinstance(props, dict) else {}
-        osdisk = storage.get("osDisk", {}) if isinstance(storage, dict) else {}
-        image = storage.get("imageReference", {}) if isinstance(storage, dict) else {}
-        hw = props.get("hardwareProfile", {}) if isinstance(props, dict) else {}
-        return {
-            "name": vm.get("name", ""),
-            "resource_group": self._resource_group_from_id(vm.get("id", "")),
-            "location": vm.get("location", ""),
-            "size": hw.get("vmSize", ""),
-            "os": osdisk.get("osType", "") or image.get("offer", ""),
-            "image": " ".join([str(image.get(k, "")) for k in ("publisher", "offer", "sku") if image.get(k)]),
-            "power": self._extract_power(vm),
-            "provisioning": props.get("provisioningState", ""),
-        }
+        c = self.cfg["rocketcyber"]
+        return c.get("enabled") and c.get("base_url") and c.get("api_key")
 
     def fetch(self):
         if not self.enabled():
             return None
-        c = self.cfg["azure"]
-        token = self.get_token()
-        sub = urllib.parse.quote(c["subscription_id"], safe="")
-        base_url = f"https://management.azure.com/subscriptions/{sub}/providers/Microsoft.Compute/virtualMachines?api-version=2024-07-01"
-        headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
-        vms = []
-        next_url = base_url
-        pages = 0
-        while next_url and pages < 20:
-            data = Http.request("GET", next_url, headers=headers)
-            for vm in (data.get("value", []) if isinstance(data, dict) else []):
-                vms.append(self._vm_to_row(vm))
-            next_url = data.get("nextLink") if isinstance(data, dict) else None
-            pages += 1
-
-        # Optional polish: enrich power state for the first batch using instanceView.
-        enriched = []
-        for vm in vms[:200]:
-            try:
-                rg = urllib.parse.quote(vm.get("resource_group", ""), safe="")
-                name = urllib.parse.quote(vm.get("name", ""), safe="")
-                detail_url = f"https://management.azure.com/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachines/{name}?api-version=2024-07-01&$expand=instanceView"
-                detail = Http.request("GET", detail_url, headers=headers)
-                row = self._vm_to_row(detail)
-                # Preserve model-list values if the detail call omits anything.
-                for key, value in vm.items():
-                    row.setdefault(key, value)
-                    if row.get(key, "") in ("", None):
-                        row[key] = value
-                enriched.append(row)
-            except Exception:
-                enriched.append(vm)
-        if len(vms) > len(enriched):
-            enriched.extend(vms[len(enriched):])
-        vms = enriched
-
-        running = sum(1 for v in vms if "running" in str(v.get("power", "")).lower())
-        stopped = sum(1 for v in vms if any(x in str(v.get("power", "")).lower() for x in ("stopped", "deallocated")))
+        c = self.cfg["rocketcyber"]
+        base = c["base_url"].rstrip("/")
+        headers = {"Authorization": f"Bearer {c['api_key']}", "Accept": "application/json"}
+        # Common customer API base probe. Keep demo resilient because tenant paths vary.
+        data = Http.request("GET", base + "/v3", headers=headers)
         return {
-            "source": "Azure VMs",
+            "source": "RocketCyber",
             "live": True,
-            "dashboard_visible": False,
-            "azure_vms": vms[:1000],
-            "azure_vm_count": len(vms),
-            "azure_running": running,
-            "azure_stopped": stopped,
-            "azure_notes": [f"Azure Resource Manager returned {len(vms)} VM row(s); power state enriched for {min(len(vms), 200)}."],
-            "events": [],
+            "alerts": 0,
+            "critical": 0,
+            "events": [{
+                "severity": "info",
+                "title": "RocketCyber API reachable",
+                "detail": "Customer API responded",
+                "source": "RocketCyber",
+            }],
         }
 
 
@@ -1621,8 +1362,8 @@ class TelemetryEngine(threading.Thread):
         self.connectors = [
             MicrosoftGraphConnector(cfg),
             UniFiConnector(cfg),
-            QualysConnector(cfg),
-            AzureVmConnector(cfg),
+            DattoConnector(cfg),
+            RocketCyberConnector(cfg),
         ]
         self.tick = 0
 
@@ -1659,6 +1400,7 @@ class TelemetryEngine(threading.Thread):
             {"severity": "critical" if critical else "medium", "title": "EDR signal + stale Intune sync correlation", "detail": "DESKTOP-7Q2 has high-risk alert and missed compliance sync", "source": "Correlation"},
             {"severity": "medium", "title": "VLAN anomaly on wireless estate", "detail": "Guest segment saw 31% traffic jump in 10 min window", "source": "UniFi synthetic"},
             {"severity": "info", "title": "Patch posture improved", "detail": "Windows compliant estate rose by 2.1%", "source": "Intune synthetic"},
+            {"severity": "medium", "title": "RMM agent silence", "detail": "3 endpoints have not checked into Datto RMM recently", "source": "Datto synthetic"},
         ]
         return {
             "source": "Sentinel simulator",
@@ -1776,19 +1518,6 @@ class TelemetryEngine(threading.Thread):
                     "android": 0,
                     "other_os": 0,
                     "risk": 0,
-                    "qualys_asset_count": 0,
-                    "qualys_assets": [],
-                    "qualys_detections": [],
-                    "qualys_detection_count": 0,
-                    "qualys_sev3": 0,
-                    "qualys_sev4": 0,
-                    "qualys_sev5": 0,
-                    "qualys_notes": [],
-                    "azure_vm_count": 0,
-                    "azure_running": 0,
-                    "azure_stopped": 0,
-                    "azure_vms": [],
-                    "azure_notes": [],
                     "priority_state": "CLEAR",
                     "priority_level": 0,
                 },
@@ -1877,22 +1606,6 @@ class TelemetryEngine(threading.Thread):
         wan = [int(r.get("wan_health")) for r in results if r.get("wan_health") not in (None, 0)]
         wan_health = int(sum(wan) / len(wan)) if wan else 0
         wan_penalty = (100 - wan_health) * 1.2 if wan_health else 0
-        qualys_assets = []
-        qualys_detections = []
-        qualys_notes = []
-        azure_vms = []
-        azure_notes = []
-        for r in results:
-            qualys_assets.extend(r.get("qualys_assets", []) or [])
-            qualys_detections.extend(r.get("qualys_detections", []) or [])
-            qualys_notes.extend(r.get("qualys_notes", []) or [])
-            azure_vms.extend(r.get("azure_vms", []) or [])
-            azure_notes.extend(r.get("azure_notes", []) or [])
-        qualys_sev3 = sum(1 for d in qualys_detections if int(d.get("severity", 0) or 0) == 3)
-        qualys_sev4 = sum(1 for d in qualys_detections if int(d.get("severity", 0) or 0) == 4)
-        qualys_sev5 = sum(1 for d in qualys_detections if int(d.get("severity", 0) or 0) == 5)
-        azure_running = sum(1 for v in azure_vms if "running" in str(v.get("power", "")).lower())
-        azure_stopped = sum(1 for v in azure_vms if any(x in str(v.get("power", "")).lower() for x in ("stopped", "deallocated")))
         risk = 0  # Deprecated: kept internally only so older chart state does not break. Not displayed as a security result.
         priority_state, priority_level, priority_reason = self.priority_from_counts({
             "critical": critical,
@@ -1968,19 +1681,6 @@ class TelemetryEngine(threading.Thread):
                 "android": android,
                 "other_os": other_os,
                 "risk": risk,
-                "qualys_asset_count": len(qualys_assets),
-                "qualys_assets": qualys_assets[:1000],
-                "qualys_detections": qualys_detections[:1000],
-                "qualys_detection_count": len(qualys_detections),
-                "qualys_sev3": qualys_sev3,
-                "qualys_sev4": qualys_sev4,
-                "qualys_sev5": qualys_sev5,
-                "qualys_notes": qualys_notes[:50],
-                "azure_vm_count": len(azure_vms),
-                "azure_running": azure_running,
-                "azure_stopped": azure_stopped,
-                "azure_vms": azure_vms[:1000],
-                "azure_notes": azure_notes[:50],
                 "priority_state": priority_state,
                 "priority_level": priority_level,
                 "priority_reason": priority_reason,
@@ -2177,16 +1877,12 @@ class SentinelApp(tk.Tk):
         self.tab_intune = tk.Frame(self.main_tabs, bg=BG)
         self.tab_unifi = tk.Frame(self.main_tabs, bg=BG)
         self.tab_software = tk.Frame(self.main_tabs, bg=BG)
-        self.tab_qualys = tk.Frame(self.main_tabs, bg=BG)
-        self.tab_azure = tk.Frame(self.main_tabs, bg=BG)
 
         self.main_tabs.add(self.tab_overview, text="Overview")
         self.main_tabs.add(self.tab_defender, text="Defender")
         self.main_tabs.add(self.tab_intune, text="Intune")
         self.main_tabs.add(self.tab_unifi, text="UniFi")
         self.main_tabs.add(self.tab_software, text="Software")
-        self.main_tabs.add(self.tab_qualys, text="Qualys")
-        self.main_tabs.add(self.tab_azure, text="Azure")
         self._build_main_tab_pills()
 
         body = self.make_scrollable_page(self.tab_overview, show_scrollbar=False)
@@ -2249,7 +1945,7 @@ class SentinelApp(tk.Tk):
             card_body.pack(fill="both", expand=True, padx=22, pady=16)
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
-            icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "✦")
+            icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
             dot = tk.Label(top, text=icon_text, bg=PANEL, fg=color, font=(self.font_ui, 17, "bold"), width=2)
             dot.pack(side="left", padx=(0, 10))
             title_col = tk.Frame(top, bg=PANEL)
@@ -2316,7 +2012,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
-        self.security_posture_strip.pack(fill="x", pady=(8, 12))
+        self.security_posture_strip.pack(fill="x", pady=(6, 10))
         self.posture_labels = {}
         for label, key, color, icon in [
             ("Stale 30+ days", "stale_30_count", BLUE, "🥖"),
@@ -2325,17 +2021,15 @@ class SentinelApp(tk.Tk):
             ("Degraded sites", "unifi_degraded_sites", ORANGE, "⚠"),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=144)
+            shell.configure(height=134)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
             body_row.pack(fill="both", expand=True, padx=20, pady=15)
-            badge = tk.Canvas(body_row, width=58, height=58, bg=GLASS, highlightthickness=0, bd=0)
-            badge.pack(side="left", padx=(0, 18))
-            # V21: clean glyph-only posture icons, no circular wrappers.
-            # A soft shadow gives the glow without boxing the symbol in.
-            badge.create_text(31, 31, text=icon, fill="#07121E", font=(self.font_ui, 29, "bold"))
-            badge.create_text(29, 29, text=icon, fill=color, font=(self.font_ui, 27, "bold"))
+            badge = tk.Canvas(body_row, width=50, height=50, bg=GLASS, highlightthickness=0, bd=0)
+            badge.pack(side="left", padx=(0, 16))
+            badge.create_oval(3, 3, 47, 47, fill="#0D1A28", outline=color, width=1.5)
+            badge.create_text(25, 25, text=icon, fill=color, font=(self.font_ui, 18, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
             tk.Label(text_col, text=label, bg=GLASS, fg="#D7E7F7", font=(self.font_ui, 10, "bold")).pack(anchor="w")
@@ -2346,8 +2040,8 @@ class SentinelApp(tk.Tk):
                 "Degraded sites": "UniFi site health",
             }.get(label, "live posture")
             tk.Label(text_col, text=subcopy + "  ->", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
-            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 25, "bold"))
-            val.pack(anchor="w", pady=(2, 0))
+            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 24, "bold"))
+            val.pack(anchor="w", pady=(0, 0))
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
@@ -2550,7 +2244,7 @@ class SentinelApp(tk.Tk):
         footer = tk.Frame(shell, bg=BG)
         footer.pack_forget()  # hidden to match the one-screen SOC console reference
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(side="left")
-        tk.Label(footer, text="V21 SOC theme • semantic glow tables • Defender, Intune, UniFi, Software, Qualys and Azure. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 10)).pack(side="right")
+        tk.Label(footer, text="Overview shows the big hitters. Detail lives in Defender, Intune, UniFi and Software. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 10)).pack(side="right")
 
 
     def _enforce_soc_console_overview(self):
@@ -2643,30 +2337,27 @@ class SentinelApp(tk.Tk):
             "intune_noncompliant_table", "intune_stale_table", "intune_posture_table",
             "unifi_sites_table", "unifi_notes_table",
             "software_new_table", "software_all_table",
-            "qualys_detections_table", "qualys_assets_table", "qualys_notes_table",
-            "azure_vms_table", "azure_notes_table",
         ):
             tree = getattr(self, tree_name, None)
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FF8AA3", background="#171D2E")
-                tree.tag_configure("high", foreground="#FFC27A", background="#182233")
-                tree.tag_configure("warn", foreground="#FFE28A", background="#162333")
-                tree.tag_configure("good", foreground="#9CFFB1", background="#102A28")
-                tree.tag_configure("info", foreground="#7ED7FF", background="#0D2638")
-                tree.tag_configure("alt", foreground="#DCEBFA", background="#0C2031")
-                tree.tag_configure("sev_critical", foreground="#FF8AA3", background="#171D2E")
-                tree.tag_configure("sev_high", foreground="#FFC27A", background="#182233")
-                tree.tag_configure("sev_medium", foreground="#FFE28A", background="#162333")
-                tree.tag_configure("sev_info", foreground="#7ED7FF", background="#0D2638")
-                tree.tag_configure("sev_low", foreground="#9CFFB1", background="#102A28")
-                tree.tag_configure("os_windows", foreground="#75D8FF", background="#0D263A")
-                tree.tag_configure("os_ios", foreground="#E8F0FA", background="#172231")
-                tree.tag_configure("os_macos", foreground="#F2F5FA", background="#161F30")
-                tree.tag_configure("os_android", foreground="#A8FF91", background="#112A25")
-                tree.tag_configure("os_linux", foreground="#FFE38A", background="#25231A")
-                tree.tag_configure("os_other", foreground="#C9D6E5", background="#0E2030")
+                tree.tag_configure("bad", foreground="#FF7D97", background="#241526")
+                tree.tag_configure("high", foreground="#FFB96C", background="#221D25")
+                tree.tag_configure("warn", foreground="#FFE16A", background="#1D2531")
+                tree.tag_configure("good", foreground="#88FF8A", background="#0B2A25")
+                tree.tag_configure("info", foreground="#65D6FF", background="#09243A")
+                tree.tag_configure("alt", foreground="#DCEBFA", background="#0B2033")
+                tree.tag_configure("sev_critical", foreground="#FF7895", background="#241526")
+                tree.tag_configure("sev_high", foreground="#FFB66B", background="#221D25")
+                tree.tag_configure("sev_medium", foreground="#FFE36E", background="#1D2531")
+                tree.tag_configure("sev_info", foreground="#65D1FF", background="#092235")
+                tree.tag_configure("sev_low", foreground="#8DFF82", background="#0B2A25")
+                tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
+                tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
+                tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
+                tree.tag_configure("os_android", foreground="#FFE36E", background="#1D2531")
+                tree.tag_configure("os_other", foreground="#C9D6E5", background="#0B1F31")
             except Exception:
                 pass
 
@@ -2734,8 +2425,6 @@ class SentinelApp(tk.Tk):
             ("👤  Intune", self.tab_intune),
             ("📶  UniFi", self.tab_unifi),
             ("💾  Software", self.tab_software),
-            ("🛡Q  Qualys", self.tab_qualys),
-            ("λ  Azure", self.tab_azure),
         ]
         self.main_tab_buttons = {}
         for label, frame in tabs:
@@ -2905,7 +2594,7 @@ class SentinelApp(tk.Tk):
         header = tk.Frame(panel, bg=PANEL)
         header.pack(fill="x", padx=12, pady=(7, 3))
         tk.Label(header, text=title, bg=PANEL, fg=TEXT, font=(self.font_display, 15, "bold")).pack(side="left")
-        tk.Label(header, text="semantic glow data lanes  •  soft status capsules  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
+        tk.Label(header, text="signal-coloured rows  •  glass bands  •  click headers to sort", bg=PANEL, fg="#7F94AA", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         frame = tk.Frame(panel, bg=PANEL)
         frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
@@ -2915,18 +2604,17 @@ class SentinelApp(tk.Tk):
         xscroll = tk.Scrollbar(frame, orient="horizontal", command=tree.xview, bg=PANEL, troughcolor=GLASS)
         tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         # Screenshot-style glass rows. Keep row bands calm; the pill text carries severity/status.
-        tree.tag_configure("bad", foreground="#FF8AA3", background="#171D2E")
-        tree.tag_configure("warn", foreground="#FFE28A", background="#162333")
-        tree.tag_configure("high", foreground="#FFC27A", background="#182233")
-        tree.tag_configure("good", foreground="#9CFFB1", background="#102A28")
-        tree.tag_configure("info", foreground="#7ED7FF", background="#0D2638")
-        tree.tag_configure("alt", foreground="#DCEBFA", background="#0C2031")
-        tree.tag_configure("os_windows", foreground="#75D8FF", background="#0D263A")
-        tree.tag_configure("os_ios", foreground="#E8F0FA", background="#172231")
-        tree.tag_configure("os_macos", foreground="#F2F5FA", background="#161F30")
-        tree.tag_configure("os_android", foreground="#A8FF91", background="#112A25")
-        tree.tag_configure("os_linux", foreground="#FFE38A", background="#25231A")
-        tree.tag_configure("os_other", foreground="#C9D6E5", background="#0E2030")
+        tree.tag_configure("bad", foreground="#FF7895", background="#241526")
+        tree.tag_configure("warn", foreground="#FFE36E", background="#1D2531")
+        tree.tag_configure("high", foreground="#FFB66B", background="#221D25")
+        tree.tag_configure("good", foreground="#8DFF82", background="#0B2A25")
+        tree.tag_configure("info", foreground="#65D1FF", background="#092235")
+        tree.tag_configure("alt", foreground="#DCEBFA", background="#0B1F31")
+        tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
+        tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
+        tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
+        tree.tag_configure("os_android", foreground="#FFE36E", background="#1D2531")
+        tree.tag_configure("os_other", foreground="#C9D6E5", background="#0B1F31")
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
@@ -2936,63 +2624,35 @@ class SentinelApp(tk.Tk):
         for item in tree.get_children():
             tree.delete(item)
 
-    def _semantic_glow_icon(self, icon, label="", halo="✦"):
-        """Text-only glow illusion for ttk.Treeview cells.
-
-        Native Tk Treeview cannot draw true per-cell glows or rounded widgets,
-        so V20 uses a consistent halo + glyph + compact label pattern. The
-        row/tag colours supply the real semantic glow.
-        """
-        label = str(label or "").strip()
-        return f"  {halo} {icon} {label}  " if label else f"  {halo} {icon}  "
-
     def _bubble_token(self, value, kind="status"):
         raw = str(value if value is not None else "").strip()
         if not raw:
             return ""
         upper = raw.upper()
-        low = raw.lower()
-        # Semantic capsules. These are deliberately restrained: the glyph gives
-        # scanability, the tag colours give the glow, and the text remains sortable.
-        status_icons = {
-            "CRITICAL": ("◆", "CRIT"),
-            "HIGH": ("▲", "HIGH"),
-            "MEDIUM": ("●", "MEDIUM"),
-            "LOW": ("●", "LOW"),
-            "ACTIVE": ("●", "ACTIVE"),
-            "RESOLVED/CLOSED": ("✓", "RESOLVED"),
-            "RESOLVED": ("✓", "RESOLVED"),
-            "CLOSED": ("✓", "CLOSED"),
-            "NONCOMPLIANT": ("▲", "NONCOMPLIANT"),
-            "NON-COMPLIANT": ("▲", "NONCOMPLIANT"),
-            "COMPLIANT": ("✓", "COMPLIANT"),
-            "HEALTHY": ("●", "HEALTHY"),
-            "GOOD": ("●", "GOOD"),
-            "ONLINE": ("●", "ONLINE"),
-            "OK": ("✓", "OK"),
-            "DEGRADED": ("▲", "DEGRADED"),
-            "VISIBLE": ("◇", "VISIBLE"),
-            "CHECK": ("▲", "CHECK"),
-            "THROTTLED": ("⏱", "THROTTLED"),
-            "UNENCRYPTED": ("🔑", "UNENCRYPTED"),
+        aliases = {
+            "CRITICAL": "CRIT",
+            "RESOLVED/CLOSED": "RESOLVED/CLOSED",
+            "NONCOMPLIANT": "NONCOMPLIANT",
+            "NON-COMPLIANT": "NONCOMPLIANT",
+            "COMPLIANT": "COMPLIANT",
+            "HEALTHY": "HEALTHY",
+            "DEGRADED": "DEGRADED",
+            "VISIBLE": "VISIBLE",
+            "ACTIVE": "ACTIVE",
+            "INFO": "INFO",
+            "MEDIUM": "MEDIUM",
+            "HIGH": "HIGH",
+            "LOW": "LOW",
+            "OK": "OK",
+            "GOOD": "GOOD",
+            "CHECK": "CHECK",
+            "THROTTLED": "THROTTLED",
         }
-        if upper in status_icons:
-            icon, label = status_icons[upper]
-            return self._semantic_glow_icon(icon, label)
-        if low.startswith("sev 5") or "sev 5" in low:
-            return self._semantic_glow_icon("🛡", "SEV 5")
-        if low.startswith("sev 4") or "sev 4" in low:
-            return self._semantic_glow_icon("▲", "SEV 4")
-        if low.startswith("sev 3") or "sev 3" in low:
-            return self._semantic_glow_icon("●", "SEV 3")
-        if "running" in low and "vm" in low:
-            return self._semantic_glow_icon("☁", raw)
-        if ("stopped" in low or "deallocated" in low) and "vm" in low:
-            return self._semantic_glow_icon("◌", raw)
-        if "windows" in low or "mac" in low or "ios" in low or "android" in low or "linux" in low:
-            return self._decorate_os_cell(raw)
-        label = upper if kind in ("severity", "status") and len(upper) <= 18 else raw
-        return self._semantic_glow_icon("●", label)
+        label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
+        # Tk's native Treeview cannot host real rounded widgets per cell, so we
+        # use a compact capsule glyph. Row tags supply the colour; the token keeps
+        # the cell readable as a pill instead of noisy emoji confetti.
+        return f"  ● {label}  "
 
     def _should_bubble_column(self, tree, column_key, index, value):
         key = str(column_key).lower()
@@ -3003,8 +2663,7 @@ class SentinelApp(tk.Tk):
             "info", "low", "medium", "high", "critical", "active", "resolved/closed",
             "resolved", "closed", "noncompliant", "non-compliant", "compliant",
             "healthy", "degraded", "critical", "visible", "unencrypted", "jailbreak/root flag",
-            "android", "ios", "ipados", "macos", "windows", "linux", "ubuntu", "debian", "rhel", "centos", "ok", "check", "throttled",
-            "sev 3", "sev 4", "sev 5", "vm running", "vm stopped", "vm deallocated"
+            "android", "ios", "macos", "windows", "ok", "check", "throttled"
         )
         return any(x in key or x in label for x in bubble_cols) or raw in bubble_values
 
@@ -3020,54 +2679,6 @@ class SentinelApp(tk.Tk):
         return out
 
 
-
-    def _qualys_severity_tag(self, severity):
-        try:
-            sev = int(severity or 0)
-        except Exception:
-            sev = 0
-        if sev >= 5:
-            return "bad"
-        if sev == 4:
-            return "high"
-        if sev == 3:
-            return "warn"
-        return "info"
-
-    def _decorate_qualys_severity(self, severity):
-        try:
-            sev = int(severity or 0)
-        except Exception:
-            sev = 0
-        if sev >= 5:
-            return self._semantic_glow_icon("🛡", "Q SEV 5")
-        if sev == 4:
-            return self._semantic_glow_icon("▲", "Q SEV 4")
-        if sev == 3:
-            return self._semantic_glow_icon("●", "Q SEV 3")
-        return self._semantic_glow_icon("◇", "Q SEV")
-
-    def _azure_power_tag(self, power):
-        raw = str(power or "").lower()
-        if "running" in raw:
-            return "good"
-        if "stopped" in raw or "deallocated" in raw:
-            return "warn"
-        if "failed" in raw or "unknown" in raw:
-            return "bad"
-        return "info"
-
-    def _decorate_azure_power(self, power):
-        raw = str(power or "not queried").strip()
-        low = raw.lower()
-        if "running" in low:
-            return self._semantic_glow_icon("λ", raw)
-        if "stopped" in low or "deallocated" in low:
-            return self._semantic_glow_icon("◌", raw)
-        if "failed" in low:
-            return self._semantic_glow_icon("◆", raw)
-        return self._semantic_glow_icon("☁", raw)
-
     def _unifi_status_tag(self, status):
         raw = str(status or "").strip().upper()
         if raw in ("CRITICAL", "OFFLINE", "DOWN"):
@@ -3082,13 +2693,8 @@ class SentinelApp(tk.Tk):
         raw = str(status or "VISIBLE").strip().upper()
         if raw == "CRITICAL":
             raw = "OFFLINE"
-        icon = {
-            "HEALTHY": "📶", "GOOD": "📶", "ONLINE": "📶",
-            "DEGRADED": "⚠", "WARNING": "⚠", "WARN": "⚠",
-            "OFFLINE": "◆", "DOWN": "◆", "CRITICAL": "◆",
-            "VISIBLE": "◇"
-        }.get(raw, "◇")
-        return self._semantic_glow_icon(icon, raw)
+        icon = {"HEALTHY": "●", "GOOD": "●", "ONLINE": "●", "DEGRADED": "▲", "OFFLINE": "■", "CRITICAL": "■", "VISIBLE": "◆"}.get(raw, "◆")
+        return f"  {icon} {raw}  "
 
     def _decorate_count_cell(self, value, role="neutral"):
         try:
@@ -3096,12 +2702,37 @@ class SentinelApp(tk.Tk):
         except Exception:
             n = 0
         if role == "online":
-            return self._semantic_glow_icon("✓", str(n)) if n else "0"
+            return f"● {n}" if n else str(n)
         if role == "degraded":
-            return self._semantic_glow_icon("⚠", str(n)) if n else "0"
+            return f"▲ {n}" if n else str(n)
         if role == "offline":
-            return self._semantic_glow_icon("✕", str(n)) if n else "0"
+            return f"■ {n}" if n else str(n)
         return str(n)
+
+    def _os_visual_tag(self, os_value):
+        raw = str(os_value or "").strip().lower()
+        if "windows" in raw:
+            return "os_windows"
+        if raw in ("ios", "ipados") or "iphone" in raw or "ipad" in raw:
+            return "os_ios"
+        if "mac" in raw or "darwin" in raw:
+            return "os_macos"
+        if "android" in raw:
+            return "os_android"
+        return "os_other"
+
+    def _decorate_os_cell(self, os_value):
+        raw = str(os_value or "Other").strip() or "Other"
+        low = raw.lower()
+        if "windows" in low:
+            return "▦  " + raw
+        if low in ("ios", "ipados") or "iphone" in low or "ipad" in low:
+            return "●  " + raw
+        if "mac" in low or "darwin" in low:
+            return "◆  " + raw
+        if "android" in low:
+            return "▲  " + raw
+        return "◇  " + raw
 
     def _intune_row_tag(self, row_type, os_value=None):
         if row_type in ("unencrypted", "jailbreak"):
@@ -3119,11 +2750,11 @@ class SentinelApp(tk.Tk):
             return "👤  " + raw
         if "software" in low or "detected" in low:
             return "💾  " + raw
-        if "qualys" in low:
-            return "🛡Q  " + raw
-        if "azure" in low:
-            return "λ  " + raw
-        return "✦  " + raw
+        if "rocket" in low:
+            return "◆  " + raw
+        if "datto" in low:
+            return "◇  " + raw
+        return "•  " + raw
 
     def _event_visual_tag(self, severity, source, title, detail):
         text = " ".join(str(x).lower() for x in (severity, source, title, detail))
@@ -3192,10 +2823,6 @@ class SentinelApp(tk.Tk):
             row_tag = self._os_visual_tag(values[1] if len(values) > 1 else "")
         elif tree is getattr(self, "intune_posture_table", None):
             row_tag = tag if tag in ("bad", "warn", "good", "info", "high") else self._os_visual_tag(values[2] if len(values) > 2 else "")
-        elif tree is getattr(self, "qualys_detections_table", None):
-            row_tag = tag if tag in ("bad", "warn", "good", "info", "high") else self._table_tag_from_values(values, tag)
-        elif tree is getattr(self, "azure_vms_table", None):
-            row_tag = tag if tag in ("bad", "warn", "good", "info", "high") else self._table_tag_from_values(values, tag)
         else:
             row_tag = self._table_tag_from_values(values, tag)
         # Add an alternate-row tag when there is no stronger severity tag.
@@ -3489,122 +3116,6 @@ class SentinelApp(tk.Tk):
             ("devices", "Devices", 90),
         ], height=28)
         self.software_text = self.text_panel(sw_notes_tab, "Software detection notes")
-
-
-        # Qualys tab
-        qualys_wrap = tk.Frame(self.tab_qualys, bg=BG)
-        qualys_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(qualys_wrap, text="🛡 Q  Qualys VMDR", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(qualys_wrap, text="Sev 3/4/5 VM detections and host inventory. Kept away from the Overview headline until you choose to promote it.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
-        qrow = tk.Frame(qualys_wrap, bg=BG)
-        qrow.pack(fill="x")
-        self.qualys_cards = {}
-        for title, key, color in [
-            ("Qualys assets", "qualys_asset_count", PURPLE),
-            ("Sev 5 critical", "qualys_sev5", RED),
-            ("Sev 4 high", "qualys_sev4", ORANGE),
-            ("Sev 3 medium", "qualys_sev3", AMBER),
-        ]:
-            shell, panel = self.rounded_panel(qrow, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=132)
-            shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
-            tk.Label(panel, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
-            value = tk.Label(panel, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
-            value.pack(anchor="w", padx=16, pady=(6, 2))
-            hint = tk.Label(panel, text="Awaiting Qualys connector", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
-            hint.pack(anchor="w", padx=16, pady=(4, 8))
-            self.qualys_cards[key] = {"value": value, "hint": hint, "base": color}
-
-        qualys_subtabs = tk.Frame(qualys_wrap, bg=BG)
-        qualys_subtabs.pack(fill="x", padx=6, pady=(4, 0))
-        self.qualys_tables = ttk.Notebook(qualys_wrap, style="SubHidden.TNotebook")
-        self.qualys_tables.pack(fill="both", expand=True, padx=0, pady=6)
-        q_det_tab = tk.Frame(self.qualys_tables, bg=BG)
-        q_assets_tab = tk.Frame(self.qualys_tables, bg=BG)
-        q_notes_tab = tk.Frame(self.qualys_tables, bg=BG)
-        self.qualys_tables.add(q_det_tab, text="Sev 3-5 issues")
-        self.qualys_tables.add(q_assets_tab, text="Assets")
-        self.qualys_tables.add(q_notes_tab, text="Notes")
-        self._build_subtab_pills(qualys_subtabs, self.qualys_tables, [
-            ("Sev 3-5 issues", q_det_tab),
-            ("Assets", q_assets_tab),
-            ("Notes", q_notes_tab),
-        ])
-        self.qualys_detections_table = self.table_panel(q_det_tab, "Qualys active VMDR detections", [
-            ("severity", "Severity", 105),
-            ("qid", "QID", 90),
-            ("host", "Host", 260),
-            ("ip", "IP", 135),
-            ("status", "Status", 120),
-            ("qds", "QDS", 80),
-            ("last_found", "Last found", 160),
-            ("port", "Port", 80),
-        ], height=24)
-        self.qualys_assets_table = self.table_panel(q_assets_tab, "Qualys host inventory", [
-            ("id", "Asset ID", 120),
-            ("ip", "IP", 150),
-            ("name", "Name", 240),
-            ("os", "OS", 240),
-            ("last_scan", "Last scan", 180),
-        ], height=24)
-        self.qualys_notes_table = self.table_panel(q_notes_tab, "Qualys connector notes", [
-            ("severity", "Severity", 100),
-            ("finding", "Finding", 300),
-            ("detail", "Detail", 720),
-        ], height=28)
-
-        # Azure tab
-        azure_wrap = tk.Frame(self.tab_azure, bg=BG)
-        azure_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(azure_wrap, text="λ  Azure VMs", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
-        tk.Label(azure_wrap, text="Azure Resource Manager VM inventory with resource group, region, size, OS image, provisioning and power state. Still isolated from Overview.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
-        arow = tk.Frame(azure_wrap, bg=BG)
-        arow.pack(fill="x")
-        self.azure_cards = {}
-        for title, key, color in [
-            ("Azure VMs", "azure_vm_count", BLUE),
-            ("Running", "azure_running", GREEN),
-            ("Stopped", "azure_stopped", AMBER),
-        ]:
-            shell, panel = self.rounded_panel(arow, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=132)
-            shell.pack_propagate(False)
-            shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
-            tk.Label(panel, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
-            value = tk.Label(panel, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
-            value.pack(anchor="w", padx=16, pady=(6, 2))
-            hint = tk.Label(panel, text="Awaiting Azure connector", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
-            hint.pack(anchor="w", padx=16, pady=(4, 8))
-            self.azure_cards[key] = {"value": value, "hint": hint, "base": color}
-
-        azure_subtabs = tk.Frame(azure_wrap, bg=BG)
-        azure_subtabs.pack(fill="x", padx=6, pady=(4, 0))
-        self.azure_tables = ttk.Notebook(azure_wrap, style="SubHidden.TNotebook")
-        self.azure_tables.pack(fill="both", expand=True, padx=0, pady=6)
-        a_vm_tab = tk.Frame(self.azure_tables, bg=BG)
-        a_notes_tab = tk.Frame(self.azure_tables, bg=BG)
-        self.azure_tables.add(a_vm_tab, text="Virtual machines")
-        self.azure_tables.add(a_notes_tab, text="Notes")
-        self._build_subtab_pills(azure_subtabs, self.azure_tables, [
-            ("Virtual machines", a_vm_tab),
-            ("Notes", a_notes_tab),
-        ])
-        self.azure_vms_table = self.table_panel(a_vm_tab, "Azure VM inventory", [
-            ("name", "VM", 220),
-            ("power", "Power", 140),
-            ("resource_group", "Resource group", 190),
-            ("location", "Region", 120),
-            ("size", "Size", 140),
-            ("os", "OS", 100),
-            ("image", "Image", 260),
-            ("provisioning", "Provisioning", 140),
-        ], height=24)
-        self.azure_notes_table = self.table_panel(a_notes_tab, "Azure connector notes", [
-            ("severity", "Severity", 100),
-            ("finding", "Finding", 300),
-            ("detail", "Detail", 720),
-        ], height=28)
 
 
     def card(self, parent, row, col, title, key, color):
@@ -4043,16 +3554,13 @@ class SentinelApp(tk.Tk):
             ("Site health path optional", "site_health_path", False),
             ("Site name map optional", "site_name_map", False),
         ])
-        add_tab("Qualys", "qualys", [
-            ("Base URL, e.g. https://qualysapi.qg3.apps.qualys.com", "base_url", False),
-            ("Username", "username", False),
-            ("Password", "password", True),
+        add_tab("Datto RMM", "datto", [
+            ("API URL, e.g. https://vidal-api.centrastage.net", "api_url", False),
+            ("Bearer access token", "access_token", True),
         ])
-        add_tab("Azure VMs", "azure", [
-            ("Tenant ID", "tenant_id", False),
-            ("App/client ID", "client_id", False),
-            ("Client secret", "client_secret", True),
-            ("Subscription ID", "subscription_id", False),
+        add_tab("RocketCyber", "rocketcyber", [
+            ("Base URL", "base_url", False),
+            ("API key / bearer token", "api_key", True),
         ])
 
         def save():
@@ -4657,9 +4165,6 @@ class SentinelApp(tk.Tk):
             ("unifi_sites_table", "status", False),
             ("software_new_table", "name", False),
             ("software_all_table", "devices", True),
-            ("qualys_detections_table", "severity", False),
-            ("qualys_assets_table", "os", False),
-            ("azure_vms_table", "power", False),
         ]
         for attr, col, rev in sort_targets:
             tree = getattr(self, attr, None)
@@ -4903,7 +4408,7 @@ class SentinelApp(tk.Tk):
             self.clear_table(self.intune_posture_table)
             for d in (m.get("unencrypted_devices", []) or [])[:300]:
                 self.insert_table_row(self.intune_posture_table, [
-                    "🔑  BitLocker / unencrypted",
+                    "🔑  Unencrypted",
                     "👤  " + str(d.get("name", "unknown")),
                     self._decorate_os_cell(d.get("os", "")),
                     d.get("user", ""),
@@ -4999,86 +4504,6 @@ class SentinelApp(tk.Tk):
                     ], tag=tag)
             else:
                 self.insert_table_row(self.unifi_notes_table, ["INFO", "No UniFi connector notes returned", ""], tag="info")
-
-
-        # Qualys focused tab, intentionally not promoted to Overview
-        if hasattr(self, "qualys_assets_table"):
-            q_assets = m.get("qualys_assets", []) or []
-            q_dets = m.get("qualys_detections", []) or []
-            if hasattr(self, "qualys_cards"):
-                for key, card in self.qualys_cards.items():
-                    val = m.get(key, len(q_assets) if key == "qualys_asset_count" else 0)
-                    card["value"].config(text=str(val), fg=card["base"] if int(val or 0) else MUTED)
-                    card["hint"].config(text="VMDR feed live" if q_assets or q_dets else "No Qualys rows returned yet", fg=card["base"] if q_assets or q_dets else MUTED)
-            if hasattr(self, "qualys_detections_table"):
-                self.clear_table(self.qualys_detections_table)
-                if not q_dets:
-                    self.insert_table_row(self.qualys_detections_table, ["INFO", "", "No Qualys sev 3/4/5 detections returned", "", "", "", "", ""], tag="info")
-                for d in q_dets[:1000]:
-                    sev = d.get("severity", "")
-                    self.insert_table_row(self.qualys_detections_table, [
-                        self._decorate_qualys_severity(sev),
-                        d.get("qid", ""),
-                        "◆  " + str(d.get("host", "unknown host")),
-                        d.get("ip", ""),
-                        d.get("status", "Active"),
-                        d.get("qds", ""),
-                        short_ts(d.get("last_found", "")),
-                        d.get("port", ""),
-                    ], tag=self._qualys_severity_tag(sev))
-            self.clear_table(self.qualys_assets_table)
-            if not q_assets:
-                self.insert_table_row(self.qualys_assets_table, ["", "", "No Qualys assets returned", "", ""], tag="info")
-            for a in q_assets[:1000]:
-                name = a.get("dns") or a.get("netbios") or "unknown asset"
-                tag = self._os_visual_tag(a.get("os", ""))
-                self.insert_table_row(self.qualys_assets_table, [
-                    a.get("id", ""),
-                    a.get("ip", ""),
-                    "◆  " + str(name),
-                    self._decorate_os_cell(a.get("os", "")),
-                    short_ts(a.get("last_scan", "")),
-                ], tag=tag)
-            if hasattr(self, "qualys_notes_table"):
-                self.clear_table(self.qualys_notes_table)
-                notes = m.get("qualys_notes", []) or []
-                if not notes:
-                    notes = ["Qualys connector has not returned notes yet."]
-                for note in notes[:50]:
-                    tag = "warn" if "failed" in str(note).lower() or "warning" in str(note).lower() else "info"
-                    self.insert_table_row(self.qualys_notes_table, ["INFO" if tag == "info" else "WARN", "◆  Qualys API", note], tag=tag)
-
-        # Azure focused tab, intentionally not promoted to Overview
-        if hasattr(self, "azure_vms_table"):
-            a_vms = m.get("azure_vms", []) or []
-            if hasattr(self, "azure_cards"):
-                for key, card in self.azure_cards.items():
-                    val = m.get(key, len(a_vms) if key == "azure_vm_count" else 0)
-                    card["value"].config(text=str(val), fg=card["base"] if int(val or 0) else MUTED)
-                    card["hint"].config(text="Azure ARM connector live" if a_vms else "No Azure VM rows returned yet", fg=card["base"] if a_vms else MUTED)
-            self.clear_table(self.azure_vms_table)
-            if not a_vms:
-                self.insert_table_row(self.azure_vms_table, ["No Azure VMs returned", "", "", "", "", "", "", ""], tag="info")
-            for vm in a_vms[:1000]:
-                power = vm.get("power", "not queried")
-                tag = self._azure_power_tag(power)
-                self.insert_table_row(self.azure_vms_table, [
-                    "☁  " + str(vm.get("name", "unknown vm")),
-                    self._decorate_azure_power(power),
-                    vm.get("resource_group", ""),
-                    vm.get("location", ""),
-                    vm.get("size", ""),
-                    self._decorate_os_cell(vm.get("os", "")),
-                    vm.get("image", ""),
-                    vm.get("provisioning", ""),
-                ], tag=tag)
-            if hasattr(self, "azure_notes_table"):
-                self.clear_table(self.azure_notes_table)
-                notes = m.get("azure_notes", []) or []
-                if not notes:
-                    notes = ["Azure connector has not returned notes yet."]
-                for note in notes[:50]:
-                    self.insert_table_row(self.azure_notes_table, ["INFO", "☁  Azure ARM", note], tag="info")
 
         # Software / change focused cards
         for key, card in self.focus_cards["software"].items():
