@@ -38,14 +38,14 @@ PANEL = "#091522"
 PANEL_2 = "#102033"
 TEXT = "#F4F8FC"
 MUTED = "#AFC1D4"
-BLUE = "#2FB8F6"
-GREEN = "#78E83C"
-AMBER = "#F1D85A"
-ORANGE = "#FF9E35"
-RED = "#F35D7D"
-PURPLE = "#AA88FF"
+BLUE = "#37D7FF"
+GREEN = "#7CFF4F"
+AMBER = "#FFE66D"
+ORANGE = "#FFB24A"
+RED = "#FF4F86"
+PURPLE = "#C096FF"
 GLASS = "#081421"
-HAIRLINE = "#29425D"
+HAIRLINE = "#2D5B82"
 GLASS_2 = "#0A1B2A"
 ROW_ALT = "#102235"
 
@@ -423,7 +423,7 @@ class MicrosoftGraphConnector:
         # Full paged Intune inventory and Graph security alerts.
         devices_url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=100"
         graph_alerts_url = "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=100"
-        graph_incidents_url = "https://graph.microsoft.com/v1.0/security/incidents?$top=100&$orderby=lastUpdateDateTime desc"
+        graph_incidents_url = "https://graph.microsoft.com/v1.0/security/incidents?$top=100"
         detected_apps_url = "https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$top=100"
         detected_apps_beta_url = "https://graph.microsoft.com/beta/deviceManagement/detectedApps?$top=100"
 
@@ -671,6 +671,13 @@ class MicrosoftGraphConnector:
                 "severity": "critical" if incident_high else "medium" if incident_active else "info",
                 "title": "Microsoft 365 Defender incidents live",
                 "detail": f"{len(incident_active)} active incident(s), {incident_resolved} resolved/closed returned, {len(incident_high)} high/critical active.",
+                "source": "Graph Incidents",
+            })
+        elif not graph_incident_error:
+            events.insert(1, {
+                "severity": "info",
+                "title": "Microsoft 365 Defender incidents query returned zero rows",
+                "detail": "Graph security/incidents responded successfully but returned no incidents for the current query window.",
                 "source": "Graph Incidents",
             })
 
@@ -1843,21 +1850,37 @@ class SentinelApp(tk.Tk):
         return shell, inner
 
 
-    def glow_icon(self, parent, icon, color, size=18, bg=None, glow_layers=3):
-        """Draw a lightweight glowing icon using stacked Tk labels.
+    def glow_icon(self, parent, icon, color, size=18, bg=None, glow_layers=5, halo=True):
+        """Dependency-free neon icon made from stacked Tk labels.
 
-        This stays dependency-free and PyInstaller-safe. It avoids Canvas circles,
-        so the icon reads as a clean luminous glyph rather than a badge.
+        Tkinter has no native blur/shadow, so this creates a convincing glow by
+        layering oversized glyphs behind a crisp white core. PyInstaller-safe.
         """
         try:
             bg = bg or parent.cget("bg")
         except Exception:
             bg = BG
 
-        wrap = tk.Frame(parent, bg=bg, width=size + 18, height=size + 18)
+        pad = max(18, int(size * 0.9))
+        wrap = tk.Frame(parent, bg=bg, width=size + pad, height=size + pad)
         wrap.pack_propagate(False)
 
-        glow_palette = ["#133A52", "#1F5B78", color]
+        if halo:
+            try:
+                halo_canvas = tk.Canvas(wrap, width=size + pad, height=size + pad, bg=bg, highlightthickness=0, bd=0)
+                halo_canvas.place(relx=0.5, rely=0.5, anchor="center")
+                cx = (size + pad) // 2
+                cy = (size + pad) // 2
+                for radius, outline in (
+                    (int(size * 0.95), "#0B2D44"),
+                    (int(size * 0.72), "#145071"),
+                    (int(size * 0.52), color),
+                ):
+                    halo_canvas.create_oval(cx-radius//2, cy-radius//2, cx+radius//2, cy+radius//2, outline=outline, width=1)
+            except Exception:
+                pass
+
+        glow_palette = ["#071C2D", "#0B3852", "#14688A", color, color]
         for idx in range(max(1, glow_layers)):
             layer_color = glow_palette[min(idx, len(glow_palette) - 1)]
             lbl = tk.Label(
@@ -1871,18 +1894,28 @@ class SentinelApp(tk.Tk):
             )
             lbl.place(relx=0.5, rely=0.5, anchor="center")
 
-        main = tk.Label(
+        core = tk.Label(
             wrap,
             text=icon,
             bg=bg,
-            fg="#F7FBFF",
+            fg="#FFFFFF",
             font=(self.font_ui, size, "bold"),
             bd=0,
             highlightthickness=0,
         )
-        main.place(relx=0.5, rely=0.5, anchor="center")
-        wrap.icon_label = main
+        core.place(relx=0.5, rely=0.5, anchor="center")
+        wrap.icon_label = core
         return wrap
+
+    def glow_title(self, parent, icon, text, color, bg=None, font_size=20):
+        try:
+            bg = bg or parent.cget("bg")
+        except Exception:
+            bg = BG
+        row = tk.Frame(parent, bg=bg)
+        self.glow_icon(row, icon, color, size=font_size, bg=bg).pack(side="left", padx=(0, 10))
+        tk.Label(row, text=text, bg=bg, fg=TEXT, font=(self.font_display, font_size, "bold")).pack(side="left")
+        return row
 
     def _setup_style(self):
         style = ttk.Style()
@@ -2469,17 +2502,17 @@ class SentinelApp(tk.Tk):
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FF7D97", background="#241526")
-                tree.tag_configure("high", foreground="#FFB96C", background="#221D25")
-                tree.tag_configure("warn", foreground="#FFE16A", background="#1D2531")
-                tree.tag_configure("good", foreground="#88FF8A", background="#0B2A25")
-                tree.tag_configure("info", foreground="#65D6FF", background="#09243A")
-                tree.tag_configure("alt", foreground="#DCEBFA", background="#0B2033")
-                tree.tag_configure("sev_critical", foreground="#FF7895", background="#241526")
-                tree.tag_configure("sev_high", foreground="#FFB66B", background="#221D25")
-                tree.tag_configure("sev_medium", foreground="#FFE36E", background="#1D2531")
-                tree.tag_configure("sev_info", foreground="#65D1FF", background="#092235")
-                tree.tag_configure("sev_low", foreground="#8DFF82", background="#0B2A25")
+                tree.tag_configure("bad", foreground="#FF6F9E", background="#2A0C20")
+                tree.tag_configure("high", foreground="#FFBC5E", background="#2A190B")
+                tree.tag_configure("warn", foreground="#FFE96B", background="#26210A")
+                tree.tag_configure("good", foreground="#8CFF6E", background="#092718")
+                tree.tag_configure("info", foreground="#67E4FF", background="#071F35")
+                tree.tag_configure("alt", foreground="#E5F4FF", background="#0A1D30")
+                tree.tag_configure("sev_critical", foreground="#FF6F9E", background="#2A0C20")
+                tree.tag_configure("sev_high", foreground="#FFBC5E", background="#2A190B")
+                tree.tag_configure("sev_medium", foreground="#FFE96B", background="#26210A")
+                tree.tag_configure("sev_info", foreground="#67E4FF", background="#071F35")
+                tree.tag_configure("sev_low", foreground="#8CFF6E", background="#092718")
                 tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
                 tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
                 tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
@@ -2566,7 +2599,7 @@ class SentinelApp(tk.Tk):
                 canvas,
                 text=label,
                 bg="#111925",
-                fg=MUTED,
+                fg="#8EDCFF",
                 font=(self.font_ui, 10, "bold"),
                 padx=0,
                 pady=0,
@@ -2576,8 +2609,8 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas, w=tab_w):
                 c.delete("panel")
-                bg = "#223147" if active else "#111925"
-                border = BLUE if active else HAIRLINE
+                bg = "#173A56" if active else "#0A1A2A"
+                border = "#5FE8FF" if active else "#234965"
                 pts = self._rounded_points(2, 2, w-2, 36, 16)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
                 c.tag_lower("panel")
@@ -2613,7 +2646,7 @@ class SentinelApp(tk.Tk):
                 canvas,
                 text=label,
                 bg="#111925",
-                fg=MUTED,
+                fg="#8EDCFF",
                 font=(self.font_ui, 9, "bold"),
                 cursor="hand2"
             )
@@ -2621,8 +2654,8 @@ class SentinelApp(tk.Tk):
 
             def draw(active=False, c=canvas, b=btn, w=width):
                 c.delete("panel")
-                bg = "#223147" if active else "#111925"
-                border = BLUE if active else HAIRLINE
+                bg = "#173A56" if active else "#0A1A2A"
+                border = "#5FE8FF" if active else "#234965"
                 pts = self._rounded_points(2, 2, w - 2, 32, 14)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.3, tags="panel")
                 c.tag_lower("panel")
@@ -2796,7 +2829,7 @@ class SentinelApp(tk.Tk):
             return ""
         upper = raw.upper()
         aliases = {
-            "CRITICAL": "CRIT",
+            "CRITICAL": "CRITICAL",
             "RESOLVED/CLOSED": "RESOLVED/CLOSED",
             "NONCOMPLIANT": "NONCOMPLIANT",
             "NON-COMPLIANT": "NONCOMPLIANT",
@@ -2806,6 +2839,7 @@ class SentinelApp(tk.Tk):
             "VISIBLE": "VISIBLE",
             "ACTIVE": "ACTIVE",
             "INFO": "INFO",
+            "INFORMATIONAL": "INFO",
             "MEDIUM": "MEDIUM",
             "HIGH": "HIGH",
             "LOW": "LOW",
@@ -2815,10 +2849,27 @@ class SentinelApp(tk.Tk):
             "THROTTLED": "THROTTLED",
         }
         label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
-        # Tk's native Treeview cannot host real rounded widgets per cell, so we
-        # use a compact capsule glyph. Row tags supply the colour; the token keeps
-        # the cell readable as a pill instead of noisy emoji confetti.
-        return f"  ● {label}  "
+        icon = {
+            "CRITICAL": "◆",
+            "HIGH": "▲",
+            "MEDIUM": "●",
+            "LOW": "•",
+            "INFO": "✦",
+            "INFORMATIONAL": "✦",
+            "ACTIVE": "●",
+            "RESOLVED/CLOSED": "✓",
+            "COMPLIANT": "✓",
+            "NONCOMPLIANT": "▲",
+            "NON-COMPLIANT": "▲",
+            "HEALTHY": "✓",
+            "DEGRADED": "▲",
+            "VISIBLE": "◇",
+            "OK": "✓",
+            "GOOD": "✓",
+            "CHECK": "◇",
+            "THROTTLED": "⏱",
+        }.get(upper, "✦")
+        return f"  {icon} {label}  "
 
     def _should_bubble_column(self, tree, column_key, index, value):
         key = str(column_key).lower()
@@ -2908,8 +2959,10 @@ class SentinelApp(tk.Tk):
     def _source_icon_label(self, source):
         raw = str(source or "")
         low = raw.lower()
+        if "incident" in low:
+            return "☄  " + raw
         if "unifi" in low:
-            return "📶  " + raw
+            return "📡  " + raw
         if "defender" in low:
             return "🛡  " + raw
         if "intune" in low or "microsoft graph" in low or "graph security" in low:
@@ -2920,7 +2973,7 @@ class SentinelApp(tk.Tk):
             return "◆  " + raw
         if "datto" in low:
             return "◇  " + raw
-        return "•  " + raw
+        return "✦  " + raw
 
     def _event_visual_tag(self, severity, source, title, detail):
         text = " ".join(str(x).lower() for x in (severity, source, title, detail))
@@ -4099,7 +4152,7 @@ class SentinelApp(tk.Tk):
         rows = []
         for row in payload.get("alert_rows", []) or []:
             source = str(row.get("source", ""))
-            if "defender" in source.lower():
+            if "defender" in source.lower() or "incident" in source.lower() or "graph incidents" in source.lower():
                 rows.append(row)
 
         sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
@@ -4404,7 +4457,7 @@ class SentinelApp(tk.Tk):
             elif key == "graph_alerts":
                 count = int(m.get("graph_alerts", 0) or 0)
                 color = PURPLE if count > 0 else GREEN
-                hint = "Graph / MDO active context"
+                hint = "Graph / M365 active context"
             else:
                 color, hint = BLUE, "live"
             card["value"].config(fg=color)
