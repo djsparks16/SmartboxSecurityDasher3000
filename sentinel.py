@@ -212,7 +212,7 @@ class Config:
 
 class Http:
     @staticmethod
-    def request(method, url, headers=None, body=None, timeout=12):
+    def request(method, url, headers=None, body=None, timeout=45):
         headers = headers or {}
         data = None
         if isinstance(body, dict):
@@ -567,7 +567,7 @@ class MicrosoftGraphConnector:
         defender_alerts_url = f"{defender_base}/api/alerts?$top=200"
         defender_machines_url = f"{defender_base}/api/machines?$top=100"
         defender_recommendations_url = f"{defender_base}/api/recommendations?$top=100"
-        defender_vulnerabilities_url = f"{defender_base}/api/vulnerabilities?$top=100"
+        defender_vulnerabilities_url = f"{defender_base}/api/vulnerabilities?$top=50"
 
         devices = []
         graph_alerts = []
@@ -686,7 +686,7 @@ class MicrosoftGraphConnector:
             defender_alerts = self.defender_get_all(defender_alerts_url, headers=defender_headers, max_pages=20)
             defender_machines, defender_machine_error = self.defender_get_optional(defender_machines_url, defender_headers, "machines", max_pages=5)
             defender_recommendations, defender_recommendation_error = self.defender_get_optional(defender_recommendations_url, defender_headers, "recommendations", max_pages=5)
-            defender_vulnerabilities, defender_vulnerability_error = self.defender_get_optional(defender_vulnerabilities_url, defender_headers, "vulnerabilities", max_pages=5)
+            defender_vulnerabilities, defender_vulnerability_error = self.defender_get_optional(defender_vulnerabilities_url, defender_headers, "vulnerabilities", max_pages=10)
         except Exception as e:
             defender_alert_error = str(e)
             hint = defender_alert_error[:180]
@@ -3166,7 +3166,7 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: (self.nav_to(self.tab_defender, "Defender view"), self.after(80, lambda: self._select_defender_subtab_by_name("defender view"))), BLUE)
+        # Defender view removed from sidebar; use Defender top tab instead.
         self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: (self.nav_to(self.tab_defender, "Incidents & alerts"), self.after(80, lambda: self._select_defender_subtab_by_name("alert focus"))), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal feed"), PURPLE)
         self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Security recommendations"), ORANGE)
@@ -8709,6 +8709,8 @@ class SentinelApp(tk.Tk):
             self._repair_clean_outer_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
+            self._final_live_table_repair()
+            self._repair_defender_clear_after_event_cleanup()
             self._force_overview_house_icon()
             self._force_hover_grow_everywhere()
             self._collapse_overview_dead_strip()
@@ -9407,6 +9409,291 @@ class SentinelApp(tk.Tk):
         for app in (m.get("detected_apps", []) or [])[:250]:
             sw_lines.append(f"{app.get('displayName','Unknown app'):<45} | {app.get('version',''):<18} | {app.get('publisher',''):<28} | devices {app.get('deviceCount', 0)}")
         self.set_text_widget(self.software_text, "\n".join(sw_lines))
+
+
+
+
+    def _is_active_security_row(self, row):
+        """Only live active rows should drive Defender ACTION state."""
+        try:
+            status = str(row.get("status", "")).lower()
+            detail = str(row.get("detail", "")).lower()
+            title = str(row.get("title", "")).lower()
+
+            joined = " ".join([status, detail, title])
+
+            if any(x in joined for x in ("resolved", "closed", "remediated", "0 active defender alert")):
+                return False
+
+            if any(x in joined for x in ("active", "new", "inprogress", "in progress")):
+                return True
+
+            return False
+        except Exception:
+            return False
+
+    def _repair_defender_clear_after_event_cleanup(self):
+        """After Defender events are cleared, stop cached/resolved rows driving ACTION."""
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) or {}
+            rows = payload.get("alert_rows", []) or []
+
+            active_rows = []
+            for r in rows:
+                joined = " ".join([
+                    str(r.get("source", "")),
+                    str(r.get("title", "")),
+                    str(r.get("detail", "")),
+                ]).lower()
+                if not any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages")):
+                    continue
+                if self._is_active_security_row(r):
+                    active_rows.append(r)
+
+            active_count = len(active_rows)
+            high_count = 0
+            for r in active_rows:
+                sev = str(r.get("severity", "")).lower()
+                if sev in ("high", "critical"):
+                    high_count += 1
+
+            # If no live active rows, override stale/cache-driven ACTION.
+            if active_count == 0 and high_count == 0:
+                metrics["active_alerts"] = 0
+                metrics["defender_alerts"] = 0
+                metrics["defender_high"] = 0
+                metrics["defender_critical"] = 0
+
+                # Keep M365 historical count visible, but do not let it drive ACTION.
+                for key in ("graph_incidents", "m365_incidents"):
+                    if key in metrics and str(metrics.get(key)).isdigit():
+                        pass
+
+                # Defender tab cards.
+                try:
+                    self._set_focus_value_safe("defender", "priority_state", "CLEAR", "No active Defender alerts currently driving priority.", GREEN)
+                    self._set_focus_value_safe("defender", "defender_alerts", 0, "Defender active alerts", GREEN)
+                except Exception:
+                    pass
+
+                # Overview hero/card labels by visible text.
+                try:
+                    for w in self.winfo_children():
+                        pass
+                except Exception:
+                    pass
+
+                def walk(widget):
+                    try:
+                        for child in widget.winfo_children():
+                            try:
+                                txt = str(child.cget("text"))
+                                if txt in ("DEFENDER ACTION", "ACTION") and child.winfo_ismapped():
+                                    # Only rewrite Defender priority/card values, not Intune/UniFi action text.
+                                    parent_text = " ".join(
+                                        str(c.cget("text")) for c in child.master.winfo_children()
+                                        if hasattr(c, "cget")
+                                    )
+                                    if "Defender" in parent_text or "Defender priority" in parent_text:
+                                        child.configure(text="DEFENDER CLEAR" if txt == "DEFENDER ACTION" else "OK", fg=GREEN)
+                                elif "active Defender alert(s) need triage" in txt:
+                                    child.configure(text="No active Defender alerts currently driving priority.")
+                            except Exception:
+                                pass
+                            walk(child)
+                    except Exception:
+                        pass
+
+                walk(self)
+
+                # Incidents table: keep resolved context rows, but no longer mark them as action.
+                tree = getattr(self, "overview_defender_table", None) or getattr(self, "defender_alerts_table", None)
+                if tree is not None:
+                    try:
+                        for item in tree.get_children():
+                            vals = list(tree.item(item, "values"))
+                            joined = " ".join(str(v) for v in vals).lower()
+                            if "resolved" in joined or "closed" in joined or "0 active defender" in joined:
+                                tree.item(item, tags=("done",))
+                    except Exception:
+                        pass
+
+            # Store corrected metrics back into the payload.
+            try:
+                payload["metrics"] = metrics
+                self.last_payload = payload
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+    def _final_live_table_repair(self):
+        """Final render pass after legacy render code.
+
+        This runs after all normal render paths, so notes/software/vulnerability
+        tables cannot be cleared by an older branch and left empty.
+        All rows below are either real API rows or explicit live diagnostic rows.
+        """
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) or {}
+            rows = payload.get("alert_rows", []) or []
+
+            def clear(tree):
+                try:
+                    for item in tree.get_children():
+                        tree.delete(item)
+                except Exception:
+                    pass
+
+            def insert(tree, vals, tag="info"):
+                try:
+                    try:
+                        self._apply_extra_table_tags(tree)
+                    except Exception:
+                        pass
+                    cols = list(tree["columns"])
+                    vals = list(vals)
+                    if len(vals) < len(cols):
+                        vals += [""] * (len(cols) - len(vals))
+                    elif len(vals) > len(cols):
+                        vals = vals[:len(cols)]
+                    tree.insert("", "end", values=vals, tags=(tag,))
+                except Exception:
+                    pass
+
+            vuln_tree = getattr(self, "defender_vulnerabilities_table", None)
+            if vuln_tree is not None:
+                clear(vuln_tree)
+                vulns = metrics.get("defender_vulnerability_rows", []) or []
+                for v in vulns[:1000]:
+                    sev = str(v.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, "Defender Vulnerabilities", v.get("id", ""), v.get("detail", ""))
+                    insert(vuln_tree, [
+                        "◆  " + str(v.get("id", "")),
+                        self._bubble_token(sev or "INFO", "severity"),
+                        v.get("cvss", ""),
+                        short_ts(v.get("published", "")),
+                        short_ts(v.get("updated", "")),
+                        v.get("detail", ""),
+                    ], tag)
+                if not vulns:
+                    err = metrics.get("defender_vulnerability_error", "")
+                    count = int(metrics.get("defender_vulnerabilities", 0) or 0)
+                    detail = err or ("No vulnerability rows returned by Defender TVM in this poll." if count == 0 else f"{count} vulnerabilities counted, but no row payload was returned.")
+                    insert(vuln_tree, [
+                        "◆  No vulnerability rows",
+                        self._bubble_token("INFO", "severity"),
+                        "",
+                        "",
+                        "",
+                        detail[:500],
+                    ], "info")
+
+            unifi_notes = getattr(self, "unifi_notes_table", None)
+            if unifi_notes is not None:
+                clear(unifi_notes)
+                insert(unifi_notes, [
+                    self._bubble_token("INFO", "severity"),
+                    "Polling source",
+                    f"/v1/sites + /v1/devices + /v1/hosts; client probe: {metrics.get('unifi_client_note', 'not checked')}; traffic probe: {metrics.get('unifi_traffic_note', 'not checked')}",
+                ], "info")
+                insert(unifi_notes, [
+                    self._bubble_token("INFO", "severity"),
+                    "Site summary",
+                    f"{metrics.get('unifi_sites', 0)} site(s), {metrics.get('unifi_devices', 0)} device(s), {metrics.get('unifi_degraded_sites', 0)} degraded, {metrics.get('unifi_critical_sites', metrics.get('unifi_offline_sites', 0))} offline.",
+                ], "info")
+                uni_rows = [r for r in rows if str(r.get("source", "")).lower() == "unifi"]
+                for r in uni_rows[:250]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, "UniFi", r.get("title", ""), r.get("detail", ""))
+                    insert(unifi_notes, [
+                        self._bubble_token(sev, "severity"),
+                        "📶  " + str(r.get("title", "")),
+                        r.get("detail", ""),
+                    ], tag)
+                if not uni_rows:
+                    insert(unifi_notes, [
+                        self._bubble_token("INFO", "severity"),
+                        "No UniFi alert rows",
+                        "No UniFi alert/event rows were returned in this poll. Site health rows are shown in the Sites subtab.",
+                    ], "info")
+
+            detected = (
+                metrics.get("detected_apps", [])
+                or metrics.get("software_all", [])
+                or metrics.get("detected_apps_rows", [])
+                or metrics.get("software_rows", [])
+                or []
+            )
+            new_apps = metrics.get("new_software", []) or metrics.get("new_apps", []) or []
+
+            sw_all = getattr(self, "software_all_table", None)
+            if sw_all is not None:
+                clear(sw_all)
+                for app in detected[:20000]:
+                    insert(sw_all, [
+                        "▤  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                        app.get("version") or app.get("softwareVersion") or "",
+                        app.get("publisher") or app.get("vendor") or "",
+                        app.get("deviceCount") or app.get("devices") or app.get("machineCount") or 0,
+                    ], "info")
+                if not detected:
+                    insert(sw_all, [
+                        "▤  Detected apps count",
+                        metrics.get("detected_apps_source", ""),
+                        metrics.get("detected_apps_error", "") or "No software row payload returned in this poll.",
+                        metrics.get("detected_app_count", 0),
+                    ], "info")
+
+            sw_new = getattr(self, "software_new_table", None)
+            if sw_new is not None:
+                clear(sw_new)
+                for app in new_apps[:5000]:
+                    insert(sw_new, [
+                        "✦  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                        app.get("version") or app.get("softwareVersion") or "",
+                        app.get("publisher") or app.get("vendor") or "",
+                        app.get("deviceCount") or app.get("devices") or app.get("machineCount") or 0,
+                    ], "warn")
+                if not new_apps:
+                    insert(sw_new, [
+                        "✦  No newly observed software",
+                        "",
+                        "Baseline unchanged",
+                        metrics.get("new_software_count", 0),
+                    ], "good")
+
+            if hasattr(self, "software_text"):
+                lines = [
+                    "Software detection notes",
+                    "-" * 90,
+                    f"Detected apps: {metrics.get('detected_app_count', 0)}",
+                    f"Inventory source: {metrics.get('detected_apps_source', 'unknown')}",
+                    f"Newly observed: {metrics.get('new_software_count', 0)}",
+                    f"Status: {metrics.get('software_issue_state', 'ok')}",
+                    "",
+                    "Connector detail",
+                    "-" * 90,
+                    metrics.get("detected_apps_error", "") or "No detectedApps error reported in the latest poll.",
+                ]
+                self.set_text_widget(self.software_text, "\n".join(lines))
+        except Exception as e:
+            try:
+                self.status_var.set(f"Final table repair warning: {e}")
+            except Exception:
+                pass
+
+
+        try:
+            self._final_live_table_repair()
+            self._repair_defender_clear_after_event_cleanup()
+            self.after(250, self._final_live_table_repair)
+            self.after(300, self._repair_defender_clear_after_event_cleanup)
+        except Exception:
+            pass
 
 
     def draw_spark(self):
