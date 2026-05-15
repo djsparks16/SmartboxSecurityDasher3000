@@ -2244,7 +2244,7 @@ class SentinelApp(tk.Tk):
         self.feed_canvas = None
 
         self.security_posture_strip = tk.Frame(left, bg=BG)
-        self.security_posture_strip.pack(fill="x", pady=(6, 10))
+        self.security_posture_strip.pack(fill="x", pady=(8, 12))
         self.posture_labels = {}
         for label, key, color, icon in [
             ("Stale 30+ days", "stale_30_count", BLUE, "🥖"),
@@ -2253,15 +2253,17 @@ class SentinelApp(tk.Tk):
             ("Degraded sites", "unifi_degraded_sites", ORANGE, "⚠"),
         ]:
             shell, panel = self.rounded_panel(self.security_posture_strip, fill=GLASS, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=134)
+            shell.configure(height=144)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
             body_row.pack(fill="both", expand=True, padx=20, pady=15)
-            badge = tk.Canvas(body_row, width=50, height=50, bg=GLASS, highlightthickness=0, bd=0)
-            badge.pack(side="left", padx=(0, 16))
-            badge.create_oval(3, 3, 47, 47, fill="#0D1A28", outline=color, width=1.5)
-            badge.create_text(25, 25, text=icon, fill=color, font=(self.font_ui, 18, "bold"))
+            badge = tk.Canvas(body_row, width=58, height=58, bg=GLASS, highlightthickness=0, bd=0)
+            badge.pack(side="left", padx=(0, 18))
+            # V21: clean glyph-only posture icons, no circular wrappers.
+            # A soft shadow gives the glow without boxing the symbol in.
+            badge.create_text(31, 31, text=icon, fill="#07121E", font=(self.font_ui, 29, "bold"))
+            badge.create_text(29, 29, text=icon, fill=color, font=(self.font_ui, 27, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
             tk.Label(text_col, text=label, bg=GLASS, fg="#D7E7F7", font=(self.font_ui, 10, "bold")).pack(anchor="w")
@@ -2272,8 +2274,8 @@ class SentinelApp(tk.Tk):
                 "Degraded sites": "UniFi site health",
             }.get(label, "live posture")
             tk.Label(text_col, text=subcopy + "  ->", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 7, "bold")).pack(anchor="w", pady=(1, 0))
-            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 24, "bold"))
-            val.pack(anchor="w", pady=(0, 0))
+            val = tk.Label(text_col, text="--", bg=GLASS, fg=color, font=(self.font_display, 25, "bold"))
+            val.pack(anchor="w", pady=(2, 0))
             self.posture_labels[key] = val
 
         cards = tk.Frame(left, bg=BG)
@@ -2476,7 +2478,7 @@ class SentinelApp(tk.Tk):
         footer = tk.Frame(shell, bg=BG)
         footer.pack_forget()  # hidden to match the one-screen SOC console reference
         tk.Label(footer, textvariable=self.status_var, bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(side="left")
-        tk.Label(footer, text="V20 cinematic SOC theme • semantic glow tables • Defender, Intune, UniFi, Software, Qualys and Azure. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 10)).pack(side="right")
+        tk.Label(footer, text="V21 SOC theme • semantic glow tables • Defender, Intune, UniFi, Software, Qualys and Azure. No simulated telemetry.", bg=BG, fg="#526078", font=(self.font_ui, 10)).pack(side="right")
 
 
     def _enforce_soc_console_overview(self):
@@ -2569,6 +2571,8 @@ class SentinelApp(tk.Tk):
             "intune_noncompliant_table", "intune_stale_table", "intune_posture_table",
             "unifi_sites_table", "unifi_notes_table",
             "software_new_table", "software_all_table",
+            "qualys_detections_table", "qualys_assets_table", "qualys_notes_table",
+            "azure_vms_table", "azure_notes_table",
         ):
             tree = getattr(self, tree_name, None)
             if tree is None:
@@ -3020,11 +3024,11 @@ class SentinelApp(tk.Tk):
         except Exception:
             n = 0
         if role == "online":
-            return self._semantic_glow_icon("●", str(n)) if n else "0"
+            return self._semantic_glow_icon("✓", str(n)) if n else "0"
         if role == "degraded":
             return self._semantic_glow_icon("⚠", str(n)) if n else "0"
         if role == "offline":
-            return self._semantic_glow_icon("◆", str(n)) if n else "0"
+            return self._semantic_glow_icon("✕", str(n)) if n else "0"
         return str(n)
 
     def _intune_row_tag(self, row_type, os_value=None):
@@ -3418,7 +3422,7 @@ class SentinelApp(tk.Tk):
         # Qualys tab
         qualys_wrap = tk.Frame(self.tab_qualys, bg=BG)
         qualys_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(qualys_wrap, text="🛡Q  Qualys VMDR", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        tk.Label(qualys_wrap, text="🛡 Q  Qualys VMDR", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
         tk.Label(qualys_wrap, text="Sev 3/4/5 VM detections and host inventory. Kept away from the Overview headline until you choose to promote it.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
         qrow = tk.Frame(qualys_wrap, bg=BG)
         qrow.pack(fill="x")
@@ -3430,14 +3434,14 @@ class SentinelApp(tk.Tk):
             ("Sev 3 medium", "qualys_sev3", AMBER),
         ]:
             shell, panel = self.rounded_panel(qrow, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=112)
+            shell.configure(height=132)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
             tk.Label(panel, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
             value = tk.Label(panel, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
             value.pack(anchor="w", padx=16, pady=(6, 2))
             hint = tk.Label(panel, text="Awaiting Qualys connector", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
-            hint.pack(anchor="w", padx=16, pady=(4, 12))
+            hint.pack(anchor="w", padx=16, pady=(4, 8))
             self.qualys_cards[key] = {"value": value, "hint": hint, "base": color}
 
         qualys_subtabs = tk.Frame(qualys_wrap, bg=BG)
@@ -3464,14 +3468,14 @@ class SentinelApp(tk.Tk):
             ("qds", "QDS", 80),
             ("last_found", "Last found", 160),
             ("port", "Port", 80),
-        ], height=28)
+        ], height=24)
         self.qualys_assets_table = self.table_panel(q_assets_tab, "Qualys host inventory", [
             ("id", "Asset ID", 120),
             ("ip", "IP", 150),
             ("name", "Name", 240),
             ("os", "OS", 240),
             ("last_scan", "Last scan", 180),
-        ], height=28)
+        ], height=24)
         self.qualys_notes_table = self.table_panel(q_notes_tab, "Qualys connector notes", [
             ("severity", "Severity", 100),
             ("finding", "Finding", 300),
@@ -3492,14 +3496,14 @@ class SentinelApp(tk.Tk):
             ("Stopped", "azure_stopped", AMBER),
         ]:
             shell, panel = self.rounded_panel(arow, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
-            shell.configure(height=112)
+            shell.configure(height=132)
             shell.pack_propagate(False)
             shell.pack(side="left", fill="x", expand=True, padx=6, pady=4)
             tk.Label(panel, text=title, bg=PANEL, fg=MUTED, font=(self.font_ui, 9, "bold")).pack(anchor="w", padx=16, pady=(14, 2))
             value = tk.Label(panel, text="--", bg=PANEL, fg=color, font=(self.font_display, 20, "bold"))
             value.pack(anchor="w", padx=16, pady=(6, 2))
             hint = tk.Label(panel, text="Awaiting Azure connector", bg=PANEL, fg="#8290A7", font=(self.font_ui, 9))
-            hint.pack(anchor="w", padx=16, pady=(4, 12))
+            hint.pack(anchor="w", padx=16, pady=(4, 8))
             self.azure_cards[key] = {"value": value, "hint": hint, "base": color}
 
         azure_subtabs = tk.Frame(azure_wrap, bg=BG)
@@ -3523,7 +3527,7 @@ class SentinelApp(tk.Tk):
             ("os", "OS", 100),
             ("image", "Image", 260),
             ("provisioning", "Provisioning", 140),
-        ], height=28)
+        ], height=24)
         self.azure_notes_table = self.table_panel(a_notes_tab, "Azure connector notes", [
             ("severity", "Severity", 100),
             ("finding", "Finding", 300),
@@ -4581,6 +4585,9 @@ class SentinelApp(tk.Tk):
             ("unifi_sites_table", "status", False),
             ("software_new_table", "name", False),
             ("software_all_table", "devices", True),
+            ("qualys_detections_table", "severity", False),
+            ("qualys_assets_table", "os", False),
+            ("azure_vms_table", "power", False),
         ]
         for attr, col, rev in sort_targets:
             tree = getattr(self, attr, None)
@@ -4824,7 +4831,7 @@ class SentinelApp(tk.Tk):
             self.clear_table(self.intune_posture_table)
             for d in (m.get("unencrypted_devices", []) or [])[:300]:
                 self.insert_table_row(self.intune_posture_table, [
-                    "🔑  Unencrypted",
+                    "🔑  BitLocker / unencrypted",
                     "👤  " + str(d.get("name", "unknown")),
                     self._decorate_os_cell(d.get("os", "")),
                     d.get("user", ""),
