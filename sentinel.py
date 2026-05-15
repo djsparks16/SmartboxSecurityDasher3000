@@ -337,7 +337,7 @@ class MicrosoftGraphConnector:
             str(incident.get("classification") or ""),
             str(incident.get("determination") or ""),
         ]).lower()
-        closed_words = ("resolved", "redirected", "closed", "remediated", "suppressed")
+        closed_words = ("resolved", "redirected", "closed", "suppressed")
         return not any(word in raw for word in closed_words)
 
     def incident_time(self, incident):
@@ -633,7 +633,7 @@ class MicrosoftGraphConnector:
                 "title": i.get("displayName") or i.get("incidentName") or "Microsoft 365 Defender incident",
                 "detail": " | ".join(detail_bits),
                 "timestamp": incident_ts,
-                "source": "Graph Incidents",
+                "source": "Microsoft 365 Defender",
             })
 
         for a in graph_active[:10]:
@@ -1528,6 +1528,7 @@ class TelemetryEngine(threading.Thread):
             status = "INFO"
         return {
             "source": source,
+            "type": "Incident" if "incident" in source.lower() else "Alert",
             "severity": severity,
             "title": title,
             "status": status,
@@ -1850,18 +1851,14 @@ class SentinelApp(tk.Tk):
         return shell, inner
 
 
-    def glow_icon(self, parent, icon, color, size=18, bg=None, glow_layers=5, halo=True):
-        """Dependency-free neon icon made from stacked Tk labels.
-
-        Tkinter has no native blur/shadow, so this creates a convincing glow by
-        layering oversized glyphs behind a crisp white core. PyInstaller-safe.
-        """
+    def glow_icon(self, parent, icon, color, size=18, bg=None, glow_layers=6, halo=True):
+        """Dependency-free neon icon made from layered Tk glyphs."""
         try:
             bg = bg or parent.cget("bg")
         except Exception:
             bg = BG
 
-        pad = max(18, int(size * 0.9))
+        pad = max(22, int(size * 1.15))
         wrap = tk.Frame(parent, bg=bg, width=size + pad, height=size + pad)
         wrap.pack_propagate(False)
 
@@ -1871,16 +1868,16 @@ class SentinelApp(tk.Tk):
                 halo_canvas.place(relx=0.5, rely=0.5, anchor="center")
                 cx = (size + pad) // 2
                 cy = (size + pad) // 2
-                for radius, outline in (
-                    (int(size * 0.95), "#0B2D44"),
-                    (int(size * 0.72), "#145071"),
-                    (int(size * 0.52), color),
+                for radius, outline, width in (
+                    (int(size * 1.08), "#061827", 1),
+                    (int(size * 0.86), "#113E5E", 1),
+                    (int(size * 0.66), color, 1),
                 ):
-                    halo_canvas.create_oval(cx-radius//2, cy-radius//2, cx+radius//2, cy+radius//2, outline=outline, width=1)
+                    halo_canvas.create_oval(cx-radius//2, cy-radius//2, cx+radius//2, cy+radius//2, outline=outline, width=width)
             except Exception:
                 pass
 
-        glow_palette = ["#071C2D", "#0B3852", "#14688A", color, color]
+        glow_palette = ["#04111E", "#08273D", "#0E4E73", "#1599C2", color, color]
         for idx in range(max(1, glow_layers)):
             layer_color = glow_palette[min(idx, len(glow_palette) - 1)]
             lbl = tk.Label(
@@ -1916,6 +1913,71 @@ class SentinelApp(tk.Tk):
         self.glow_icon(row, icon, color, size=font_size, bg=bg).pack(side="left", padx=(0, 10))
         tk.Label(row, text=text, bg=bg, fg=TEXT, font=(self.font_display, font_size, "bold")).pack(side="left")
         return row
+
+    def neon_button(self, parent, label, icon, command, color=BLUE, width=150, active=False):
+        shell = tk.Frame(parent, bg=BG, width=width, height=42)
+        shell.pack_propagate(False)
+        canvas = tk.Canvas(shell, bg=BG, width=width, height=42, highlightthickness=0, bd=0)
+        canvas.pack(fill="both", expand=True)
+        fill = "#102A42" if active else "#07192A"
+        border = color if active else "#21445E"
+        pts = self._rounded_points(2, 3, width - 2, 39, 14)
+        canvas.create_polygon(pts, smooth=True, splinesteps=18, fill=fill, outline=border, width=1.6)
+        canvas.create_line(14, 3, width - 18, 3, fill=color if active else "#183B55", width=1)
+        row = tk.Frame(canvas, bg=fill)
+        self.glow_icon(row, icon, color, size=14, bg=fill, halo=False).pack(side="left", padx=(8, 4))
+        tk.Label(row, text=label, bg=fill, fg="#F7FBFF" if active else "#9BE8FF", font=(self.font_ui, 9, "bold")).pack(side="left")
+        canvas.create_window(width // 2, 21, window=row, width=width - 14, height=32)
+        for w in (shell, canvas, row):
+            w.bind("<Button-1>", lambda e: command())
+            try:
+                w.configure(cursor="hand2")
+            except Exception:
+                pass
+        return shell
+
+    def neon_sidebar_item(self, parent, label, icon, command, color=BLUE, active=False):
+        row = tk.Frame(parent, bg="#071423", height=34)
+        row.pack(fill="x", padx=10, pady=2)
+        row.pack_propagate(False)
+        if active:
+            row.configure(bg="#0D2A44", highlightthickness=1, highlightbackground=color)
+        icon_w = self.glow_icon(row, icon, color, size=12, bg=row.cget("bg"), halo=False)
+        icon_w.pack(side="left", padx=(8, 6))
+        tk.Label(row, text=label, bg=row.cget("bg"), fg="#EAF7FF" if active else "#B9D7EB", font=(self.font_ui, 9, "bold"), anchor="w").pack(side="left", fill="x", expand=True)
+        for w in (row,):
+            w.bind("<Button-1>", lambda e: command())
+            try:
+                w.configure(cursor="hand2")
+            except Exception:
+                pass
+        return row
+
+    def neon_metric_tile(self, parent, title, value_key, icon, color, subtitle="", bucket="overview", width_pack=True):
+        shell, panel = self.rounded_panel(parent, fill="#071827", border=color, radius=18, padding=1)
+        shell.configure(height=138)
+        shell.pack_propagate(False)
+        if width_pack:
+            shell.pack(side="left", fill="x", expand=True, padx=6, pady=6)
+        else:
+            shell.pack(fill="x", padx=6, pady=6)
+
+        body = tk.Frame(panel, bg="#071827")
+        body.pack(fill="both", expand=True, padx=16, pady=12)
+        top = tk.Frame(body, bg="#071827")
+        top.pack(fill="x")
+        self.glow_icon(top, icon, color, size=24, bg="#071827").pack(side="left", padx=(0, 12))
+        title_box = tk.Frame(top, bg="#071827")
+        title_box.pack(side="left", fill="x", expand=True)
+        tk.Label(title_box, text=title.upper(), bg="#071827", fg="#CDEBFF", font=(self.font_ui, 9, "bold")).pack(anchor="w")
+        val = tk.Label(title_box, text="--", bg="#071827", fg=color, font=(self.font_display, 24, "bold"))
+        val.pack(anchor="w", pady=(6, 0))
+        hint = tk.Label(body, text=subtitle or "Live telemetry", bg="#071827", fg="#AFC9DE", font=(self.font_ui, 9), anchor="w")
+        hint.pack(fill="x", pady=(8, 0))
+        if not hasattr(self, "neon_tiles"):
+            self.neon_tiles = {}
+        self.neon_tiles[value_key] = {"value": val, "hint": hint, "base": color, "shell": shell, "panel": panel}
+        return shell
 
     def _setup_style(self):
         style = ttk.Style()
@@ -2000,11 +2062,19 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=18, pady=12)
+        shell.pack(fill="both", expand=True, padx=10, pady=10)
 
-        header = tk.Frame(shell, bg=BG)
+        main_shell = tk.Frame(shell, bg=BG)
+        main_shell.pack(fill="both", expand=True)
+
+        self._build_left_nav(main_shell)
+
+        content_shell = tk.Frame(main_shell, bg=BG)
+        content_shell.pack(side="left", fill="both", expand=True)
+
+        header = tk.Frame(content_shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security by Marc", bg=BG, fg=TEXT, font=(self.font_display, 27, "bold")).pack(side="left")
+        tk.Label(header, text="Smartbox Security Command Deck", bg=BG, fg=TEXT, font=(self.font_display, 25, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
         tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
@@ -2020,10 +2090,10 @@ class SentinelApp(tk.Tk):
 
         self.main_tab_names = []
         self.main_tab_buttons = {}
-        self.main_tab_bar = tk.Frame(shell, bg=BG)
+        self.main_tab_bar = tk.Frame(content_shell, bg=BG)
         self.main_tab_bar.pack(fill="x", pady=(10, 4))
 
-        self.main_tabs = ttk.Notebook(shell, style="MainHidden.TNotebook")
+        self.main_tabs = ttk.Notebook(content_shell, style="MainHidden.TNotebook")
         self.main_tabs.pack(fill="both", expand=True)
 
         self.tab_overview = tk.Frame(self.main_tabs, bg=BG)
@@ -2044,7 +2114,7 @@ class SentinelApp(tk.Tk):
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 8))
         tk.Label(self.overview_focus_bar, text="SOC COMMAND OVERVIEW", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
-        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender priority • Intune estate • Software drift • UniFi health • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
+        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender • Intune • Software • UniFi • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
         self.hero_strip.pack(fill="x", pady=(0, 8))
@@ -2282,7 +2352,7 @@ class SentinelApp(tk.Tk):
 
         defender_feed_header = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
         defender_feed_header.pack(fill="x", padx=14, pady=(6, 2))
-        tk.Label(defender_feed_header, text="🛡  Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 21, "bold")).pack(side="left")
+        tk.Label(defender_feed_header, text="🛡  Defender / Microsoft security incidents & alerts", bg=GLASS, fg=TEXT, font=(self.font_display, 21, "bold")).pack(side="left")
         self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="6 active Defender item(s)  •  0 high/critical  •  1 medium  •  click headers to sort", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold"))
         self.overview_defender_feed_summary.pack(side="right")
 
@@ -2576,56 +2646,95 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "hero_priority_shell"):
             self._make_clickable_recursive(self.hero_priority_shell, lambda: self.select_main_tab(self.tab_defender))
 
+    def _build_left_nav(self, shell):
+        """Left rail inspired by the generated SOC cockpit reference."""
+        self.left_nav_shell, self.left_nav = self.rounded_panel(shell, fill="#061321", border="#183A55", radius=16, padding=1)
+        self.left_nav_shell.configure(width=210)
+        self.left_nav_shell.pack(side="left", fill="y", padx=(0, 14), pady=(0, 0))
+        self.left_nav_shell.pack_propagate(False)
+
+        brand = tk.Frame(self.left_nav, bg="#061321")
+        brand.pack(fill="x", padx=10, pady=(12, 10))
+        self.glow_icon(brand, "🛡", BLUE, size=24, bg="#061321").pack(side="left", padx=(0, 8))
+        btxt = tk.Frame(brand, bg="#061321")
+        btxt.pack(side="left", fill="x", expand=True)
+        tk.Label(btxt, text="SMARTBOX", bg="#061321", fg=TEXT, font=(self.font_display, 15, "bold")).pack(anchor="w")
+        tk.Label(btxt, text="SECURITY BY MARC", bg="#061321", fg="#9FDFFF", font=(self.font_ui, 8, "bold")).pack(anchor="w")
+
+        def section(label, color=BLUE):
+            tk.Label(self.left_nav, text=label.upper(), bg="#061321", fg=color, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(12, 4))
+
+        section("Overview")
+        self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.select_main_tab(self.tab_overview), BLUE, True)
+
+        section("Microsoft Defender")
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.select_main_tab(self.tab_defender), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.select_main_tab(self.tab_defender), RED)
+        self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.select_main_tab(self.tab_defender), PURPLE)
+
+        section("Intune", PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Device posture", "👤", lambda: self.select_main_tab(self.tab_intune), PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Non-compliant", "▲", lambda: self.select_main_tab(self.tab_intune), AMBER)
+        self.neon_sidebar_item(self.left_nav, "Stale devices", "🔗", lambda: self.select_main_tab(self.tab_intune), BLUE)
+
+        section("UniFi", GREEN)
+        self.neon_sidebar_item(self.left_nav, "Sites overview", "📡", lambda: self.select_main_tab(self.tab_unifi), GREEN)
+        self.neon_sidebar_item(self.left_nav, "Alerts & events", "⚠", lambda: self.select_main_tab(self.tab_unifi), ORANGE)
+
+        section("Software", ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.select_main_tab(self.tab_software), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.select_main_tab(self.tab_software), AMBER)
+        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.select_main_tab(self.tab_software), RED)
+
+        spacer = tk.Frame(self.left_nav, bg="#061321")
+        spacer.pack(fill="both", expand=True)
+        status = tk.Frame(self.left_nav, bg="#061321")
+        status.pack(fill="x", padx=12, pady=12)
+        tk.Label(status, text="●", bg="#061321", fg=GREEN, font=(self.font_ui, 14, "bold")).pack(side="left")
+        tk.Label(status, text="Connected", bg="#061321", fg="#CFFFE8", font=(self.font_ui, 9, "bold")).pack(side="left", padx=(6, 0))
+
+
     def _build_main_tab_pills(self):
         for child in self.main_tab_bar.winfo_children():
             child.destroy()
         tabs = [
-            ("Overview", self.tab_overview),
-            ("🛡  Defender", self.tab_defender),
-            ("👤  Intune", self.tab_intune),
-            ("📶  UniFi", self.tab_unifi),
-            ("💾  Software", self.tab_software),
+            ("Overview", "⌂", self.tab_overview, BLUE),
+            ("Defender", "🛡", self.tab_defender, GREEN),
+            ("Intune", "👤", self.tab_intune, PURPLE),
+            ("UniFi", "📡", self.tab_unifi, BLUE),
+            ("Software", "💾", self.tab_software, ORANGE),
         ]
         self.main_tab_buttons = {}
-        for label, frame in tabs:
-            tab_w = 112 if label == "Overview" else 132
-            shell = tk.Frame(self.main_tab_bar, bg=BG, width=tab_w, height=38)
-            shell.pack(side="left", padx=(0, 8), pady=(0, 2))
-            shell.pack_propagate(False)
-
-            canvas = tk.Canvas(shell, bg=BG, highlightthickness=0, bd=0, width=tab_w, height=38)
-            canvas.pack(fill="both", expand=True)
-            btn = tk.Label(
-                canvas,
-                text=label,
-                bg="#111925",
-                fg="#8EDCFF",
-                font=(self.font_ui, 10, "bold"),
-                padx=0,
-                pady=0,
-                cursor="hand2"
-            )
-            win = canvas.create_window((tab_w // 2, 19), window=btn, width=tab_w - 8, height=30)
-
-            def draw(active=False, c=canvas, w=tab_w):
-                c.delete("panel")
-                bg = "#173A56" if active else "#0A1A2A"
-                border = "#5FE8FF" if active else "#234965"
-                pts = self._rounded_points(2, 2, w-2, 36, 16)
-                c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
-                c.tag_lower("panel")
-                btn.configure(bg=bg, fg="#F7FBFF" if active else "#8EDCFF")
-
-            for widget in (shell, canvas, btn):
-                widget.bind("<Button-1>", lambda e, f=frame: self.select_main_tab(f))
-            self.main_tab_buttons[frame] = {"shell": shell, "canvas": canvas, "label": btn, "draw": draw}
-            draw(active=False)
+        for label, icon, frame, color in tabs:
+            def go(f=frame):
+                self.select_main_tab(f)
+            shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=142, active=(frame == self.tab_overview))
+            shell.pack(side="left", padx=(0, 10), pady=(0, 4))
+            self.main_tab_buttons[frame] = {"shell": shell, "label": label, "icon": icon, "color": color}
         self.select_main_tab(self.tab_overview)
 
     def select_main_tab(self, frame):
         self.main_tabs.select(frame)
-        for tab_frame, parts in self.main_tab_buttons.items():
-            parts["draw"](active=(tab_frame == frame))
+        # Rebuild top pills so the selected tab receives a real neon border.
+        try:
+            for child in self.main_tab_bar.winfo_children():
+                child.destroy()
+            tabs = [
+                ("Overview", "⌂", self.tab_overview, BLUE),
+                ("Defender", "🛡", self.tab_defender, GREEN),
+                ("Intune", "👤", self.tab_intune, PURPLE),
+                ("UniFi", "📡", self.tab_unifi, BLUE),
+                ("Software", "💾", self.tab_software, ORANGE),
+            ]
+            self.main_tab_buttons = {}
+            for label, icon, tab_frame, color in tabs:
+                def go(f=tab_frame):
+                    self.select_main_tab(f)
+                shell = self.neon_button(self.main_tab_bar, label, icon, go, color=color, width=142, active=(tab_frame == frame))
+                shell.pack(side="left", padx=(0, 10), pady=(0, 4))
+                self.main_tab_buttons[tab_frame] = {"shell": shell, "label": label, "icon": icon, "color": color}
+        except Exception:
+            pass
 
     def _build_subtab_pills(self, bar, notebook, tabs):
         if not hasattr(self, "subtab_buttons"):
@@ -4181,7 +4290,7 @@ class SentinelApp(tk.Tk):
             tree.insert("", "end", values=(self._bubble_token(sev, "severity"), short_ts(row.get("timestamp", "")), title, self._bubble_token(row.get("status", "ACTIVE"), "status"), detail), tags=(tag,))
 
         if not rows:
-            tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "", "No active Defender alerts returned yet.", self._bubble_token("INFO", "status"), "Defender alert focus will populate from Defender for Endpoint events."), tags=("sev_info",))
+            tree.insert("", "end", values=(self._bubble_token("INFO", "severity"), "", "No active Defender alerts returned yet.", self._bubble_token("INFO", "status"), "Defender / Microsoft security incidents & alerts will populate from Defender for Endpoint events."), tags=("sev_info",))
 
     def render_overview_full_feed(self, payload):
         tree = getattr(self, "overview_full_feed_table", None)
@@ -4357,6 +4466,31 @@ class SentinelApp(tk.Tk):
         canvas.create_line(scan_x, 8, scan_x, h - 8, fill="#3DA6FF", dash=(3, 3))
         canvas.create_text(w - 8, 8, text="LIVE PULSE", anchor="ne", fill=color, font=(self.font_ui, 8, "bold"))
 
+    def sync_neon_tiles(self, metrics):
+        try:
+            if not hasattr(self, "neon_tiles"):
+                return
+            vals = {
+                "priority_state": metrics.get("priority_state", "CLEAR"),
+                "defender_alerts": metrics.get("defender_alerts", 0),
+                "graph_incidents": metrics.get("graph_incidents", 0),
+                "critical": metrics.get("critical", 0),
+                "devices": metrics.get("devices", 0),
+                "new_software_count": metrics.get("new_software_count", 0),
+                "unifi_sites": metrics.get("unifi_sites", 0),
+                "stale_30_count": metrics.get("stale_30_count", 0),
+                "unencrypted_count": metrics.get("unencrypted_count", 0),
+                "no_user_count": metrics.get("no_user_count", 0),
+                "unifi_degraded_sites": metrics.get("unifi_degraded_sites", 0),
+            }
+            for key, val in vals.items():
+                tile = self.neon_tiles.get(key)
+                if tile:
+                    tile["value"].configure(text=str(val))
+        except Exception:
+            pass
+
+
     def pulse_overview_status(self):
         if not hasattr(self, "overview_status"):
             return
@@ -4414,6 +4548,7 @@ class SentinelApp(tk.Tk):
 
     def render_focus_views(self, payload):
         m = payload.get("metrics", {})
+        self.sync_neon_tiles(m)
         rows = payload.get("alert_rows", []) or []
         events = payload.get("events", []) or []
 
