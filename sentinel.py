@@ -3918,7 +3918,7 @@ class SentinelApp(tk.Tk):
 
         platform = tk.Frame(intune_wrap, bg=PANEL, highlightthickness=1, highlightbackground=HAIRLINE)
         platform.pack(fill="x", padx=6, pady=6)
-        tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(anchor="w", padx=14, pady=(10, 8))
+        tk.Label(platform, text="Platform breakdown", bg=PANEL, fg=TEXT, font=(self.font_display, 14, "bold")).pack(anchor="w", padx=14, pady=(4, 6))
         self.intune_platform_focus = {}
         plat_row = tk.Frame(platform, bg=PANEL)
         plat_row.pack(fill="x", padx=6, pady=(0, 10))
@@ -6819,106 +6819,8 @@ class SentinelApp(tk.Tk):
         return 0
 
 
-    def _outer_outline_only(self, widget, color):
-        """Set only outer border/outline on a card-like widget."""
-        try:
-            widget.configure(highlightthickness=2, highlightbackground=color, highlightcolor=color)
-        except Exception:
-            pass
-        # Avoid inner nested outlines by zeroing child highlight thickness.
-        try:
-            for child in widget.winfo_children():
-                try:
-                    child.configure(highlightthickness=0)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    def _repair_overview_outer_outlines_only(self, metrics):
-        try:
-            cards = getattr(self, "overview_status", {}) or {}
-
-            states = {
-                "overview_defender": self._level_color("critical" if self._metric_count(metrics, "critical", "defender_critical", "defender_high") else "action" if (self._any_metric_count(metrics, "active_alerts", "defender_alerts") + self._any_metric_count(metrics, "graph_incidents", "m365_incidents")) else "good"),
-                "overview_intune": self._level_color("critical" if self._metric_count(metrics, "unencrypted_count") else "action" if (self._any_metric_count(metrics, "noncompliant", "noncompliant_count") + self._any_metric_count(metrics, "stale_30_count") + self._any_metric_count(metrics, "no_user_count")) else "good"),
-                "overview_unifi": self._level_color("critical" if self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites") else "action" if self._metric_count(metrics, "unifi_degraded_sites") else "good"),
-                "overview_software": self._level_color("action" if "throttle" in str(metrics.get("software_issue_state", "")).lower() else "good"),
-            }
-
-            for key, color in states.items():
-                card = cards.get(key)
-                if not card:
-                    continue
-                outer = card.get("shell") or card.get("panel") or card.get("frame")
-                if outer is not None:
-                    self._outer_outline_only(outer, color)
-
-            # Row 3 cards are often stored in posture_cards or focus_cards['overview'].
-            for store_name in ("posture_cards", "overview_posture_cards", "row3_cards"):
-                store = getattr(self, store_name, None)
-                if isinstance(store, dict):
-                    mapping = {
-                        "stale_30_count": ORANGE if self._metric_count(metrics, "stale_30_count") else GREEN,
-                        "unencrypted_count": RED if self._metric_count(metrics, "unencrypted_count") else GREEN,
-                        "no_user_count": AMBER if self._metric_count(metrics, "no_user_count") else GREEN,
-                        "unifi_degraded_sites": ORANGE if self._metric_count(metrics, "unifi_degraded_sites") else GREEN,
-                    }
-                    for k, color in mapping.items():
-                        card = store.get(k)
-                        if isinstance(card, dict):
-                            outer = card.get("shell") or card.get("panel") or card.get("frame")
-                        else:
-                            outer = card
-                        if outer is not None:
-                            self._outer_outline_only(outer, color)
-        except Exception:
-            pass
 
 
-    def _repair_overview_card_outlines(self, metrics):
-        """Dynamic card outlines: green good, orange action, red bad."""
-        try:
-            cards = getattr(self, "overview_status", {}) or {}
-            levels = {}
-
-            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
-            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
-            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
-            levels["overview_defender"] = "critical" if high else "action" if active or graph else "good"
-
-            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count")
-            stale = self._metric_count(metrics, "stale_30_count", "stale_count")
-            unenc = self._metric_count(metrics, "unencrypted_count")
-            no_user = self._metric_count(metrics, "no_user_count")
-            levels["overview_intune"] = "critical" if unenc else "action" if noncomp or stale or no_user else "good"
-
-            offline = self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites")
-            degraded = self._metric_count(metrics, "unifi_degraded_sites")
-            levels["overview_unifi"] = "critical" if offline else "action" if degraded else "good"
-
-            sw_issue = str(metrics.get("software_issue_state", metrics.get("software_state", ""))).lower()
-            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
-            levels["overview_software"] = "action" if "throttle" in sw_issue or new_sw else "good"
-
-            for key, level in levels.items():
-                card = cards.get(key)
-                if not card:
-                    continue
-                color = self._level_color(level)
-                for obj_key in ("shell", "panel", "frame"):
-                    obj = card.get(obj_key)
-                    if obj is not None:
-                        self._set_widget_outline(obj, color)
-                if card.get("value") is not None:
-                    try:
-                        card["value"].configure(fg=color)
-                    except Exception:
-                        pass
-                if card.get("dot") is not None:
-                    self._set_glow_icon_color(card["dot"], color)
-        except Exception:
-            pass
 
     def _focus_row_from_event(self, row):
         sev = str(row.get("severity", "INFO")).upper()
@@ -7316,54 +7218,6 @@ class SentinelApp(tk.Tk):
             pass
         return None
 
-    def _repair_hero_heartbeat_outlines(self, metrics):
-        """Hero and heartbeat outlines follow state: green good, orange action, red bad."""
-        try:
-            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
-            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
-            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
-
-            level = "critical" if high else "action" if active or graph else "good"
-            color = self._action_color_from_level(level)
-
-            # Try stored hero shells first.
-            for name in ("overview_priority_shell", "overview_hero_shell", "priority_shell", "hero_shell", "defender_priority_shell"):
-                w = getattr(self, name, None)
-                if w is not None:
-                    self._outline_widget_only(w, color, 2)
-
-            # Fallback: outline the parent card containing "Defender priority".
-            try:
-                label = self._find_text_widget(self.tab_overview, exact="Defender priority")
-                if label is not None:
-                    parent = label.master
-                    for _ in range(2):
-                        if parent is not None:
-                            self._outline_widget_only(parent, color, 2)
-                            parent = getattr(parent, "master", None)
-            except Exception:
-                pass
-
-            # Heartbeat outline: connected green, connecting orange.
-            connected = bool(metrics)
-            hb_color = GREEN if connected else ORANGE
-            for name in ("heartbeat_shell", "heartbeat_panel", "overview_heartbeat_shell", "overview_heartbeat_panel"):
-                w = getattr(self, name, None)
-                if w is not None:
-                    self._outline_widget_only(w, hb_color, 2)
-
-            try:
-                hb = self._find_text_widget(self.tab_overview, contains="Live heartbeat")
-                if hb is not None:
-                    parent = hb.master
-                    for _ in range(2):
-                        if parent is not None:
-                            self._outline_widget_only(parent, hb_color, 2)
-                            parent = getattr(parent, "master", None)
-            except Exception:
-                pass
-        except Exception:
-            pass
 
     def _is_action_focus_row(self, row):
         """Alert Focus = only rows that need triage, not resolved informational rows."""
@@ -7479,39 +7333,208 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
-    def _install_sidebar_hover_grow(self):
-        """Make sidebar icons feel alive on hover by enlarging the glyph label."""
+
+
+    def _nearest_card_shell(self, widget):
+        """Find the card-like outer shell for a label/widget without outlining inner labels."""
         try:
-            def bind_icon(lbl):
+            w = widget
+            best = None
+            for _ in range(8):
+                if w is None:
+                    break
+                # Card shells are usually frames/canvases with multiple children and dark panel bg.
                 try:
-                    txt = str(lbl.cget("text"))
-                    if not txt or len(txt) > 3:
-                        return
-                    base_font = lbl.cget("font")
-                    def enter(_e, w=lbl):
-                        try:
-                            w.configure(font=(self.font_ui, 15, "bold"))
-                        except Exception:
-                            pass
-                    def leave(_e, w=lbl):
-                        try:
-                            w.configure(font=base_font)
-                        except Exception:
-                            pass
-                    lbl.bind("<Enter>", enter, add="+")
-                    lbl.bind("<Leave>", leave, add="+")
+                    kids = w.winfo_children()
+                    bg = str(w.cget("bg")).lower()
+                    if len(kids) >= 2 and bg in (PANEL.lower(), BG2.lower(), "#071724", "#06131f"):
+                        best = w
                 except Exception:
                     pass
+                w = getattr(w, "master", None)
+            return best
+        except Exception:
+            return None
+
+    def _outer_outline_only(self, widget, color, thickness=2):
+        """Set only the outer border. Do not outline child labels or inner rows."""
+        try:
+            widget.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+
+    def _clear_inner_outlines(self, widget):
+        try:
+            for child in widget.winfo_children():
+                try:
+                    # Only child outlines removed, not the card shell itself.
+                    child.configure(highlightthickness=0)
+                except Exception:
+                    pass
+                try:
+                    self._clear_inner_outlines(child)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_clean_outer_outlines(self, metrics):
+        """Overview Row 1/2/3 coloured border on outer shell only."""
+        try:
+            def color_for(keys_bad=(), keys_action=()):
+                bad = sum(self._any_metric_count(metrics, *k) if isinstance(k, tuple) else self._any_metric_count(metrics, k) for k in keys_bad)
+                act = sum(self._any_metric_count(metrics, *k) if isinstance(k, tuple) else self._any_metric_count(metrics, k) for k in keys_action)
+                return RED if bad else ORANGE if act else GREEN
+
+            # Row 1 hero and heartbeat.
+            hero_color = color_for(
+                keys_bad=(("critical", "defender_critical", "defender_high"),),
+                keys_action=(("active_alerts", "defender_alerts"), ("graph_incidents", "m365_incidents")),
+            )
+            hb_color = GREEN if getattr(self, "last_payload", None) else ORANGE
+
+            for exact, color in (("Defender priority", hero_color), ("Live heartbeat", hb_color)):
+                lbl = self._find_text_widget(self.tab_overview, exact=exact) if hasattr(self, "_find_text_widget") else None
+                shell = self._nearest_card_shell(lbl) if lbl is not None else None
+                if shell is not None:
+                    self._outer_outline_only(shell, color, 2)
+                    self._clear_inner_outlines(shell)
+
+            # Row 2 action cards from overview_status shells.
+            cards = getattr(self, "overview_status", {}) or {}
+            state_colors = {
+                "overview_defender": color_for(
+                    keys_bad=(("critical", "defender_critical", "defender_high"),),
+                    keys_action=(("active_alerts", "defender_alerts"), ("graph_incidents", "m365_incidents")),
+                ),
+                "overview_intune": color_for(
+                    keys_bad=(("unencrypted_count",),),
+                    keys_action=(("noncompliant", "noncompliant_count"), ("stale_30_count",), ("no_user_count",)),
+                ),
+                "overview_unifi": color_for(
+                    keys_bad=(("unifi_critical_sites", "unifi_offline_sites"),),
+                    keys_action=(("unifi_degraded_sites",),),
+                ),
+                "overview_software": ORANGE if "throttle" in str(metrics.get("software_issue_state", "")).lower() else GREEN,
+            }
+            for key, color in state_colors.items():
+                card = cards.get(key)
+                if not card:
+                    continue
+                shell = card.get("shell") or card.get("outer") or card.get("frame") or card.get("panel")
+                if shell is not None:
+                    self._outer_outline_only(shell, color, 2)
+                    self._clear_inner_outlines(shell)
+
+            # Row 3 cards if stored.
+            row3_colors = {
+                "stale_30_count": ORANGE if self._any_metric_count(metrics, "stale_30_count") else GREEN,
+                "unencrypted_count": RED if self._any_metric_count(metrics, "unencrypted_count") else GREEN,
+                "no_user_count": ORANGE if self._any_metric_count(metrics, "no_user_count") else GREEN,
+                "unifi_degraded_sites": ORANGE if self._any_metric_count(metrics, "unifi_degraded_sites") else GREEN,
+            }
+            for store_name in ("posture_cards", "overview_posture_cards", "row3_cards"):
+                store = getattr(self, store_name, None)
+                if not isinstance(store, dict):
+                    continue
+                for key, color in row3_colors.items():
+                    card = store.get(key)
+                    shell = card.get("shell") or card.get("outer") or card.get("frame") or card.get("panel") if isinstance(card, dict) else card
+                    if shell is not None:
+                        self._outer_outline_only(shell, color, 2)
+                        self._clear_inner_outlines(shell)
+        except Exception:
+            pass
+
+    def _hide_blank_overview_top_strip(self):
+        """Remove the empty strip above Row 1 left behind by earlier header trimming."""
+        try:
+            # Hide blank labels/frames just above the overview hero.
+            def walk(parent):
+                for child in parent.winfo_children():
+                    try:
+                        txt = str(child.cget("text"))
+                        if txt.strip() == "":
+                            info = child.pack_info() if child.winfo_manager() == "pack" else {}
+                            # Only remove shallow blank labels, not canvases/cards.
+                            if child.winfo_class() == "Label":
+                                child.pack_forget()
+                    except Exception:
+                        pass
+                    try:
+                        walk(child)
+                    except Exception:
+                        pass
+            walk(self.tab_overview)
+        except Exception:
+            pass
+
+    def _enlarge_overview_row1(self):
+        """Give the hero row a little more vertical room after strip removal."""
+        try:
+            for phrase in ("Defender priority", "Live heartbeat"):
+                lbl = self._find_text_widget(self.tab_overview, exact=phrase) if hasattr(self, "_find_text_widget") else None
+                shell = self._nearest_card_shell(lbl) if lbl is not None else None
+                if shell is not None:
+                    try:
+                        shell.configure(height=max(shell.winfo_height(), 120))
+                        shell.pack_configure(pady=(0, 8))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _install_sidebar_hover_grow(self):
+        """Reliable hover grow for sidebar icons."""
+        try:
+            icon_labels = []
+
+            def looks_like_icon(lbl):
+                try:
+                    txt = str(lbl.cget("text")).strip()
+                    if not txt:
+                        return False
+                    # Emoji/glyph labels are short and not normal words.
+                    words = {"Overview", "Connected"}
+                    return len(txt) <= 3 and txt not in words
+                except Exception:
+                    return False
 
             def walk(w):
                 try:
-                    bind_icon(w)
+                    if looks_like_icon(w):
+                        icon_labels.append(w)
                     for child in w.winfo_children():
                         walk(child)
                 except Exception:
                     pass
 
             walk(self.left_nav)
+
+            for lbl in icon_labels:
+                try:
+                    base_font = lbl.cget("font")
+                    base_fg = lbl.cget("fg")
+                    def enter(_e, w=lbl):
+                        try:
+                            w.configure(font=(self.font_ui, 18, "bold"), fg="#FFFFFF")
+                        except Exception:
+                            pass
+                    def leave(_e, w=lbl, f=base_font, fg=base_fg):
+                        try:
+                            w.configure(font=f, fg=fg)
+                        except Exception:
+                            pass
+                    lbl.bind("<Enter>", enter, add="+")
+                    lbl.bind("<Leave>", leave, add="+")
+                    # Parent row hover should trigger icon too.
+                    try:
+                        lbl.master.bind("<Enter>", enter, add="+")
+                        lbl.master.bind("<Leave>", leave, add="+")
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -7533,11 +7556,13 @@ class SentinelApp(tk.Tk):
             self._repair_defender_enrichment_tables_live(metrics)
             self._repair_vulnerability_tab_only(metrics)
             self._paint_defender_focus_live(payload)
-            self._repair_overview_outer_outlines_only(metrics)
+            self._repair_clean_outer_outlines(metrics)
+            self._hide_blank_overview_top_strip()
+            self._enlarge_overview_row1()
             self._repair_software_tables_live(metrics)
             self._paint_defender_view_live(payload)
             self._paint_defender_focus_live(payload)
-            self._repair_hero_heartbeat_outlines(metrics)
+            self._repair_clean_outer_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
             self._install_sidebar_hover_grow()
