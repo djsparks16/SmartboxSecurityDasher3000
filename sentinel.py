@@ -2143,7 +2143,7 @@ class SentinelApp(tk.Tk):
                   background="#071827",
                   foreground="#F2F8FF",
                   fieldbackground="#071827",
-                  rowheight=34,
+                  rowheight=31,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 10))
@@ -2704,17 +2704,17 @@ class SentinelApp(tk.Tk):
             if tree is None:
                 continue
             try:
-                tree.tag_configure("bad", foreground="#FF6F9E", background="#2A0C20")
-                tree.tag_configure("high", foreground="#FFBC5E", background="#2A190B")
-                tree.tag_configure("warn", foreground="#FFE96B", background="#26210A")
-                tree.tag_configure("good", foreground="#8CFF6E", background="#092718")
-                tree.tag_configure("info", foreground="#67E4FF", background="#071F35")
+                tree.tag_configure("bad", foreground="#FF5C94", background="#2B071D")
+                tree.tag_configure("high", foreground="#FFC84A", background="#292304")
+                tree.tag_configure("warn", foreground="#FFE25A", background="#2A2604")
+                tree.tag_configure("good", foreground="#7DFF57", background="#07301B")
+                tree.tag_configure("info", foreground="#36CFFF", background="#08263E")
                 tree.tag_configure("alt", foreground="#E5F4FF", background="#0A1D30")
-                tree.tag_configure("sev_critical", foreground="#FF6F9E", background="#2A0C20")
-                tree.tag_configure("sev_high", foreground="#FFBC5E", background="#2A190B")
-                tree.tag_configure("sev_medium", foreground="#FFE96B", background="#26210A")
-                tree.tag_configure("sev_info", foreground="#67E4FF", background="#071F35")
-                tree.tag_configure("sev_low", foreground="#8CFF6E", background="#092718")
+                tree.tag_configure("sev_critical", foreground="#FF5C94", background="#2B071D")
+                tree.tag_configure("sev_high", foreground="#FFC84A", background="#292304")
+                tree.tag_configure("sev_medium", foreground="#FFE25A", background="#2A2604")
+                tree.tag_configure("sev_info", foreground="#36CFFF", background="#08263E")
+                tree.tag_configure("sev_low", foreground="#7DFF57", background="#07301B")
                 tree.tag_configure("os_windows", foreground="#65D1FF", background="#09233A")
                 tree.tag_configure("os_ios", foreground="#8DFF82", background="#0B2A25")
                 tree.tag_configure("os_macos", foreground="#C19BFF", background="#161D34")
@@ -2776,7 +2776,7 @@ class SentinelApp(tk.Tk):
 
         # The hero itself is a Defender shortcut.
         if hasattr(self, "hero_priority_shell"):
-            self._make_clickable_recursive(self.hero_priority_shell, lambda: self.select_main_tab(self.tab_defender))
+            self._make_clickable_recursive(self.hero_priority_shell, lambda: self.nav_to(self.tab_defender))
 
     def select_detail_tab(self, main_frame, sub_notebook=None, sub_frame=None):
         self.select_main_tab(main_frame)
@@ -2785,6 +2785,54 @@ class SentinelApp(tk.Tk):
                 self.select_subtab(sub_notebook, sub_frame)
         except Exception:
             pass
+
+
+
+    def _safe_select_subtab_by_text(self, notebook, wanted):
+        """Select a ttk.Notebook subtab by visible tab text, safely."""
+        try:
+            wanted_l = str(wanted or "").lower()
+            for tab_id in notebook.tabs():
+                txt = str(notebook.tab(tab_id, "text") or "").lower()
+                if wanted_l in txt:
+                    notebook.select(tab_id)
+                    try:
+                        self._sync_subtab_pills(notebook)
+                    except Exception:
+                        pass
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def nav_to(self, main_frame, subtab_text=None):
+        """Real sidebar navigation: main tab plus matching internal subtab."""
+        try:
+            self.select_main_tab(main_frame)
+            if subtab_text:
+                # Find the notebook inside the selected page and select the matching subtab.
+                for nb_name in (
+                    "defender_tabs", "intune_tabs", "unifi_tabs", "software_tabs",
+                    "sub_defender_tabs", "sub_intune_tabs", "sub_unifi_tabs", "sub_software_tabs",
+                ):
+                    nb = getattr(self, nb_name, None)
+                    if nb is not None and self._safe_select_subtab_by_text(nb, subtab_text):
+                        return
+                # Last resort: scan children for notebooks.
+                stack = list(main_frame.winfo_children())
+                while stack:
+                    w = stack.pop(0)
+                    if isinstance(w, ttk.Notebook) and self._safe_select_subtab_by_text(w, subtab_text):
+                        return
+                    try:
+                        stack.extend(w.winfo_children())
+                    except Exception:
+                        pass
+        except Exception as e:
+            try:
+                self.status_var.set(f"Navigation warning: {e}")
+            except Exception:
+                pass
 
 
     def _build_left_nav(self, shell):
@@ -2806,26 +2854,26 @@ class SentinelApp(tk.Tk):
             tk.Label(self.left_nav, text=label.upper(), bg="#061827", fg=color, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(12, 4))
 
         section("Overview")
-        self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.select_main_tab(self.tab_overview), BLUE, True)
+        self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.nav_to(self.tab_overview), BLUE, True)
 
         section("Microsoft Defender")
-        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.select_main_tab(self.tab_defender), BLUE)
-        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.select_main_tab(self.tab_defender), RED)
-        self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.select_main_tab(self.tab_defender), PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Security alerts"), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Security alerts"), RED)
+        self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal events"), PURPLE)
 
         section("Intune", PURPLE)
-        self.neon_sidebar_item(self.left_nav, "Device posture", "👤", lambda: self.select_main_tab(self.tab_intune), PURPLE)
-        self.neon_sidebar_item(self.left_nav, "Non-compliant", "▲", lambda: self.select_main_tab(self.tab_intune), AMBER)
-        self.neon_sidebar_item(self.left_nav, "Stale devices", "🔗", lambda: self.select_main_tab(self.tab_intune), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Device posture", "👤", lambda: self.nav_to(self.tab_intune, "Security posture"), PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Non-compliant", "▲", lambda: self.nav_to(self.tab_intune, "Non-compliant"), AMBER)
+        self.neon_sidebar_item(self.left_nav, "Stale devices", "🔗", lambda: self.nav_to(self.tab_intune, "Stale"), BLUE)
 
         section("UniFi", GREEN)
-        self.neon_sidebar_item(self.left_nav, "Sites overview", "📡", lambda: self.select_main_tab(self.tab_unifi), GREEN)
-        self.neon_sidebar_item(self.left_nav, "Alerts & events", "⚠", lambda: self.select_main_tab(self.tab_unifi), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Sites overview", "📡", lambda: self.nav_to(self.tab_unifi, "Sites"), GREEN)
+        self.neon_sidebar_item(self.left_nav, "Alerts & events", "⚠", lambda: self.nav_to(self.tab_unifi, "Connector"), ORANGE)
 
         section("Software", ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.select_main_tab(self.tab_software), ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.select_main_tab(self.tab_software), AMBER)
-        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.select_main_tab(self.tab_software), RED)
+        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.nav_to(self.tab_software, "All"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.nav_to(self.tab_software, "New"), AMBER)
+        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.nav_to(self.tab_software, "New"), RED)
 
         spacer = tk.Frame(self.left_nav, bg="#061827")
         spacer.pack(fill="both", expand=True)
@@ -2919,7 +2967,11 @@ class SentinelApp(tk.Tk):
                 b.configure(bg=bg, fg="#F7FBFF" if active else "#8EDCFF")
 
             for widget in (shell, canvas, btn):
-                widget.bind("<Button-1>", lambda e, f=frame, nb=notebook: self.select_subtab(nb, f))
+                try:
+                    widget.configure(cursor="hand2")
+                except Exception:
+                    pass
+                widget.bind("<Button-1>", lambda e, f=frame, nb=notebook: self.select_subtab(nb, f), add="+")
             buttons[frame] = {"draw": draw}
             draw(active=False)
 
@@ -3409,7 +3461,7 @@ class SentinelApp(tk.Tk):
             ("Signal events", defender_signal_tab),
         ])
 
-        self.defender_alert_table = self.table_panel(defender_alert_tab, "Defender / Microsoft security alerts", [
+        self.defender_alert_table = self.table_panel(defender_alert_tab, "Defender / Microsoft security incidents & alerts", [
             ("time", "Time", 150),
             ("status", "Status", 115),
             ("severity", "Severity", 90),
@@ -4747,6 +4799,71 @@ class SentinelApp(tk.Tk):
             return str(row.get("status", "ACTIVE")).upper()
         return "ACTIVE"
 
+
+    def _defender_m365_rows(self, payload):
+        """One source of truth for Overview Defender table and Defender tab."""
+        rows = payload.get("alert_rows", []) or []
+        out = []
+        for r in rows:
+            if self._is_defender_related_row(r.get("source", ""), r.get("title", ""), r.get("detail", "")):
+                out.append(r)
+
+        # Keep Graph incident status rows visible because they explain M365 incident counts.
+        for r in rows:
+            title = str(r.get("title", "")).lower()
+            source = str(r.get("source", "")).lower()
+            if ("incident" in title or "graph incidents" in source) and r not in out:
+                out.append(r)
+
+        sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
+        def key(r):
+            sev = sev_rank.get(str(r.get("severity", "INFO")).upper(), 9)
+            parsed = parse_dt_safe(r.get("timestamp", ""))
+            stamp = parsed.timestamp() if parsed else 0
+            return (sev, -stamp, str(r.get("title", "")))
+        out.sort(key=key)
+        return out
+
+    def _paint_defender_table_like_reference(self, tree, rows, include_source=True):
+        if tree is None:
+            return
+        self._safe_tree_clear(tree)
+
+        for r in rows[:250]:
+            sev = str(r.get("severity", "INFO")).upper()
+            tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+            time_v = short_ts(r.get("timestamp", ""))
+            status_v = self._bubble_token(self._stable_status(r), "status")
+            sev_v = self._bubble_token(sev, "severity")
+            source_v = self._stable_source_label(r.get("source",""))
+            title_v = str(r.get("title", ""))[:155]
+            detail_v = str(r.get("detail", ""))[:250]
+
+            cols = list(tree["columns"])
+            if len(cols) == 6:
+                values = [time_v, status_v, sev_v, source_v, title_v, detail_v]
+            elif len(cols) == 5:
+                # Overview table order: severity, time, title, status, detail
+                values = [sev_v, time_v, title_v, status_v, detail_v]
+            else:
+                values = [sev_v, time_v, source_v, title_v, detail_v]
+
+            self._safe_insert_tree(tree, values, tag)
+
+        if not rows:
+            cols = list(tree["columns"])
+            empty = [
+                self._bubble_token("INFO", "severity"),
+                "",
+                "No Defender/M365 rows returned",
+                self._bubble_token("INFO", "status"),
+                "Check Microsoft Graph SecurityIncident.Read.All and Defender API permissions.",
+            ]
+            if len(cols) == 6:
+                empty = ["", self._bubble_token("INFO", "status"), self._bubble_token("INFO", "severity"), "Microsoft 365 Defender", "No Defender/M365 rows returned", "Check connector health."]
+            self._safe_insert_tree(tree, empty, "info")
+
+
     def _stable_paint_all_tables(self, payload):
         """Last-mile table renderer.
 
@@ -4760,24 +4877,13 @@ class SentinelApp(tk.Tk):
             events = payload.get("events", []) or []
 
             # Overview Defender/M365 table
+            defender_rows = self._defender_m365_rows(payload)
             ov = getattr(self, "overview_defender_feed_table", None)
-            if ov is not None:
-                self._safe_tree_clear(ov)
-                defender_rows = [r for r in rows if self._is_defender_related_row(r.get("source",""), r.get("title",""), r.get("detail",""))]
-                if not defender_rows:
-                    defender_rows = [r for r in rows if "microsoft" in str(r.get("source","")).lower() or "graph" in str(r.get("source","")).lower()]
-                for r in defender_rows[:150]:
-                    sev = str(r.get("severity", "INFO")).upper()
-                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
-                    self._safe_insert_tree(ov, [
-                        self._bubble_token(sev, "severity"),
-                        short_ts(r.get("timestamp", "")),
-                        str(r.get("title", ""))[:130],
-                        self._bubble_token(self._stable_status(r), "status"),
-                        str(r.get("detail", ""))[:190],
-                    ], tag)
-                if hasattr(self, "overview_defender_feed_summary"):
-                    self.overview_defender_feed_summary.config(text=f"{len(defender_rows)} Defender/M365 item(s) · click headers to sort")
+            self._paint_defender_table_like_reference(ov, defender_rows)
+            if hasattr(self, "overview_defender_feed_summary"):
+                high = sum(1 for r in defender_rows if str(r.get("severity","")).upper() in ("HIGH", "CRITICAL"))
+                med = sum(1 for r in defender_rows if str(r.get("severity","")).upper() == "MEDIUM")
+                self.overview_defender_feed_summary.config(text=f"{len(defender_rows)} Defender/M365 item(s) · {high} high/critical · {med} medium · click headers to sort")
 
             # Overview full signal table
             full = getattr(self, "overview_full_feed_table", None)
@@ -4795,21 +4901,9 @@ class SentinelApp(tk.Tk):
                     ], tag)
 
             # Defender tab alert table
+            defender_rows = self._defender_m365_rows(payload)
             dtab = getattr(self, "defender_alert_table", None)
-            if dtab is not None:
-                self._safe_tree_clear(dtab)
-                defender_rows = [r for r in rows if self._is_defender_related_row(r.get("source",""), r.get("title",""), r.get("detail",""))]
-                for r in defender_rows[:250]:
-                    sev = str(r.get("severity", "INFO")).upper()
-                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
-                    self._safe_insert_tree(dtab, [
-                        short_ts(r.get("timestamp", "")),
-                        self._bubble_token(self._stable_status(r), "status"),
-                        self._bubble_token(sev, "severity"),
-                        self._stable_source_label(r.get("source","")),
-                        str(r.get("title", ""))[:150],
-                        str(r.get("detail", ""))[:240],
-                    ], tag)
+            self._paint_defender_table_like_reference(dtab, defender_rows, include_source=True)
 
             # Defender signal table if present
             dsig = getattr(self, "defender_signal_table", None)
