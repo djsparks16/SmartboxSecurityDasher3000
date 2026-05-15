@@ -2350,7 +2350,7 @@ class SentinelApp(tk.Tk):
 
     def _build(self):
         shell = tk.Frame(self, bg=BG)
-        shell.pack(fill="both", expand=True, padx=8, pady=6)
+        shell.pack(fill="both", expand=True, padx=8, pady=4)
 
         main_shell = tk.Frame(shell, bg=BG)
         main_shell.pack(fill="both", expand=True)
@@ -2362,7 +2362,7 @@ class SentinelApp(tk.Tk):
 
         header = tk.Frame(content_shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="SMARTBOX SECURITY", bg=BG, fg=TEXT, font=(self.font_display, 25, "bold")).pack(side="left")
+        tk.Label(header, text="", bg=BG, fg=TEXT, font=(self.font_display, 1, "bold")).pack(side="left")
         tk.Label(header, text="Defender priority • Intune estate • UniFi health  ●", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
         tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
@@ -2379,7 +2379,7 @@ class SentinelApp(tk.Tk):
         self.main_tab_names = []
         self.main_tab_buttons = {}
         self.main_tab_bar = tk.Frame(content_shell, bg=BG)
-        self.main_tab_bar.pack(fill="x", pady=(4, 2))
+        self.main_tab_bar.pack(fill="x", pady=(0, 2))
 
         self.main_tabs = ttk.Notebook(content_shell, style="MainHidden.TNotebook")
         self.main_tabs.pack(fill="both", expand=True)
@@ -2401,7 +2401,7 @@ class SentinelApp(tk.Tk):
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 4))
-        tk.Label(self.overview_focus_bar, text="SOC COMMAND OVERVIEW", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
+        tk.Label(self.overview_focus_bar, text="", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender • Intune • Software • UniFi • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
@@ -5668,6 +5668,106 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _metric_first(self, metrics, *keys, default=0):
+        for key in keys:
+            try:
+                value = metrics.get(key)
+                if value not in (None, "", "--"):
+                    return value
+            except Exception:
+                pass
+        return default
+
+    def _metric_count(self, metrics, *keys):
+        value = self._metric_first(metrics, *keys, default=0)
+        try:
+            if isinstance(value, (list, tuple, set)):
+                return len(value)
+            return int(value or 0)
+        except Exception:
+            return 0
+
+    def _set_focus_value_safe(self, bucket, key, value, hint=None, color=None):
+        try:
+            card = getattr(self, "focus_cards", {}).get(bucket, {}).get(key)
+            if not card:
+                return
+            if card.get("value") is not None:
+                card["value"].configure(text=str(value), fg=color or card.get("base", BLUE))
+            if hint is not None and card.get("hint") is not None:
+                card["hint"].configure(text=str(hint))
+            dot = card.get("dot")
+            if dot is not None:
+                self._set_glow_icon_color(dot, color or card.get("base", BLUE))
+        except Exception:
+            pass
+
+    def _repair_section_cards(self, metrics):
+        """Populate tab cards from live metrics, using all known key variants."""
+        try:
+            # Intune cards
+            total = self._metric_count(metrics, "devices", "intune_devices", "device_count", "total_devices")
+            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count", "noncompliant_devices_count")
+            stale = self._metric_count(metrics, "stale_30_count", "stale_count", "stale_devices_count")
+            unenc = self._metric_count(metrics, "unencrypted_count", "unencrypted_devices_count")
+            no_user = self._metric_count(metrics, "no_user_count", "no_primary_user_count")
+            jailbreak = self._metric_count(metrics, "jailbreak_count", "jailbroken_count", "rooted_count")
+            compliant = self._metric_count(metrics, "compliant", "compliant_count")
+            if not compliant and total:
+                compliant = max(0, total - noncomp)
+            rate = self._metric_first(metrics, "compliance_rate", default="")
+            if not rate:
+                rate = f"{round((compliant / total) * 100)}%" if total else "--"
+
+            self._set_focus_value_safe("intune", "devices", total or "--", "Intune inventory", BLUE)
+            self._set_focus_value_safe("intune", "noncompliant", noncomp, "Non-compliant devices", RED if noncomp else GREEN)
+            self._set_focus_value_safe("intune", "stale_30_count", stale, "Last sync older than 30 days", ORANGE if stale else GREEN)
+            self._set_focus_value_safe("intune", "unencrypted_count", unenc, "Encryption gap", RED if unenc else GREEN)
+            self._set_focus_value_safe("intune", "compliant", compliant, "Compliant devices", GREEN)
+            self._set_focus_value_safe("intune", "compliance_rate", rate, "Compliance rate", GREEN if total and noncomp == 0 else ORANGE)
+            self._set_focus_value_safe("intune", "jailbreak_count", jailbreak, "Jailbreak/root flags", RED if jailbreak else GREEN)
+            self._set_focus_value_safe("intune", "no_user_count", no_user, "No primary user", AMBER if no_user else GREEN)
+
+            # UniFi cards
+            sites = self._metric_count(metrics, "unifi_sites", "site_count", "unifi_site_count")
+            devices = self._metric_count(metrics, "unifi_devices", "unifi_device_count")
+            offline = self._metric_count(metrics, "unifi_offline_sites", "offline_sites")
+            degraded = self._metric_count(metrics, "unifi_degraded_sites", "degraded_sites")
+            healthy = self._metric_count(metrics, "unifi_healthy_sites", "healthy_sites")
+            if not healthy and sites:
+                healthy = max(0, sites - offline - degraded)
+            alerts = self._metric_count(metrics, "unifi_alerts", "unifi_alert_count")
+
+            site_state = "CRITICAL" if offline else "DEGRADED" if degraded else "HEALTHY" if sites else "--"
+            self._set_focus_value_safe("unifi", "site_status", site_state, "Network site status", RED if offline else ORANGE if degraded else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_sites", sites or "--", "Sites", GREEN if sites else BLUE)
+            self._set_focus_value_safe("unifi", "unifi_devices", devices or "--", "Devices", BLUE)
+            self._set_focus_value_safe("unifi", "unifi_offline_sites", offline, "Offline sites", RED if offline else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_healthy_sites", healthy, "Healthy sites", GREEN)
+            self._set_focus_value_safe("unifi", "unifi_degraded_sites", degraded, "Degraded sites", ORANGE if degraded else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_alerts", alerts, "UniFi alerts", ORANGE if alerts else GREEN)
+
+            # Software cards
+            detected = self._metric_count(metrics, "detected_apps_count", "detected_apps_returned", "software_count")
+            if not detected:
+                detected = len(metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])
+            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
+            if not new_sw:
+                new_sw = len(metrics.get("new_software", []) or metrics.get("new_apps", []) or [])
+            self._set_focus_value_safe("software", "detected_apps_count", detected or "--", "Detected apps", BLUE)
+            self._set_focus_value_safe("software", "new_software_count", new_sw, "Newly observed", ORANGE if new_sw else GREEN)
+            self._set_focus_value_safe("software", "software_state", "THROTTLED" if str(metrics.get("software_issue_state","")).lower() == "throttled" else "OK", "Software inventory", ORANGE if str(metrics.get("software_issue_state","")).lower() == "throttled" else GREEN)
+
+            # Defender enrichment cards
+            self._set_focus_value_safe("defender", "graph_incidents", self._metric_count(metrics, "graph_incidents", "m365_incidents"), "M365 incidents", ORANGE)
+            self._set_focus_value_safe("defender", "defender_recommendations", self._metric_count(metrics, "defender_recommendations"), "TVM recommendations", PURPLE)
+            self._set_focus_value_safe("defender", "defender_vulnerabilities", self._metric_count(metrics, "defender_vulnerabilities"), "Vulnerabilities", RED)
+            self._set_focus_value_safe("defender", "defender_machines", self._metric_count(metrics, "defender_machines"), "Machines", BLUE)
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Fallback renderer that repopulates all table widgets from the same payload.
 
@@ -5855,7 +5955,42 @@ class SentinelApp(tk.Tk):
                 insert(tree, ["Machines unavailable", bubble("INFO", "status"), bubble("CHECK", "status"), "", "", (metrics.get("defender_machine_error") or "Awaiting data")[:300]], "info")
 
 
+
+    def _dashboard_connected(self):
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
+            if metrics:
+                return True
+            # fall back to footer/status text if metrics are not ready
+            raw = ""
+            try:
+                raw += " " + str(self.status_var.get())
+            except Exception:
+                pass
+            return "connected" in raw.lower() or "poll" in raw.lower()
+        except Exception:
+            return False
+
+    def _set_heartbeat_visibility(self):
+        try:
+            connected = self._dashboard_connected()
+            for name in ("heartbeat_canvas", "live_heartbeat_canvas", "overview_heartbeat_canvas"):
+                canvas = getattr(self, name, None)
+                if canvas is not None:
+                    state = "normal" if connected else "hidden"
+                    for item in canvas.find_all():
+                        canvas.itemconfigure(item, state=state)
+            for name in ("heartbeat_label", "live_heartbeat_label", "overview_heartbeat_label"):
+                label = getattr(self, name, None)
+                if label is not None:
+                    label.configure(text="LIVE PULSE" if connected else "WAITING FOR CONNECTION", fg=GREEN if connected else MUTED)
+        except Exception:
+            pass
+
+
     def pulse_overview_status(self):
+        self._set_heartbeat_visibility()
         if not hasattr(self, "overview_status"):
             return
         for item in self.overview_status.values():
