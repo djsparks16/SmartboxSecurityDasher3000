@@ -6055,22 +6055,233 @@ class SentinelApp(tk.Tk):
         return []
 
 
+
+    def _metric_first(self, metrics, *keys, default=0):
+        for key in keys:
+            try:
+                value = metrics.get(key)
+                if value not in (None, "", "--"):
+                    return value
+            except Exception:
+                pass
+        return default
+
+    def _metric_count(self, metrics, *keys):
+        value = self._metric_first(metrics, *keys, default=0)
+        try:
+            if isinstance(value, (list, tuple, set)):
+                return len(value)
+            return int(value or 0)
+        except Exception:
+            return 0
+
+    def _safe_card_update(self, card, value=None, detail=None, color=None):
+        if not card:
+            return
+        try:
+            if value is not None and card.get("value") is not None:
+                card["value"].configure(text=str(value), fg=color or card.get("base", BLUE))
+            if detail is not None:
+                target = card.get("detail") or card.get("hint")
+                if target is not None:
+                    target.configure(text=str(detail))
+            dot = card.get("dot")
+            if dot is not None and color is not None:
+                self._set_glow_icon_color(dot, color)
+            shell = card.get("shell") or card.get("panel")
+            if shell is not None and color is not None:
+                try:
+                    shell.configure(highlightbackground=color)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_overview_cards_live(self, metrics):
+        """Repair Overview action cards from live metrics only."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+
+            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
+            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+            defender_color = RED if high else ORANGE if active else GREEN
+            self._safe_card_update(
+                cards.get("overview_defender"),
+                "ACTION" if active or high else "OK",
+                f"{active} active Defender • {high} high/critical • {graph} Graph/M365 context",
+                defender_color,
+            )
+
+            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count")
+            stale = self._metric_count(metrics, "stale_30_count", "stale_count")
+            unenc = self._metric_count(metrics, "unencrypted_count")
+            no_user = self._metric_count(metrics, "no_user_count")
+            intune_color = RED if noncomp or unenc else ORANGE if stale or no_user else GREEN
+            self._safe_card_update(
+                cards.get("overview_intune"),
+                "POSTURE RISK" if noncomp or stale or unenc or no_user else "OK",
+                f"{noncomp} non-compliant • {stale} stale 30+ • {unenc} unencrypted • {no_user} no primary user",
+                intune_color,
+            )
+
+            sites = self._metric_count(metrics, "unifi_sites", "site_count", "unifi_site_count")
+            offline = self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites", "offline_sites")
+            degraded = self._metric_count(metrics, "unifi_degraded_sites", "degraded_sites")
+            online = self._metric_count(metrics, "unifi_online_sites", "online_sites")
+            if not online and sites:
+                online = max(0, sites - offline)
+            unifi_color = RED if offline else ORANGE if degraded else GREEN if sites else BLUE
+            self._safe_card_update(
+                cards.get("overview_unifi"),
+                "NETWORK ISSUE" if offline or degraded else "OK",
+                f"{sites} sites • {online} online • {degraded} degraded • {offline} offline",
+                unifi_color,
+            )
+
+            detected = self._metric_count(metrics, "detected_app_count", "detected_apps_count", "detected_apps_returned")
+            if not detected:
+                detected = len(metrics.get("detected_apps", []) or metrics.get("software_all", []) or [])
+            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
+            if not new_sw:
+                new_sw = len(metrics.get("new_software", []) or metrics.get("new_apps", []) or [])
+            issue = str(self._metric_first(metrics, "software_issue_state", "software_state", default="OK")).upper()
+            software_color = ORANGE if "THROTTLE" in issue else GREEN
+            self._safe_card_update(
+                cards.get("overview_software"),
+                "GRAPH THROTTLED" if "THROTTLE" in issue else "WATCHING",
+                f"{detected} detected apps returned this run • {new_sw} newly observed",
+                software_color,
+            )
+
+            # Row 3 small labels.
+            for key, value, color in (
+                ("stale_30_count", stale, ORANGE if stale else GREEN),
+                ("unencrypted_count", unenc, RED if unenc else GREEN),
+                ("no_user_count", no_user, AMBER if no_user else GREEN),
+                ("unifi_degraded_sites", degraded, ORANGE if degraded else GREEN),
+            ):
+                try:
+                    lbl = getattr(self, "posture_labels", {}).get(key)
+                    if lbl:
+                        lbl.configure(text=str(value), fg=color)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_tab_cards_live(self, metrics):
+        """Repair Defender, Intune, UniFi and Software cards from live metric keys."""
+        try:
+            # Defender
+            self._set_focus_value_safe("defender", "priority_state", self._metric_first(metrics, "priority_state", default="CLEAR"), "Defender priority", GREEN)
+            self._set_focus_value_safe("defender", "defender_alerts", self._metric_count(metrics, "defender_alerts", "active_alerts"), "Defender active alerts", ORANGE)
+            self._set_focus_value_safe("defender", "graph_incidents", self._metric_count(metrics, "graph_incidents", "m365_incidents"), "M365 incidents", ORANGE)
+            self._set_focus_value_safe("defender", "defender_recommendations", self._metric_count(metrics, "defender_recommendations"), "TVM recommendations", PURPLE)
+            self._set_focus_value_safe("defender", "defender_vulnerabilities", self._metric_count(metrics, "defender_vulnerabilities"), "Vulnerabilities", RED)
+            self._set_focus_value_safe("defender", "defender_machines", self._metric_count(metrics, "defender_machines"), "Machines", BLUE)
+
+            # Intune
+            total = self._metric_count(metrics, "devices", "intune_devices", "device_count", "total_devices")
+            noncomp = self._metric_count(metrics, "noncompliant", "noncompliant_count")
+            stale = self._metric_count(metrics, "stale_30_count", "stale_count")
+            unenc = self._metric_count(metrics, "unencrypted_count")
+            compliant = self._metric_count(metrics, "compliant_devices", "compliant", "compliant_count")
+            if not compliant and total:
+                compliant = max(0, total - noncomp)
+            rate = self._metric_first(metrics, "compliance_percent", "compliance_rate", default="")
+            if not rate and total:
+                try:
+                    rate = f"{round((compliant / total) * 100)}%"
+                except Exception:
+                    rate = "--"
+            jail = self._metric_count(metrics, "jailbroken_count", "jailbreak_count", "rooted_count")
+            no_user = self._metric_count(metrics, "no_user_count", "no_primary_user_count")
+
+            self._set_focus_value_safe("intune", "devices", total or "--", "Intune inventory", BLUE)
+            self._set_focus_value_safe("intune", "noncompliant", noncomp, "Non-compliant devices", RED if noncomp else GREEN)
+            self._set_focus_value_safe("intune", "stale_30_count", stale, "Last sync older than 30 days", ORANGE if stale else GREEN)
+            self._set_focus_value_safe("intune", "unencrypted_count", unenc, "Encryption gap", RED if unenc else GREEN)
+            self._set_focus_value_safe("intune", "compliant_devices", compliant, "Compliant devices", GREEN)
+            self._set_focus_value_safe("intune", "compliance_percent", rate or "--", "Compliance rate", GREEN if total and not noncomp else ORANGE)
+            self._set_focus_value_safe("intune", "jailbroken_count", jail, "Jailbreak/root flags", RED if jail else GREEN)
+            self._set_focus_value_safe("intune", "no_user_count", no_user, "No primary user", AMBER if no_user else GREEN)
+
+            # UniFi
+            sites = self._metric_count(metrics, "unifi_sites", "site_count", "unifi_site_count")
+            devices = self._metric_count(metrics, "unifi_devices", "unifi_device_count")
+            offline = self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites", "offline_sites")
+            degraded = self._metric_count(metrics, "unifi_degraded_sites", "degraded_sites")
+            healthy = self._metric_count(metrics, "unifi_healthy_sites", "healthy_sites")
+            if not healthy and sites:
+                healthy = max(0, sites - offline - degraded)
+            alerts = self._metric_count(metrics, "unifi_alerts", "unifi_alert_count")
+            state = "CRITICAL" if offline else "DEGRADED" if degraded else "HEALTHY" if sites else "--"
+            state_color = RED if offline else ORANGE if degraded else GREEN if sites else BLUE
+
+            self._set_focus_value_safe("unifi", "unifi_sites", sites or "--", "Sites", GREEN if sites else BLUE)
+            self._set_focus_value_safe("unifi", "unifi_devices", devices or "--", "Devices", BLUE)
+            self._set_focus_value_safe("unifi", "unifi_critical_sites", offline, "Offline sites", RED if offline else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_healthy_sites", healthy, "Healthy sites", GREEN)
+            self._set_focus_value_safe("unifi", "unifi_degraded_sites", degraded, "Degraded sites", ORANGE if degraded else GREEN)
+            self._set_focus_value_safe("unifi", "unifi_alerts", alerts, "UniFi alerts", ORANGE if alerts else GREEN)
+            try:
+                self.unifi_tab_status_big.configure(text=state, fg=state_color)
+                self.unifi_tab_status_hint.configure(text=f"{sites} site(s), {offline} offline, {degraded} degraded")
+            except Exception:
+                pass
+
+            # Software
+            detected = self._metric_count(metrics, "detected_app_count", "detected_apps_count", "detected_apps_returned")
+            if not detected:
+                detected = len(metrics.get("detected_apps", []) or metrics.get("software_all", []) or [])
+            new_sw = self._metric_count(metrics, "new_software_count", "new_apps_count")
+            if not new_sw:
+                new_sw = len(metrics.get("new_software", []) or metrics.get("new_apps", []) or [])
+            issue = str(self._metric_first(metrics, "software_issue_state", default="OK")).upper()
+            source = self._metric_first(metrics, "detected_apps_source", default="Graph")
+            self._set_focus_value_safe("software", "detected_app_count", detected or "--", "Detected apps", BLUE)
+            self._set_focus_value_safe("software", "new_software_count", new_sw, "Newly observed", ORANGE if new_sw else GREEN)
+            self._set_focus_value_safe("software", "detected_apps_source", source, "Inventory source", BLUE)
+            self._set_focus_value_safe("software", "software_issue_state", issue, "DetectedApps status", ORANGE if "THROTTLE" in issue else GREEN)
+        except Exception:
+            pass
+
+    def _os_tag(self, os_name, fallback="info"):
+        raw = str(os_name or "").lower()
+        if "windows" in raw:
+            return "os_windows"
+        if "android" in raw:
+            return "os_android"
+        if "ios" in raw or "iphone" in raw or "ipad" in raw:
+            return "os_ios"
+        if "mac" in raw:
+            return "os_mac"
+        return fallback
+
+    def _apply_extra_table_tags(self, tree):
+        try:
+            tree.tag_configure("os_windows", foreground="#36CFFF", background="#08263E")
+            tree.tag_configure("os_android", foreground="#7DFF57", background="#07301B")
+            tree.tag_configure("os_ios", foreground="#FFC84A", background="#292304")
+            tree.tag_configure("os_mac", foreground="#C06BFF", background="#20143A")
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
-        """Fallback renderer that repopulates all table widgets with rich SOC styling."""
+        """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
         if not payload:
             return
         metrics = payload.get("metrics", {}) or {}
-        try:
-            self._recolor_overview_action_icons(metrics)
-            self._update_overview_action_cards(metrics)
-        except Exception:
-            pass
-        try:
-            self._repair_section_cards(metrics)
-        except Exception:
-            pass
         rows = payload.get("alert_rows", []) or []
+
+        try:
+            self._repair_overview_cards_live(metrics)
+            self._repair_tab_cards_live(metrics)
+        except Exception:
+            pass
 
         def clear(tree):
             try:
@@ -6080,6 +6291,10 @@ class SentinelApp(tk.Tk):
                 pass
 
         def insert(tree, vals, tag="info"):
+            try:
+                self._apply_extra_table_tags(tree)
+            except Exception:
+                pass
             try:
                 cols = list(tree["columns"])
                 vals = list(vals)
@@ -6091,15 +6306,26 @@ class SentinelApp(tk.Tk):
             except Exception:
                 pass
 
-        def tag_for(r):
-            sev = str(r.get("severity", "INFO")).upper()
-            return self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
-
         def bubble(v, kind="status"):
-            return self._bubble_token(v, kind)
+            try:
+                return self._bubble_token(v, kind)
+            except Exception:
+                return str(v)
 
-        # Defender/M365 tables: include all Microsoft security rows and connector diagnostics.
-        defender_rows = [r for r in rows if self._is_defender_or_microsoft_security(r)]
+        def tag_for(row):
+            return self._stable_event_tag(row.get("severity", "INFO"), row.get("source", ""), row.get("title", ""), row.get("detail", ""))
+
+        def is_defender(row):
+            try:
+                if hasattr(self, "_is_defender_or_microsoft_security"):
+                    return self._is_defender_or_microsoft_security(row)
+                return self._is_defender_related_row(row.get("source",""), row.get("title",""), row.get("detail",""))
+            except Exception:
+                joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
+                return any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "security incident", "email messages", "phish", "malicious"))
+
+        # Defender / M365
+        defender_rows = [r for r in rows if is_defender(r)]
         for tree_name in ("overview_defender_feed_table", "defender_alert_table"):
             tree = getattr(self, tree_name, None)
             if tree is None:
@@ -6126,15 +6352,9 @@ class SentinelApp(tk.Tk):
                     str(r.get("detail", ""))[:300],
                 ], tag_for(r))
             if not defender_rows:
-                insert(tree, [
-                    bubble("INFO", "severity"),
-                    "",
-                    "✦  No Defender/M365 rows returned",
-                    bubble("INFO", "status"),
-                    "No Microsoft Defender, M365 incident or Graph security rows were returned in this poll. Check connector event feed for API/auth errors.",
-                ], "info")
+                insert(tree, [bubble("INFO", "severity"), "", "✦  No Defender/M365 rows returned", bubble("INFO", "status"), "No Microsoft security rows returned in this poll. Check Full signal feed for API/auth diagnostics."], "info")
 
-        # Full signal / Defender signal. Defender signal shows all events so API/auth issues are visible.
+        # Full signal / Defender signal
         for tree_name in ("overview_full_feed_table", "defender_signal_table"):
             tree = getattr(self, tree_name, None)
             if tree is None:
@@ -6152,74 +6372,48 @@ class SentinelApp(tk.Tk):
                     ])
             except Exception:
                 pass
-            for r in rows[:300]:
+            for r in rows[:350]:
                 sev = str(r.get("severity", "INFO")).upper()
                 if tree_name == "defender_signal_table":
-                    insert(tree, [
-                        short_ts(r.get("timestamp", "")),
-                        bubble(sev, "severity"),
-                        self._stable_source_label(r.get("source", "")),
-                        "✦  " + str(r.get("title", ""))[:180],
-                        str(r.get("detail", ""))[:300],
-                    ], tag_for(r))
+                    insert(tree, [short_ts(r.get("timestamp", "")), bubble(sev, "severity"), self._stable_source_label(r.get("source", "")), "✦  " + str(r.get("title", ""))[:180], str(r.get("detail", ""))[:300]], tag_for(r))
                 else:
-                    insert(tree, [
-                        bubble(sev, "severity"),
-                        self._stable_source_label(r.get("source", "")),
-                        short_ts(r.get("timestamp", "")),
-                        "✦  " + str(r.get("title", ""))[:180],
-                        str(r.get("detail", ""))[:300],
-                    ], tag_for(r))
+                    insert(tree, [bubble(sev, "severity"), self._stable_source_label(r.get("source", "")), short_ts(r.get("timestamp", "")), "✦  " + str(r.get("title", ""))[:180], str(r.get("detail", ""))[:300]], tag_for(r))
 
-        # Intune tables: use the actual rows from the same live metrics.
+        # Intune noncompliant
         tree = getattr(self, "intune_noncompliant_table", None)
         if tree is not None:
             clear(tree)
-            devs = self._intune_device_rows(metrics, "noncompliant")
+            devs = self._intune_device_rows(metrics, "noncompliant") if hasattr(self, "_intune_device_rows") else (metrics.get("noncompliant_devices", []) or [])
             for d in devs[:500]:
-                insert(tree, [
-                    "👤  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""),
-                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
-                    d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "",
-                    bubble(d.get("compliance") or d.get("complianceState") or "NONCOMPLIANT", "status"),
-                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
-                ], "warn")
+                os_name = d.get("os") or d.get("operatingSystem") or ""
+                insert(tree, ["👤  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""), self._decorate_os_cell(os_name), d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "", bubble(d.get("compliance") or d.get("complianceState") or "NONCOMPLIANT", "status"), short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or "")], self._os_tag(os_name, "warn"))
             if not devs:
-                insert(tree, ["✦  No non-compliant device rows returned", "", "", bubble("INFO", "status"), "Cards may still show counts if the API returned summary-only data."], "info")
+                insert(tree, ["✦  No non-compliant device rows returned", "", "", bubble("INFO", "status"), "No live rows returned for this table."], "info")
 
+        # Intune stale
         tree = getattr(self, "intune_stale_table", None)
         if tree is not None:
             clear(tree)
-            devs = self._intune_device_rows(metrics, "stale")
+            devs = self._intune_device_rows(metrics, "stale") if hasattr(self, "_intune_device_rows") else (metrics.get("stale_devices", []) or metrics.get("stale_30_devices", []) or [])
             for d in devs[:500]:
-                insert(tree, [
-                    "⏱  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""),
-                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
-                    d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "",
-                    bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"),
-                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
-                ], "warn")
+                os_name = d.get("os") or d.get("operatingSystem") or ""
+                insert(tree, ["⏱  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""), self._decorate_os_cell(os_name), d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "", bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"), short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or "")], self._os_tag(os_name, "warn"))
             if not devs:
-                insert(tree, ["✦  No stale device rows returned", "", "", bubble("INFO", "status"), "Cards may still show counts if the API returned summary-only data."], "info")
+                insert(tree, ["✦  No stale device rows returned", "", "", bubble("INFO", "status"), "No live rows returned for this table."], "info")
 
+        # Intune posture
         tree = getattr(self, "intune_posture_table", None)
         if tree is not None:
             clear(tree)
-            posture_rows = []
-            for d in self._intune_device_rows(metrics, "unencrypted"):
-                posture_rows.append(("🔑 Unencrypted", d, "bad"))
-            for d in metrics.get("jailbroken_devices", []) or metrics.get("rooted_devices", []) or []:
-                posture_rows.append(("◆ Jailbreak/root flag", d, "bad"))
-            for label, d, tag in posture_rows[:500]:
-                insert(tree, [
-                    bubble(label, "status"),
-                    d.get("name") or d.get("deviceName") or "",
-                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
-                    d.get("user") or d.get("userPrincipalName") or "",
-                    bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"),
-                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
-                ], tag)
-            if not posture_rows:
+            posture = []
+            for d in (metrics.get("unencrypted_devices", []) or []):
+                posture.append(("🔑 Unencrypted", d, "bad"))
+            for d in (metrics.get("jailbroken_devices", []) or metrics.get("rooted_devices", []) or []):
+                posture.append(("◆ Jailbreak/root flag", d, "bad"))
+            for label, d, fallback_tag in posture[:500]:
+                os_name = d.get("os") or d.get("operatingSystem") or ""
+                insert(tree, [bubble(label, "status"), d.get("name") or d.get("deviceName") or "", self._decorate_os_cell(os_name), d.get("user") or d.get("userPrincipalName") or "", bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"), short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or "")], self._os_tag(os_name, fallback_tag))
+            if not posture:
                 insert(tree, [bubble("INFO", "severity"), "No posture rows returned", "", "", bubble("INFO", "status"), "No unencrypted/rooted rows in live data."], "info")
 
         # UniFi
@@ -6228,18 +6422,9 @@ class SentinelApp(tk.Tk):
             clear(tree)
             sites = metrics.get("unifi_site_health", []) or metrics.get("unifi_sites_rows", []) or metrics.get("unifi_sites_detail", []) or []
             for s in sites[:500]:
-                status = str(s.get("status","VISIBLE")).upper()
+                status = str(s.get("status", "VISIBLE")).upper()
                 tag = "bad" if status in ("CRITICAL", "OFFLINE") else "warn" if status == "DEGRADED" else "good"
-                insert(tree, [
-                    "📡  " + str(s.get("name","")),
-                    self._decorate_unifi_status(status),
-                    self._decorate_count_cell(s.get("total",0)),
-                    self._decorate_count_cell(s.get("online",0), "online"),
-                    self._decorate_count_cell(s.get("offline",0), "offline"),
-                    self._decorate_count_cell(s.get("degraded",0), "degraded"),
-                    self._decorate_count_cell(s.get("unknown",0)),
-                    s.get("detail",""),
-                ], tag)
+                insert(tree, ["📡  " + str(s.get("name","")), self._decorate_unifi_status(status), self._decorate_count_cell(s.get("total",0)), self._decorate_count_cell(s.get("online",0), "online"), self._decorate_count_cell(s.get("offline",0), "offline"), self._decorate_count_cell(s.get("degraded",0), "degraded"), self._decorate_count_cell(s.get("unknown",0)), s.get("detail","")], tag)
 
         # Software
         tree = getattr(self, "software_new_table", None)
@@ -6247,13 +6432,7 @@ class SentinelApp(tk.Tk):
             clear(tree)
             apps = metrics.get("new_software", []) or metrics.get("new_apps", []) or []
             for a in apps[:500]:
-                insert(tree, [
-                    "✦  " + str(a.get("displayName") or a.get("name") or ""),
-                    a.get("version",""),
-                    a.get("publisher",""),
-                    self._decorate_count_cell(a.get("deviceCount",0)),
-                    bubble("NEW", "status"),
-                ], self._software_tag(a, True))
+                insert(tree, ["✦  " + str(a.get("displayName") or a.get("name") or ""), a.get("version",""), a.get("publisher",""), self._decorate_count_cell(a.get("deviceCount",0)), bubble("NEW", "status")], self._software_tag(a, True))
             if not apps:
                 insert(tree, ["✦  No newly observed software", "", "", "", bubble("INFO", "status")], "info")
 
@@ -6262,13 +6441,7 @@ class SentinelApp(tk.Tk):
             clear(tree)
             apps = metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or []
             for a in apps[:1000]:
-                insert(tree, [
-                    "▤  " + str(a.get("displayName") or a.get("name") or ""),
-                    a.get("version",""),
-                    a.get("publisher",""),
-                    self._decorate_count_cell(a.get("deviceCount",0)),
-                    a.get("sizeInByte") or a.get("size") or "",
-                ], self._software_tag(a, False))
+                insert(tree, ["▤  " + str(a.get("displayName") or a.get("name") or ""), a.get("version",""), a.get("publisher",""), self._decorate_count_cell(a.get("deviceCount",0)), a.get("sizeInByte") or a.get("size") or ""], self._software_tag(a, False))
             if not apps:
                 insert(tree, ["▤  No detected apps returned", "", "", "", "Awaiting live API data"], "info")
 
@@ -6279,14 +6452,7 @@ class SentinelApp(tk.Tk):
             recs = metrics.get("defender_recommendation_rows", []) or []
             for r in recs[:500]:
                 sev = str(r.get("severity", "INFO")).upper()
-                insert(tree, [
-                    "⚙  " + str(r.get("title","")),
-                    bubble(sev or "INFO", "severity"),
-                    r.get("category",""),
-                    self._decorate_count_cell(r.get("impact","")),
-                    bubble(r.get("status","CHECK"), "status"),
-                    r.get("detail",""),
-                ], self._recommendation_tag(r))
+                insert(tree, ["⚙  " + str(r.get("title","")), bubble(sev or "INFO", "severity"), r.get("category",""), self._decorate_count_cell(r.get("impact","")), bubble(r.get("status","CHECK"), "status"), r.get("detail","")], self._recommendation_tag(r))
             if not recs:
                 insert(tree, ["⚙  Recommendations unavailable", bubble("INFO", "severity"), "Permission/API", "", bubble("CHECK", "status"), (metrics.get("defender_recommendation_error") or "Awaiting live API data")[:300]], "info")
 
@@ -6296,14 +6462,7 @@ class SentinelApp(tk.Tk):
             vulns = metrics.get("defender_vulnerability_rows", []) or []
             for v in vulns[:500]:
                 sev = str(v.get("severity", "INFO")).upper()
-                insert(tree, [
-                    "◆  " + str(v.get("id","")),
-                    bubble(sev or "INFO", "severity"),
-                    v.get("cvss",""),
-                    short_ts(v.get("published","")),
-                    short_ts(v.get("updated","")),
-                    v.get("detail",""),
-                ], self._stable_event_tag(sev, "Defender Vulnerabilities", v.get("id",""), v.get("detail","")))
+                insert(tree, ["◆  " + str(v.get("id","")), bubble(sev or "INFO", "severity"), v.get("cvss",""), short_ts(v.get("published","")), short_ts(v.get("updated","")), v.get("detail","")], self._stable_event_tag(sev, "Defender Vulnerabilities", v.get("id",""), v.get("detail","")))
             if not vulns:
                 insert(tree, ["◆  Vulnerabilities unavailable", bubble("INFO", "severity"), "", "", "", (metrics.get("defender_vulnerability_error") or "Awaiting live API data")[:300]], "info")
 
@@ -6312,15 +6471,8 @@ class SentinelApp(tk.Tk):
             clear(tree)
             machines = metrics.get("defender_machine_rows", []) or []
             for m in machines[:500]:
-                risk = m.get("risk","INFO")
-                insert(tree, [
-                    "⌬  " + str(m.get("name","")),
-                    bubble(risk, "status"),
-                    bubble(m.get("health","CHECK"), "status"),
-                    self._decorate_os_cell(m.get("os","")),
-                    short_ts(m.get("last_seen","")),
-                    m.get("ip",""),
-                ], self._stable_event_tag(risk, "Defender Machines", m.get("name",""), m.get("health","")))
+                risk = m.get("risk", "INFO")
+                insert(tree, ["⌬  " + str(m.get("name","")), bubble(risk, "status"), bubble(m.get("health","CHECK"), "status"), self._decorate_os_cell(m.get("os","")), short_ts(m.get("last_seen","")), m.get("ip","")], self._stable_event_tag(risk, "Defender Machines", m.get("name",""), m.get("health","")))
             if not machines:
                 insert(tree, ["⌬  Machines unavailable", bubble("INFO", "status"), bubble("CHECK", "status"), "", "", (metrics.get("defender_machine_error") or "Awaiting live API data")[:300]], "info")
 
