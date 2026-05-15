@@ -2789,21 +2789,21 @@ class SentinelApp(tk.Tk):
 
     def _build_left_nav(self, shell):
         """Left rail inspired by the generated SOC cockpit reference."""
-        self.left_nav_shell, self.left_nav = self.rounded_panel(shell, fill="#061321", border="#183A55", radius=16, padding=1)
-        self.left_nav_shell.configure(width=210)
+        self.left_nav_shell, self.left_nav = self.rounded_panel(shell, fill="#061827", border="#183A55", radius=16, padding=1)
+        self.left_nav_shell.configure(width=214)
         self.left_nav_shell.pack(side="left", fill="y", padx=(0, 14), pady=(0, 0))
         self.left_nav_shell.pack_propagate(False)
 
-        brand = tk.Frame(self.left_nav, bg="#061321")
+        brand = tk.Frame(self.left_nav, bg="#061827")
         brand.pack(fill="x", padx=10, pady=(12, 10))
-        self.glow_icon(brand, "🛡", BLUE, size=24, bg="#061321").pack(side="left", padx=(0, 8))
-        btxt = tk.Frame(brand, bg="#061321")
+        self.glow_icon(brand, "🛡", BLUE, size=24, bg="#061827").pack(side="left", padx=(0, 8))
+        btxt = tk.Frame(brand, bg="#061827")
         btxt.pack(side="left", fill="x", expand=True)
-        tk.Label(btxt, text="SMARTBOX", bg="#061321", fg=TEXT, font=(self.font_display, 15, "bold")).pack(anchor="w")
-        tk.Label(btxt, text="SECURITY BY MARC", bg="#061321", fg="#9FDFFF", font=(self.font_ui, 8, "bold")).pack(anchor="w")
+        tk.Label(btxt, text="SMARTBOX", bg="#061827", fg=TEXT, font=(self.font_display, 15, "bold")).pack(anchor="w")
+        tk.Label(btxt, text="SECURITY BY MARC", bg="#061827", fg="#36CFFF", font=(self.font_ui, 8, "bold")).pack(anchor="w")
 
         def section(label, color=BLUE):
-            tk.Label(self.left_nav, text=label.upper(), bg="#061321", fg=color, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(12, 4))
+            tk.Label(self.left_nav, text=label.upper(), bg="#061827", fg=color, font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(12, 4))
 
         section("Overview")
         self.neon_sidebar_item(self.left_nav, "Overview", "⌂", lambda: self.select_main_tab(self.tab_overview), BLUE, True)
@@ -2827,12 +2827,12 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.select_main_tab(self.tab_software), AMBER)
         self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.select_main_tab(self.tab_software), RED)
 
-        spacer = tk.Frame(self.left_nav, bg="#061321")
+        spacer = tk.Frame(self.left_nav, bg="#061827")
         spacer.pack(fill="both", expand=True)
-        status = tk.Frame(self.left_nav, bg="#061321")
+        status = tk.Frame(self.left_nav, bg="#061827")
         status.pack(fill="x", padx=12, pady=12)
-        tk.Label(status, text="●", bg="#061321", fg=GREEN, font=(self.font_ui, 14, "bold")).pack(side="left")
-        tk.Label(status, text="Connected", bg="#061321", fg="#CFFFE8", font=(self.font_ui, 9, "bold")).pack(side="left", padx=(6, 0))
+        tk.Label(status, text="●", bg="#061827", fg=GREEN, font=(self.font_ui, 14, "bold")).pack(side="left")
+        tk.Label(status, text="Connected", bg="#061827", fg="#CFFFE8", font=(self.font_ui, 9, "bold")).pack(side="left", padx=(6, 0))
 
 
     def _build_main_tab_pills(self):
@@ -4104,6 +4104,7 @@ class SentinelApp(tk.Tk):
 
     def render(self, payload):
         self.last_payload = payload
+        self._stable_paint_all_tables(payload)
         m = payload["metrics"]
         self.update_configured_visibility(m, payload["sources"])
         for key, val in m.items():
@@ -4678,6 +4679,235 @@ class SentinelApp(tk.Tk):
                     tile["value"].configure(text=str(val))
         except Exception:
             pass
+
+
+
+    def _safe_tree_clear(self, tree):
+        try:
+            for item in tree.get_children():
+                tree.delete(item)
+        except Exception:
+            pass
+
+    def _safe_insert_tree(self, tree, values, tag="info"):
+        try:
+            cols = list(tree["columns"])
+            vals = list(values)
+            if len(vals) < len(cols):
+                vals += [""] * (len(cols) - len(vals))
+            elif len(vals) > len(cols):
+                vals = vals[:len(cols)]
+            tree.insert("", "end", values=vals, tags=(tag,))
+        except Exception:
+            pass
+
+    def _is_defender_related_row(self, source, title="", detail=""):
+        raw = " ".join([str(source or ""), str(title or ""), str(detail or "")]).lower()
+        return any(x in raw for x in (
+            "defender", "microsoft 365", "graph incidents", "security incidents",
+            "mdo", "office 365", "email messages", "malicious url", "phish",
+            "credential phish", "safe links", "exchange", "mailbox"
+        ))
+
+    def _stable_event_tag(self, severity, source="", title="", detail=""):
+        sev = str(severity or "info").lower()
+        raw = " ".join([sev, str(source).lower(), str(title).lower(), str(detail).lower()])
+        if any(x in raw for x in ("critical", "high", "malicious", "credential phish")):
+            return "bad" if "critical" in raw else "high"
+        if any(x in raw for x in ("medium", "warning", "non-compliant", "noncompliant", "stale", "unencrypted", "degraded")):
+            return "warn"
+        if any(x in raw for x in ("resolved", "remediated", "healthy", "loaded", "live", "connected")):
+            return "good"
+        return "info"
+
+    def _stable_source_label(self, source):
+        raw = str(source or "")
+        low = raw.lower()
+        if "microsoft 365" in low or "incident" in low:
+            return "▣  " + raw
+        if "defender" in low:
+            return "🛡  " + raw
+        if "unifi" in low:
+            return "📡  " + raw
+        if "graph" in low or "intune" in low:
+            return "♟  " + raw
+        if "software" in low:
+            return "▤  " + raw
+        return "✦  " + raw
+
+    def _stable_status(self, row):
+        raw = " ".join([str(row.get("status", "")), str(row.get("title", "")), str(row.get("detail", ""))]).lower()
+        if "pending approval" in raw or "pending action" in raw:
+            return "PENDING"
+        if "remediated" in raw:
+            return "REMEDIATED"
+        if any(x in raw for x in ("resolved", "closed", "dismissed", "cleared", "archived")):
+            return "RESOLVED/CLOSED"
+        if row.get("status"):
+            return str(row.get("status", "ACTIVE")).upper()
+        return "ACTIVE"
+
+    def _stable_paint_all_tables(self, payload):
+        """Last-mile table renderer.
+
+        This intentionally does not depend on older tab-specific render functions.
+        It repopulates visible Treeviews after telemetry arrives, so Overview,
+        Defender, Intune, UniFi and Software cannot silently go blank after style edits.
+        """
+        try:
+            metrics = payload.get("metrics", {}) or {}
+            rows = payload.get("alert_rows", []) or []
+            events = payload.get("events", []) or []
+
+            # Overview Defender/M365 table
+            ov = getattr(self, "overview_defender_feed_table", None)
+            if ov is not None:
+                self._safe_tree_clear(ov)
+                defender_rows = [r for r in rows if self._is_defender_related_row(r.get("source",""), r.get("title",""), r.get("detail",""))]
+                if not defender_rows:
+                    defender_rows = [r for r in rows if "microsoft" in str(r.get("source","")).lower() or "graph" in str(r.get("source","")).lower()]
+                for r in defender_rows[:150]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                    self._safe_insert_tree(ov, [
+                        self._bubble_token(sev, "severity"),
+                        short_ts(r.get("timestamp", "")),
+                        str(r.get("title", ""))[:130],
+                        self._bubble_token(self._stable_status(r), "status"),
+                        str(r.get("detail", ""))[:190],
+                    ], tag)
+                if hasattr(self, "overview_defender_feed_summary"):
+                    self.overview_defender_feed_summary.config(text=f"{len(defender_rows)} Defender/M365 item(s) · click headers to sort")
+
+            # Overview full signal table
+            full = getattr(self, "overview_full_feed_table", None)
+            if full is not None:
+                self._safe_tree_clear(full)
+                for r in rows[:180]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                    self._safe_insert_tree(full, [
+                        self._bubble_token(sev, "severity"),
+                        self._stable_source_label(r.get("source","")),
+                        short_ts(r.get("timestamp", "")),
+                        str(r.get("title", ""))[:140],
+                        str(r.get("detail", ""))[:220],
+                    ], tag)
+
+            # Defender tab alert table
+            dtab = getattr(self, "defender_alert_table", None)
+            if dtab is not None:
+                self._safe_tree_clear(dtab)
+                defender_rows = [r for r in rows if self._is_defender_related_row(r.get("source",""), r.get("title",""), r.get("detail",""))]
+                for r in defender_rows[:250]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                    self._safe_insert_tree(dtab, [
+                        short_ts(r.get("timestamp", "")),
+                        self._bubble_token(self._stable_status(r), "status"),
+                        self._bubble_token(sev, "severity"),
+                        self._stable_source_label(r.get("source","")),
+                        str(r.get("title", ""))[:150],
+                        str(r.get("detail", ""))[:240],
+                    ], tag)
+
+            # Defender signal table if present
+            dsig = getattr(self, "defender_signal_table", None)
+            if dsig is not None:
+                self._safe_tree_clear(dsig)
+                for r in rows[:250]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+                    self._safe_insert_tree(dsig, [
+                        self._bubble_token(sev, "severity"),
+                        self._stable_source_label(r.get("source","")),
+                        short_ts(r.get("timestamp", "")),
+                        str(r.get("title", ""))[:150],
+                        str(r.get("detail", ""))[:240],
+                    ], tag)
+
+            # Intune tables
+            for attr, data_key, row_type in (
+                ("intune_noncompliant_table", "noncompliant_devices", "noncompliant"),
+                ("intune_stale_table", "stale_devices", "stale"),
+            ):
+                tree = getattr(self, attr, None)
+                if tree is not None:
+                    self._safe_tree_clear(tree)
+                    for d in (metrics.get(data_key, []) or [])[:500]:
+                        tag = self._intune_row_tag(row_type, d.get("os",""))
+                        self._safe_insert_tree(tree, [
+                            d.get("name",""),
+                            self._decorate_os_cell(d.get("os","")),
+                            d.get("user",""),
+                            self._bubble_token(d.get("compliance","CHECK"), "status"),
+                            short_ts(d.get("last_sync","")),
+                        ], tag)
+
+            posture = getattr(self, "intune_posture_table", None)
+            if posture is not None:
+                self._safe_tree_clear(posture)
+                posture_rows = []
+                for d in metrics.get("unencrypted_devices", []) or []:
+                    posture_rows.append(("Unencrypted", d, "bad"))
+                for d in metrics.get("jailbroken_devices", []) or []:
+                    posture_rows.append(("Jailbreak/root flag", d, "bad"))
+                for finding, d, tag in posture_rows[:500]:
+                    self._safe_insert_tree(posture, [
+                        self._bubble_token(finding, "status"),
+                        d.get("name",""),
+                        self._decorate_os_cell(d.get("os","")),
+                        d.get("user",""),
+                        d.get("compliance",""),
+                        short_ts(d.get("last_sync","")),
+                    ], tag)
+
+            # UniFi site table
+            utree = getattr(self, "unifi_sites_table", None)
+            if utree is not None:
+                self._safe_tree_clear(utree)
+                for s in (metrics.get("unifi_site_health", []) or [])[:500]:
+                    tag = self._unifi_status_tag(s.get("status", "VISIBLE"))
+                    self._safe_insert_tree(utree, [
+                        s.get("name",""),
+                        self._decorate_unifi_status(s.get("status","VISIBLE")),
+                        s.get("total",0),
+                        self._decorate_count_cell(s.get("online",0), "online"),
+                        self._decorate_count_cell(s.get("offline",0), "offline"),
+                        self._decorate_count_cell(s.get("degraded",0), "degraded"),
+                        s.get("unknown",0),
+                        s.get("detail",""),
+                    ], tag)
+
+            # Software tables
+            newt = getattr(self, "software_new_table", None)
+            if newt is not None:
+                self._safe_tree_clear(newt)
+                for a in (metrics.get("new_software", []) or [])[:500]:
+                    self._safe_insert_tree(newt, [
+                        a.get("displayName",""),
+                        a.get("version",""),
+                        a.get("publisher",""),
+                        a.get("deviceCount",0),
+                        "Newly observed",
+                    ], "warn")
+
+            allt = getattr(self, "software_all_table", None)
+            if allt is not None:
+                self._safe_tree_clear(allt)
+                for a in (metrics.get("detected_apps", []) or [])[:1000]:
+                    self._safe_insert_tree(allt, [
+                        a.get("displayName",""),
+                        a.get("version",""),
+                        a.get("publisher",""),
+                        a.get("deviceCount",0),
+                        a.get("sizeInByte",0),
+                    ], "info")
+        except Exception as e:
+            try:
+                self.status_var.set(f"Table render recovered with warning: {e}")
+            except Exception:
+                pass
 
 
     def pulse_overview_status(self):
