@@ -2027,10 +2027,16 @@ class SentinelApp(tk.Tk):
             shell.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=(0, 4))
             body_row = tk.Frame(panel, bg=GLASS)
             body_row.pack(fill="both", expand=True, padx=20, pady=15)
-            badge = tk.Canvas(body_row, width=50, height=50, bg=GLASS, highlightthickness=0, bd=0)
+            badge = tk.Canvas(body_row, width=58, height=58, bg=GLASS, highlightthickness=0, bd=0)
             badge.pack(side="left", padx=(0, 16))
-            badge.create_oval(3, 3, 47, 47, fill="#0D1A28", outline=color, width=1.5)
-            badge.create_text(25, 25, text=icon, fill=color, font=(self.font_ui, 18, "bold"))
+            # Row 3 icon glow: no badge circles, just a clean neon glyph.
+            # Tkinter has no native blur, so layer translucent-looking text offsets
+            # to create a soft halo around each icon.
+            for dx, dy in ((0, -2), (0, 2), (-2, 0), (2, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)):
+                badge.create_text(29 + dx, 29 + dy, text=icon, fill="#12324A", font=(self.font_ui, 25, "bold"))
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                badge.create_text(29 + dx, 29 + dy, text=icon, fill=color, font=(self.font_ui, 23, "bold"))
+            badge.create_text(29, 29, text=icon, fill="#F4FBFF", font=(self.font_ui, 22, "bold"))
             text_col = tk.Frame(body_row, bg=GLASS)
             text_col.pack(side="left", fill="both", expand=True)
             tk.Label(text_col, text=label, bg=GLASS, fg="#D7E7F7", font=(self.font_ui, 10, "bold")).pack(anchor="w")
