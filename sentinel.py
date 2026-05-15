@@ -173,7 +173,7 @@ class Config:
         "software_poll_hours": 6,
         "microsoft": {"tenant_id": "", "client_id": "", "client_secret": "", "defender_api_url": "https://api.securitycenter.microsoft.com", "enabled": False},
         "unifi": {"base_url": "https://api.ui.com", "api_key": "", "site_id": "", "alerts_path": "", "site_health_path": "", "site_name_map": "", "enabled": False},
-        "qualys": {"base_url": "https://qualysapi.qg1.apps.qualys.co.uk", "username": "", "password": "", "enabled": False},
+        "qualys": {"base_url": "https://qualysapi.qg3.apps.qualys.com", "username": "", "password": "", "enabled": False},
         "azure": {"tenant_id": "", "client_id": "", "client_secret": "", "subscription_id": "", "enabled": False},
     }
 
@@ -1298,8 +1298,8 @@ class UniFiConnector:
 class QualysConnector:
     """Qualys VMDR host and sev 3/4/5 detection probe kept off Overview metrics.
 
-    This connector uses the classic Qualys XML API. Keep Base URL as the host only:
-    https://qualysapi.qg1.apps.qualys.co.uk
+    Uses the classic Qualys XML API with Basic auth. In setup, enter only the API host,
+    for example: https://qualysapi.qg1.apps.qualys.co.uk
     """
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1313,61 +1313,54 @@ class QualysConnector:
         base = str(c.get("base_url", "")).strip().rstrip("/")
         if not base:
             return base
-        if base.startswith("http://qualysguard.qg1.apps.qualys.co.uk"):
-            base = base.replace("http://qualysguard.qg1.apps.qualys.co.uk", "https://qualysapi.qg1.apps.qualys.co.uk", 1)
-        if base.startswith("https://qualysguard.qg1.apps.qualys.co.uk"):
-            base = base.replace("https://qualysguard.qg1.apps.qualys.co.uk", "https://qualysapi.qg1.apps.qualys.co.uk", 1)
+        # Accept pasted portal URLs and normalise them to the API host.
+        replacements = {
+            "https://qualysguard.qg1.apps.qualys.co.uk": "https://qualysapi.qg1.apps.qualys.co.uk",
+            "http://qualysguard.qg1.apps.qualys.co.uk": "https://qualysapi.qg1.apps.qualys.co.uk",
+        }
+        for old, new in replacements.items():
+            if base.lower().startswith(old.lower()):
+                base = new
+                break
+        # If a full endpoint was pasted, reduce back to the host. The connector adds paths.
         for marker in ("/api/", "/msp/", "/fo/"):
-            if marker in base:
-                base = base.split(marker, 1)[0]
+            idx = base.lower().find(marker)
+            if idx > -1:
+                base = base[:idx]
         return base.rstrip("/")
 
     def _headers(self):
         c = self.cfg["qualys"]
-        token = base64.b64encode((c["username"] + ":" + c["password"]).encode()).decode()
+        token = base64.b64encode((str(c.get("username", "")) + ":" + str(c.get("password", ""))).encode()).decode()
         return {
             "Authorization": "Basic " + token,
             "X-Requested-With": "SmartboxSOC",
-            "Accept": "application/xml,text/xml,*/*",
+            "Accept": "application/xml, text/xml, */*",
             "User-Agent": "SmartboxSOC/1.0",
         }
 
-    def _get_xml(self, path, params=None, timeout=45):
-        params = params or {}
+    def _get_xml(self, path, params=None, timeout=35):
         base = self._clean_base()
-        if not path.startswith("/"):
-            path = "/" + path
-        url = base + path
-        if params:
-            url += "?" + urllib.parse.urlencode(params)
+        path = "/" + str(path or "").lstrip("/")
+        query = urllib.parse.urlencode(params or {})
+        url = base + path + (("?" + query) if query else "")
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as res:
-                return res.read().decode("utf-8", errors="replace")
-        except urllib.error.HTTPError as e:
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="replace")[:900]
-            except Exception:
-                pass
-            raise RuntimeError(f"HTTP {e.code} {e.reason} from {url}: {body}"[:1200])
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            return raw, url, getattr(res, "status", "200")
 
     def _node_text(self, node, name, default=""):
         found = node.find(name)
-        return (found.text or "").strip() if found is not None and found.text is not None else default
+        return (found.text or "").strip() if found is not None else default
 
     def _host_identity(self, host):
-        dns = self._node_text(host, "DNS")
-        dns_data = host.find("DNS_DATA")
-        if not dns and dns_data is not None:
-            dns = self._node_text(dns_data, "FQDN") or self._node_text(dns_data, "HOSTNAME")
         return {
-            "id": self._node_text(host, "ID") or self._node_text(host, "ASSET_ID"),
+            "id": self._node_text(host, "ID"),
             "ip": self._node_text(host, "IP"),
-            "dns": dns,
+            "dns": self._node_text(host, "DNS"),
             "netbios": self._node_text(host, "NETBIOS"),
             "os": self._node_text(host, "OS"),
-            "last_scan": self._node_text(host, "LAST_SCAN_DATETIME") or self._node_text(host, "LAST_VM_SCANNED_DATE") or self._node_text(host, "LAST_SCAN_DATE"),
+            "last_scan": self._node_text(host, "LAST_SCAN_DATETIME") or self._node_text(host, "LAST_VM_SCANNED_DATE"),
         }
 
     def _parse_assets(self, raw):
@@ -1375,12 +1368,10 @@ class QualysConnector:
         assets = []
         root = ET.fromstring(raw)
         for host in root.findall(".//HOST")[:1000]:
-            ident = self._host_identity(host)
-            if ident.get("id") or ident.get("ip") or ident.get("dns"):
-                assets.append(ident)
+            assets.append(self._host_identity(host))
         return assets
 
-    def _parse_detections(self, raw, local_filter=True):
+    def _parse_detections(self, raw):
         import xml.etree.ElementTree as ET
         detections = []
         host_seen = {}
@@ -1388,8 +1379,8 @@ class QualysConnector:
         for host in root.findall(".//HOST")[:1000]:
             ident = self._host_identity(host)
             asset_name = ident.get("dns") or ident.get("netbios") or ident.get("ip") or "unknown asset"
-            if ident.get("id") or ident.get("ip") or ident.get("dns"):
-                host_seen[ident.get("id") or ident.get("ip") or ident.get("dns")] = ident
+            if ident.get("id") or ident.get("ip"):
+                host_seen[ident.get("id") or ident.get("ip")] = ident
             for det in host.findall(".//DETECTION"):
                 sev_raw = self._node_text(det, "SEVERITY") or self._node_text(det, "SEVERITY_LEVEL")
                 qds_raw = self._node_text(det, "QDS") or self._node_text(det, "QDS_SCORE")
@@ -1397,7 +1388,7 @@ class QualysConnector:
                     sev = int(sev_raw or 0)
                 except Exception:
                     sev = 0
-                if local_filter and sev not in (3, 4, 5):
+                if sev not in (3, 4, 5):
                     continue
                 detections.append({
                     "severity": sev,
@@ -1406,75 +1397,87 @@ class QualysConnector:
                     "ip": ident.get("ip", ""),
                     "os": ident.get("os", ""),
                     "status": self._node_text(det, "STATUS") or "Active",
-                    "type": self._node_text(det, "TYPE"),
                     "port": self._node_text(det, "PORT"),
                     "protocol": self._node_text(det, "PROTOCOL"),
                     "qds": qds_raw,
                     "first_found": self._node_text(det, "FIRST_FOUND_DATETIME"),
-                    "last_found": self._node_text(det, "LAST_FOUND_DATETIME") or self._node_text(det, "LAST_UPDATE_DATETIME") or self._node_text(det, "LAST_TEST_DATETIME"),
+                    "last_found": self._node_text(det, "LAST_FOUND_DATETIME") or self._node_text(det, "LAST_UPDATE_DATETIME"),
                 })
         return list(host_seen.values()), detections
 
-    def _try_detection_call(self, params, notes, label):
-        raw = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", params, timeout=60)
-        hosts, detections = self._parse_detections(raw, local_filter=True)
-        notes.append(f"{label} returned {len(hosts)} host(s) and {len(detections)} sev 3/4/5 detection row(s).")
-        if "<WARNING>" in raw:
-            notes.append("Qualys returned a WARNING block; check truncation/pagination if counts look low.")
-        return hosts, detections
+    def _looks_like_qualys_xml(self, raw):
+        text = str(raw or "")[:500].lower()
+        return text.lstrip().startswith("<") and ("qualys" in text or "host_list" in text or "detection" in text or "about" in text)
 
     def fetch(self):
         if not self.enabled():
             return None
+
         assets = []
         detections = []
-        notes = []
-        base = self._clean_base()
-        notes.append(f"Using Qualys API base {base}")
-        try:
-            about = self._get_xml("/msp/about.php", {}, timeout=18)
-            if "<ABOUT" in about:
-                notes.append("Qualys API/auth smoke test passed at /msp/about.php.")
-        except Exception as e:
-            notes.append("Qualys API/auth smoke test failed: " + str(e)[:220])
+        notes = [f"Qualys base URL normalised to {self._clean_base()}"]
 
-        detection_calls = [
-            ("Host Detection severity-filtered query", {
+        # Lightweight connectivity/auth probe. This mirrors the URL Marc tested successfully.
+        try:
+            raw_about, about_url, status = self._get_xml("/msp/about.php", {}, timeout=15)
+            notes.append(f"About probe OK ({status}) via {about_url}; response {len(raw_about)} bytes.")
+        except Exception as e:
+            notes.append("About probe failed: " + str(e)[:220])
+
+        # Host detection query. First try the focused VMDR sev filter, then fall back to a wider query.
+        detection_attempts = [
+            ("sev 3/4/5 active", {
+                "action": "list",
+                "severities": "3,4,5",
+                "status": "New,Active,Re-Opened",
+                "truncation_limit": "1000",
+                "show_results": "1",
+                "show_qds": "1",
+            }),
+            ("sev 3/4/5 any status", {
                 "action": "list",
                 "severities": "3,4,5",
                 "truncation_limit": "1000",
                 "show_results": "1",
+                "show_qds": "1",
             }),
-            ("Host Detection fallback local-filter query", {
+            ("unfiltered sample", {
                 "action": "list",
-                "truncation_limit": "1000",
+                "truncation_limit": "200",
                 "show_results": "1",
+                "show_qds": "1",
             }),
         ]
-        for label, params in detection_calls:
-            if detections:
-                break
+        for label, params in detection_attempts:
             try:
-                detected_hosts, detections = self._try_detection_call(params, notes, label)
+                raw, url, status = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", params, timeout=45)
+                detected_hosts, found = self._parse_detections(raw)
                 assets.extend(detected_hosts)
+                notes.append(f"Host Detection {label} OK ({status}): {len(found)} sev 3/4/5 row(s), {len(detected_hosts)} host(s).")
+                if found:
+                    detections = found
+                    break
+                if not detections:
+                    detections = found
             except Exception as e:
-                notes.append(label + " failed: " + str(e)[:260])
+                notes.append(f"Host Detection {label} failed: {str(e)[:220]}")
 
+        # Always keep a host inventory table available even if detections are empty or permission-limited.
         try:
-            raw_assets = self._get_xml("/api/2.0/fo/asset/host/", {
+            raw_assets, asset_url, status = self._get_xml("/api/2.0/fo/asset/host/", {
                 "action": "list",
                 "truncation_limit": "1000",
-            }, timeout=30)
+            }, timeout=25)
             inv_assets = self._parse_assets(raw_assets)
-            by_key = {a.get("id") or a.get("ip") or a.get("dns") or str(i): a for i, a in enumerate(assets)}
+            by_key = {a.get("id") or a.get("ip") or str(i): a for i, a in enumerate(assets)}
             for a in inv_assets:
-                by_key.setdefault(a.get("id") or a.get("ip") or a.get("dns") or str(len(by_key)), a)
+                by_key.setdefault(a.get("id") or a.get("ip") or str(len(by_key)), a)
             assets = list(by_key.values())[:1000]
-            notes.append(f"Host List returned {len(inv_assets)} asset row(s).")
+            notes.append(f"Host List OK ({status}): {len(inv_assets)} asset row(s).")
         except Exception as e:
             if not assets:
-                assets = [{"id": "error", "ip": "", "dns": "Qualys asset query warning", "netbios": "", "os": "", "last_scan": str(e)[:180]}]
-            notes.append("Host List query failed: " + str(e)[:260])
+                assets = [{"id": "error", "ip": "", "dns": "Qualys asset query warning", "netbios": "", "os": "", "last_scan": str(e)[:140]}]
+            notes.append("Host List query failed: " + str(e)[:220])
 
         sev3 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 3)
         sev4 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 4)
@@ -1493,6 +1496,7 @@ class QualysConnector:
             "qualys_notes": notes,
             "events": [],
         }
+
 
 class AzureVmConnector:
     """Azure Resource Manager VM inventory probe kept off the Overview metrics."""
@@ -4040,7 +4044,7 @@ class SentinelApp(tk.Tk):
             ("Site name map optional", "site_name_map", False),
         ])
         add_tab("Qualys", "qualys", [
-            ("Base URL, e.g. https://qualysapi.qg1.apps.qualys.co.uk", "base_url", False),
+            ("Base URL, e.g. https://qualysapi.qg3.apps.qualys.com", "base_url", False),
             ("Username", "username", False),
             ("Password", "password", True),
         ])
