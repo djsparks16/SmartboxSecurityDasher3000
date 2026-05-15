@@ -7484,61 +7484,6 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
-    def _install_sidebar_hover_grow(self):
-        """Reliable hover grow for sidebar icons."""
-        try:
-            icon_labels = []
-
-            def looks_like_icon(lbl):
-                try:
-                    txt = str(lbl.cget("text")).strip()
-                    if not txt:
-                        return False
-                    # Emoji/glyph labels are short and not normal words.
-                    words = {"Overview", "Connected"}
-                    return len(txt) <= 3 and txt not in words
-                except Exception:
-                    return False
-
-            def walk(w):
-                try:
-                    if looks_like_icon(w):
-                        icon_labels.append(w)
-                    for child in w.winfo_children():
-                        walk(child)
-                except Exception:
-                    pass
-
-            walk(self.left_nav)
-
-            for lbl in icon_labels:
-                try:
-                    base_font = lbl.cget("font")
-                    base_fg = lbl.cget("fg")
-                    def enter(_e, w=lbl):
-                        try:
-                            w.configure(font=(self.font_ui, 18, "bold"), fg="#FFFFFF")
-                        except Exception:
-                            pass
-                    def leave(_e, w=lbl, f=base_font, fg=base_fg):
-                        try:
-                            w.configure(font=f, fg=fg)
-                        except Exception:
-                            pass
-                    lbl.bind("<Enter>", enter, add="+")
-                    lbl.bind("<Leave>", leave, add="+")
-                    # Parent row hover should trigger icon too.
-                    try:
-                        lbl.master.bind("<Enter>", enter, add="+")
-                        lbl.master.bind("<Leave>", leave, add="+")
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-
 
     def _frame_bounds(self, w):
         try:
@@ -7643,22 +7588,6 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
-    def _repair_row1_true_outer_outlines(self, metrics):
-        """Apply Row 1 outlines to the real outer Defender priority and heartbeat panels."""
-        try:
-            active = self._any_metric_count(metrics, "active_alerts", "defender_alerts")
-            high = self._any_metric_count(metrics, "critical", "defender_critical", "defender_high")
-            graph = self._any_metric_count(metrics, "graph_incidents", "m365_incidents")
-            defender_color = RED if high else ORANGE if active or graph else GREEN
-            heartbeat_color = GREEN if getattr(self, "last_payload", None) else ORANGE
-
-            hero_panel = self._panel_containing_label(self.tab_overview, exact="Defender priority")
-            hb_panel = self._panel_containing_label(self.tab_overview, exact="Live heartbeat")
-
-            self._clean_outer_outline(hero_panel, defender_color, 2)
-            self._clean_outer_outline(hb_panel, heartbeat_color, 2)
-        except Exception:
-            pass
 
     def _ensure_defender_health_subtab(self):
         """Create a distinct Defender View page for connector/security health."""
@@ -7780,6 +7709,320 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _all_widgets(self, root):
+        out = []
+        try:
+            def walk(w):
+                out.append(w)
+                for c in w.winfo_children():
+                    walk(c)
+            walk(root)
+        except Exception:
+            pass
+        return out
+
+    def _widget_text(self, w):
+        try:
+            return str(w.cget("text"))
+        except Exception:
+            return ""
+
+    def _find_label_widget(self, root, exact=None, contains=None):
+        try:
+            for w in self._all_widgets(root):
+                txt = self._widget_text(w)
+                if exact is not None and txt == exact:
+                    return w
+                if contains is not None and contains in txt:
+                    return w
+        except Exception:
+            pass
+        return None
+
+    def _true_card_shell_from_label(self, label):
+        """Climb from a label to the largest useful panel before the page/container."""
+        if label is None:
+            return None
+        try:
+            chain = []
+            w = label
+            for _ in range(12):
+                w = getattr(w, "master", None)
+                if w is None:
+                    break
+                try:
+                    ww, hh = w.winfo_width(), w.winfo_height()
+                    bg = str(w.cget("bg")).lower()
+                    if ww >= 250 and hh >= 70 and bg in (PANEL.lower(), BG2.lower(), "#071724", "#06131f", "#071521"):
+                        chain.append(w)
+                except Exception:
+                    pass
+            # choose the largest card that is not the entire tab/page
+            candidates = []
+            for w in chain:
+                try:
+                    ww, hh = w.winfo_width(), w.winfo_height()
+                    if ww < max(900, self.winfo_width() * 0.9) and hh < max(500, self.winfo_height() * 0.55):
+                        candidates.append((ww * hh, w))
+                except Exception:
+                    pass
+            if candidates:
+                return sorted(candidates, key=lambda x: x[0])[-1][1]
+        except Exception:
+            pass
+        return None
+
+    def _outline_outer_only(self, shell, color, thickness=2):
+        if shell is None:
+            return
+        try:
+            shell.configure(highlightthickness=thickness, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+        # remove only nested outlines so labels/inner title bars stop being boxed
+        try:
+            def clear_children(w):
+                for c in w.winfo_children():
+                    if c is not shell:
+                        try:
+                            c.configure(highlightthickness=0)
+                        except Exception:
+                            pass
+                    clear_children(c)
+            clear_children(shell)
+        except Exception:
+            pass
+
+    def _repair_row1_real_outlines_and_pulse(self, metrics):
+        """Real outer border for Row 1 hero + heartbeat, plus green heartbeat pulse."""
+        try:
+            active = self._any_metric_count(metrics, "active_alerts", "defender_alerts") if hasattr(self, "_any_metric_count") else int(metrics.get("active_alerts", metrics.get("defender_alerts", 0)) or 0)
+            high = self._any_metric_count(metrics, "critical", "defender_critical", "defender_high") if hasattr(self, "_any_metric_count") else int(metrics.get("critical", 0) or 0)
+            graph = self._any_metric_count(metrics, "graph_incidents", "m365_incidents") if hasattr(self, "_any_metric_count") else int(metrics.get("graph_incidents", 0) or 0)
+            hero_color = RED if high else ORANGE if active or graph else GREEN
+            heartbeat_color = GREEN if getattr(self, "last_payload", None) else ORANGE
+
+            hero_label = self._find_label_widget(self.tab_overview, exact="Defender priority")
+            hb_label = self._find_label_widget(self.tab_overview, exact="Live heartbeat")
+            hero_shell = self._true_card_shell_from_label(hero_label)
+            hb_shell = self._true_card_shell_from_label(hb_label)
+
+            # Store so the pulse can keep hitting the correct panel.
+            self._overview_hero_shell = hero_shell
+            self._overview_heartbeat_shell = hb_shell
+
+            self._outline_outer_only(hero_shell, hero_color, 2)
+            self._outline_outer_only(hb_shell, heartbeat_color, 2)
+
+            # Heartbeat text/state
+            for w in self._all_widgets(self.tab_overview):
+                try:
+                    txt = self._widget_text(w)
+                    if txt in ("CONNECTED", "CONNECTING"):
+                        w.configure(text="CONNECTED" if getattr(self, "last_payload", None) else "CONNECTING", fg=heartbeat_color)
+                    elif "Polling links" in txt:
+                        w.configure(text="Polling links active" if getattr(self, "last_payload", None) else "Polling links not yet active")
+                except Exception:
+                    pass
+
+            if not getattr(self, "_heartbeat_pulse_started", False):
+                self._heartbeat_pulse_started = True
+                self._pulse_heartbeat_outline()
+        except Exception:
+            pass
+
+    def _pulse_heartbeat_outline(self):
+        try:
+            shell = getattr(self, "_overview_heartbeat_shell", None)
+            if shell is not None and getattr(self, "last_payload", None):
+                state = getattr(self, "_heartbeat_pulse_state", False)
+                self._heartbeat_pulse_state = not state
+                color = "#6DFF4B" if state else "#2EBF3A"
+                self._outline_outer_only(shell, color, 2 if state else 1)
+            self.after(700, self._pulse_heartbeat_outline)
+        except Exception:
+            try:
+                self.after(1200, self._pulse_heartbeat_outline)
+            except Exception:
+                pass
+
+    def _remove_overview_blank_strip_and_expand_row1(self):
+        """Hide the dead strip above Row 1 and stretch the hero/heartbeat row."""
+        try:
+            # Hide shallow empty frames/labels above Row 1.
+            hero_label = self._find_label_widget(self.tab_overview, exact="Defender priority")
+            if hero_label is None:
+                return
+            hero_y = hero_label.winfo_rooty()
+            for w in self._all_widgets(self.tab_overview):
+                try:
+                    if w.winfo_rooty() < hero_y - 10 and w.winfo_height() >= 25:
+                        txt = self._widget_text(w).strip()
+                        cls = w.winfo_class()
+                        if txt == "" and cls in ("Label", "Frame"):
+                            # only hide if it is not one of the main tab buttons / topbar
+                            if w.winfo_width() > 300 and w.winfo_height() < 90:
+                                if w.winfo_manager() == "pack":
+                                    w.pack_forget()
+                                elif w.winfo_manager() == "grid":
+                                    w.grid_remove()
+                except Exception:
+                    pass
+
+            for shell in (getattr(self, "_overview_hero_shell", None), getattr(self, "_overview_heartbeat_shell", None)):
+                if shell is not None:
+                    try:
+                        shell.configure(height=max(140, shell.winfo_height()))
+                    except Exception:
+                        pass
+                    try:
+                        shell.pack_configure(pady=(2, 8))
+                    except Exception:
+                        pass
+                    try:
+                        shell.grid_configure(pady=(2, 8))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _live_rows_any(self, metrics, *keys):
+        for key in keys:
+            val = metrics.get(key)
+            if isinstance(val, list):
+                return val
+        return []
+
+    def _repair_notes_summary_tables_live(self, metrics):
+        """Make notes/summary subtabs useful instead of blank."""
+        try:
+            def clear(tree):
+                for item in tree.get_children():
+                    tree.delete(item)
+            def ins(tree, vals, tag="info"):
+                try:
+                    self._configure_sexy_table_tags(tree)
+                except Exception:
+                    pass
+                cols = list(tree["columns"])
+                vals = list(vals)
+                if len(vals) < len(cols):
+                    vals += [""] * (len(cols)-len(vals))
+                tree.insert("", "end", values=vals[:len(cols)], tags=(tag,))
+
+            # Software detected apps
+            apps = self._live_rows_any(metrics, "detected_apps", "software_all", "detected_apps_rows", "software_rows", "all_software", "detected_app_rows")
+            if not apps and isinstance(metrics.get("detected_app_count"), int):
+                apps = []
+            for attr in ("software_all_table", "software_detected_apps_table", "software_detected_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for a in apps[:1500]:
+                    name = a.get("displayName") or a.get("name") or a.get("softwareName") or ""
+                    version = a.get("version") or a.get("softwareVersion") or ""
+                    publisher = a.get("publisher") or a.get("vendor") or ""
+                    devices = a.get("deviceCount") or a.get("devices") or a.get("machineCount") or 0
+                    ins(tree, ["▤  " + str(name), version, publisher, self._decorate_count_cell(devices), a.get("sizeInByte") or a.get("size") or ""], "info")
+                if not apps:
+                    count = metrics.get("detected_app_count") or metrics.get("detected_apps_count") or metrics.get("detected_apps_returned")
+                    msg = f"{count} detected apps counted, but row payload not present in this poll." if count else "No detected apps returned by live API."
+                    ins(tree, ["▤  Software inventory rows unavailable", "", "", "", msg], "info")
+
+            # Software new
+            new_apps = self._live_rows_any(metrics, "new_software", "new_apps", "software_new_rows", "newly_observed_apps")
+            for attr in ("software_new_table", "software_newly_observed_table"):
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for a in new_apps[:1000]:
+                    name = a.get("displayName") or a.get("name") or a.get("softwareName") or ""
+                    ins(tree, ["✦  " + str(name), a.get("version",""), a.get("publisher",""), self._decorate_count_cell(a.get("deviceCount", 0)), self._bubble_token("NEW", "status")], "review")
+                if not new_apps:
+                    ins(tree, ["✦  No newly observed software", "", "", "", self._bubble_token("INFO", "status")], "done")
+
+            # Notes tables across Software / UniFi / Intune.
+            note_payloads = {
+                "software_notes_table": [
+                    ("Inventory status", "INFO", f"{metrics.get('detected_app_count') or metrics.get('detected_apps_count') or 0} detected app(s) counted"),
+                    ("Newly observed", "INFO", f"{metrics.get('new_software_count') or 0} new software item(s)"),
+                    ("Source", "INFO", str(metrics.get("detected_apps_source") or "Graph")),
+                ],
+                "unifi_notes_table": [
+                    ("UniFi sites", "INFO", f"{metrics.get('unifi_sites') or 0} site(s)"),
+                    ("Degraded/offline", "MEDIUM", f"{metrics.get('unifi_degraded_sites') or 0} degraded, {metrics.get('unifi_critical_sites') or metrics.get('unifi_offline_sites') or 0} offline"),
+                    ("UniFi devices", "INFO", f"{metrics.get('unifi_devices') or 0} device(s)"),
+                ],
+                "intune_summary_table": [
+                    ("Intune devices", "INFO", f"{metrics.get('devices') or metrics.get('intune_devices') or 0} device(s)"),
+                    ("Non-compliant", "MEDIUM", f"{metrics.get('noncompliant') or metrics.get('noncompliant_count') or 0} non-compliant"),
+                    ("Stale 30+", "MEDIUM", f"{metrics.get('stale_30_count') or 0} stale device(s)"),
+                    ("Unencrypted", "HIGH", f"{metrics.get('unencrypted_count') or 0} unencrypted device(s)"),
+                ],
+            }
+            for attr, rows in note_payloads.items():
+                tree = getattr(self, attr, None)
+                if tree is None:
+                    continue
+                clear(tree)
+                for title, sev, detail in rows:
+                    tag = "review" if sev in ("MEDIUM", "HIGH") else "info"
+                    ins(tree, [self._bubble_token(sev, "severity"), title, detail], tag)
+        except Exception:
+            pass
+
+    def _install_global_hover_grow(self):
+        """Hover-grow sidebar icons and top tab icons/text."""
+        try:
+            targets = []
+            roots = [getattr(self, "left_nav", None), getattr(self, "main_tab_bar", None)]
+            for root in roots:
+                if root is None:
+                    continue
+                for w in self._all_widgets(root):
+                    try:
+                        txt = self._widget_text(w).strip()
+                        if not txt:
+                            continue
+                        # Include glyph-only labels and top tab labels.
+                        if len(txt) <= 3 or txt in ("Overview", "Defender", "Intune", "UniFi", "Software"):
+                            targets.append(w)
+                    except Exception:
+                        pass
+
+            for w in targets:
+                try:
+                    if getattr(w, "_hover_grow_bound", False):
+                        continue
+                    w._hover_grow_bound = True
+                    base_font = w.cget("font")
+                    base_fg = w.cget("fg")
+                    def enter(_e, ww=w):
+                        try:
+                            ww.configure(font=(self.font_ui, 13 if len(self._widget_text(ww)) > 3 else 18, "bold"), fg="#FFFFFF")
+                        except Exception:
+                            pass
+                    def leave(_e, ww=w, ff=base_font, fg=base_fg):
+                        try:
+                            ww.configure(font=ff, fg=fg)
+                        except Exception:
+                            pass
+                    w.bind("<Enter>", enter, add="+")
+                    w.bind("<Leave>", leave, add="+")
+                    try:
+                        w.master.bind("<Enter>", enter, add="+")
+                        w.master.bind("<Leave>", leave, add="+")
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -7798,16 +8041,19 @@ class SentinelApp(tk.Tk):
             self._repair_vulnerability_tab_only(metrics)
             self._paint_defender_focus_live(payload)
             self._repair_clean_outer_outlines(metrics)
+            self._repair_row1_real_outlines_and_pulse(metrics)
+            self._remove_overview_blank_strip_and_expand_row1()
             self._repair_row1_true_outer_outlines(metrics)
             self._hide_blank_overview_top_strip()
             self._enlarge_overview_row1()
             self._repair_software_tables_live(metrics)
+            self._repair_notes_summary_tables_live(metrics)
             self._paint_defender_health_view(payload)
             self._paint_defender_focus_live(payload)
             self._repair_clean_outer_outlines(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
-            self._install_sidebar_hover_grow()
+            self._install_global_hover_grow()
         except Exception:
             pass
 
