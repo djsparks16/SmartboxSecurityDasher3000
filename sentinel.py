@@ -243,9 +243,49 @@ class MicrosoftGraphConnector:
         self.token_expiry = {}
         self.status = "idle"
 
+
+    def recommendation_row(self, r):
+        return {
+            "title": r.get("recommendationName") or r.get("title") or r.get("name") or "Security recommendation",
+            "severity": r.get("severity") or r.get("exposureImpact") or r.get("riskScore") or "",
+            "status": r.get("status") or r.get("implementationStatus") or "",
+            "category": r.get("category") or r.get("productName") or "",
+            "impact": r.get("impact") or r.get("exposedMachinesCount") or r.get("exposedMachineCount") or "",
+            "detail": r.get("description") or r.get("remediationType") or r.get("remediation") or "",
+        }
+
+    def vulnerability_row(self, v):
+        return {
+            "id": v.get("id") or v.get("cveId") or v.get("name") or "vulnerability",
+            "severity": v.get("severity") or v.get("cvssV3") or v.get("cvssScore") or "",
+            "cvss": v.get("cvssV3") or v.get("cvssScore") or "",
+            "published": v.get("publishedOn") or v.get("publishedDate") or "",
+            "updated": v.get("updatedOn") or v.get("lastModified") or "",
+            "detail": v.get("description") or v.get("name") or "",
+        }
+
+    def machine_row(self, m):
+        return {
+            "name": m.get("computerDnsName") or m.get("machineName") or m.get("deviceName") or m.get("id") or "machine",
+            "risk": m.get("riskScore") or m.get("exposureLevel") or "",
+            "health": m.get("healthStatus") or m.get("onboardingStatus") or "",
+            "os": m.get("osPlatform") or m.get("osProcessor") or "",
+            "last_seen": m.get("lastSeen") or "",
+            "ip": m.get("lastIpAddress") or "",
+        }
+
+
     def enabled(self):
         c = self.cfg["microsoft"]
         return c.get("enabled") and c.get("tenant_id") and c.get("client_id") and c.get("client_secret")
+
+
+    def clear_token_cache(self):
+        try:
+            self.tokens = {}
+            self.token_expiry = {}
+        except Exception:
+            pass
 
     def get_token(self, scope="https://graph.microsoft.com/.default"):
         if self.tokens.get(scope) and time.time() < self.token_expiry.get(scope, 0) - 120:
@@ -5967,6 +6007,11 @@ class SentinelApp(tk.Tk):
             "mailbox",
             "cache/backoff",
             "graph incident",
+            "connector degraded",
+            "microsoftgraphconnector",
+            "api/auth",
+            "forbidden",
+            "missing application roles",
         )
         return any(x in joined for x in included)
 
