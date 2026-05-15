@@ -2458,7 +2458,7 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = self.glow_icon(top, icon_text, color, size=22, bg=PANEL, halo=True)
+            dot = self.glow_icon(top, icon_text, color, size=24, bg=PANEL, halo=True)
             dot.pack(side="left", padx=(0, 14))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
@@ -2954,11 +2954,14 @@ class SentinelApp(tk.Tk):
                 "all software": ("all", "software", "inventory"),
                 "security alerts": ("security alerts", "alerts"),
                 "signal events": ("signal", "events"),
+                "recommendations": ("recommendations", "tvm"),
+                "vulnerabilities": ("vulnerabilities", "cve"),
+                "machines": ("machines", "forensics"),
+                "machines / forensics": ("machines", "forensics"),
                 "sites": ("sites", "network sites"),
                 "connector": ("connector", "notes"),
             }
             wanted_terms = synonyms.get(wanted_l, (wanted_l,))
-            # Prefer exact containment.
             for tab_id in notebook.tabs():
                 txt = str(notebook.tab(tab_id, "text") or "").lower()
                 if wanted_l and wanted_l in txt:
@@ -2968,7 +2971,6 @@ class SentinelApp(tk.Tk):
                     except Exception:
                         pass
                     return True
-            # Then synonyms.
             for tab_id in notebook.tabs():
                 txt = str(notebook.tab(tab_id, "text") or "").lower()
                 if any(term and term in txt for term in wanted_terms):
@@ -2983,34 +2985,40 @@ class SentinelApp(tk.Tk):
         return False
 
     def nav_to(self, main_frame, subtab_text=None):
-        """Real sidebar navigation: main tab plus matching internal subtab."""
+        """Real sidebar navigation: main tab plus matching internal/nested subtab."""
         try:
             self.select_main_tab(main_frame)
             if subtab_text:
-                # Find the notebook inside the selected page and select the matching subtab.
+                notebooks = []
                 for nb_name in (
-                    "defender_tabs", "intune_tabs", "unifi_tabs", "software_tabs",
+                    "defender_tabs", "defender_enrich_tabs",
+                    "intune_tabs", "unifi_tabs", "software_tabs",
                     "sub_defender_tabs", "sub_intune_tabs", "sub_unifi_tabs", "sub_software_tabs",
                 ):
                     nb = getattr(self, nb_name, None)
-                    if nb is not None and self._safe_select_subtab_by_text(nb, subtab_text):
-                        return
-                # Last resort: scan children for notebooks.
+                    if nb is not None:
+                        notebooks.append(nb)
                 stack = list(main_frame.winfo_children())
                 while stack:
                     w = stack.pop(0)
-                    if isinstance(w, ttk.Notebook) and self._safe_select_subtab_by_text(w, subtab_text):
-                        return
+                    if isinstance(w, ttk.Notebook):
+                        notebooks.append(w)
                     try:
                         stack.extend(w.winfo_children())
                     except Exception:
                         pass
+                seen = set()
+                for nb in notebooks:
+                    if str(nb) in seen:
+                        continue
+                    seen.add(str(nb))
+                    if self._safe_select_subtab_by_text(nb, subtab_text):
+                        return
         except Exception as e:
             try:
                 self.status_var.set(f"Navigation warning: {e}")
             except Exception:
                 pass
-
 
     def _build_left_nav(self, shell):
         """Left rail inspired by the generated SOC cockpit reference."""
@@ -3037,8 +3045,8 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Security alerts"), BLUE)
         self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Security alerts"), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal events"), PURPLE)
-        self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender), ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Machines / forensics", "⌬", lambda: self.nav_to(self.tab_defender), BLUE)
+        self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender, "Recommendations"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Machines / forensics", "⌬", lambda: self.nav_to(self.tab_defender, "Machines / forensics"), BLUE)
 
         section("Intune", PURPLE)
         self.neon_sidebar_item(self.left_nav, "Device posture", "👤", lambda: self.nav_to(self.tab_intune, "Security posture"), PURPLE)
@@ -3674,33 +3682,50 @@ class SentinelApp(tk.Tk):
         self.focus_card(enrich_cards, "Vulnerabilities", RED, "defender", "defender_vulnerabilities")
         self.focus_card(enrich_cards, "Defender machines", BLUE, "defender", "defender_machines")
 
-        self.defender_recommendations_table = self.table_panel(defender_enrich, "Security recommendations / TVM", [
+        self.defender_enrich_bar = tk.Frame(defender_enrich, bg=BG)
+        self.defender_enrich_bar.pack(fill="x", pady=(6, 4))
+        self.defender_enrich_tabs = ttk.Notebook(defender_enrich, style="SubHidden.TNotebook")
+        self.defender_enrich_tabs.pack(fill="both", expand=True)
+
+        self.defender_recommendations_page = tk.Frame(self.defender_enrich_tabs, bg=BG)
+        self.defender_vulnerabilities_page = tk.Frame(self.defender_enrich_tabs, bg=BG)
+        self.defender_machines_page = tk.Frame(self.defender_enrich_tabs, bg=BG)
+
+        self.defender_enrich_tabs.add(self.defender_recommendations_page, text="Recommendations")
+        self.defender_enrich_tabs.add(self.defender_vulnerabilities_page, text="Vulnerabilities")
+        self.defender_enrich_tabs.add(self.defender_machines_page, text="Machines / forensics")
+        self._build_subtab_pills(self.defender_enrich_bar, self.defender_enrich_tabs, [
+            ("Recommendations", self.defender_recommendations_page),
+            ("Vulnerabilities", self.defender_vulnerabilities_page),
+            ("Machines / forensics", self.defender_machines_page),
+        ])
+
+        self.defender_recommendations_table = self.table_panel(self.defender_recommendations_page, "Security recommendations / TVM", [
             ("title", "Recommendation", 420),
             ("severity", "Severity", 120),
             ("category", "Category", 180),
             ("impact", "Impact", 120),
             ("status", "Status", 150),
             ("detail", "Detail", 640),
-        ], height=6)
+        ], height=10)
 
-        self.defender_vulnerabilities_table = self.table_panel(defender_enrich, "Vulnerabilities", [
+        self.defender_vulnerabilities_table = self.table_panel(self.defender_vulnerabilities_page, "Vulnerabilities", [
             ("id", "CVE / ID", 160),
             ("severity", "Severity", 120),
             ("cvss", "CVSS", 90),
             ("published", "Published", 160),
             ("updated", "Updated", 160),
             ("detail", "Detail", 760),
-        ], height=6)
+        ], height=10)
 
-        self.defender_machines_table = self.table_panel(defender_enrich, "Machines / forensic readiness", [
+        self.defender_machines_table = self.table_panel(self.defender_machines_page, "Machines / forensic readiness", [
             ("name", "Machine", 300),
             ("risk", "Risk / exposure", 150),
             ("health", "Health", 160),
             ("os", "OS", 180),
             ("last_seen", "Last seen", 180),
             ("ip", "IP", 180),
-        ], height=6)
-
+        ], height=10)
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
@@ -5060,6 +5085,49 @@ class SentinelApp(tk.Tk):
 
 
 
+
+    def _force_table_shape(self, tree, columns):
+        """Force a Treeview to keep the desired columns after repoll/subtab changes."""
+        try:
+            current = tuple(tree["columns"])
+            wanted = tuple(c[0] for c in columns)
+            if current != wanted:
+                tree.configure(columns=wanted)
+            self.setup_tree_columns(tree, columns)
+        except Exception:
+            pass
+
+    def _lock_defender_table_shapes(self):
+        """Prevent Defender pages from reverting to older/basic table layouts."""
+        try:
+            if getattr(self, "overview_defender_feed_table", None) is not None:
+                self._force_table_shape(self.overview_defender_feed_table, [
+                    ("severity", "Severity", 120),
+                    ("time", "Time", 170),
+                    ("title", "Alert / finding", 620),
+                    ("status", "Status", 150),
+                    ("detail", "Detail", 880),
+                ])
+            if getattr(self, "defender_alert_table", None) is not None:
+                self._force_table_shape(self.defender_alert_table, [
+                    ("severity", "Severity", 120),
+                    ("time", "Time", 170),
+                    ("title", "Alert / finding", 620),
+                    ("status", "Status", 150),
+                    ("detail", "Detail", 880),
+                ])
+            if getattr(self, "defender_signal_table", None) is not None:
+                self._force_table_shape(self.defender_signal_table, [
+                    ("time", "Time", 170),
+                    ("severity", "Severity", 120),
+                    ("source", "Source", 220),
+                    ("signal", "Signal", 520),
+                    ("detail", "Detail", 820),
+                ])
+        except Exception:
+            pass
+
+
     def _defender_row_status(self, row):
         raw = " ".join([str(row.get("status", "")), str(row.get("title", "")), str(row.get("detail", ""))]).lower()
         if "pending approval" in raw or "pending action" in raw:
@@ -5075,16 +5143,27 @@ class SentinelApp(tk.Tk):
         status = self._defender_row_status(row)
         tag = self._stable_event_tag(sev, row.get("source",""), row.get("title",""), row.get("detail",""))
         source = self._stable_source_label(row.get("source",""))
-        title = str(row.get("title", ""))[:160]
-        detail = str(row.get("detail", ""))[:260]
+        title = str(row.get("title", ""))[:170]
+        detail = str(row.get("detail", ""))[:280]
         time_v = short_ts(row.get("timestamp", ""))
 
-        # Match the actual rendered column names every time. This prevents
-        # old metadata from sliding values sideways after style/table rewrites.
         try:
             cols = list(tree["columns"])
         except Exception:
             cols = []
+
+        # Keep table shape sane even if an old renderer touched it.
+        if tree is getattr(self, "defender_alert_table", None) or tree is getattr(self, "overview_defender_feed_table", None):
+            if tuple(cols) != ("severity", "time", "title", "status", "detail"):
+                tree.configure(columns=("severity", "time", "title", "status", "detail"))
+                self.setup_tree_columns(tree, [
+                    ("severity", "Severity", 120),
+                    ("time", "Time", 170),
+                    ("title", "Alert / finding", 620),
+                    ("status", "Status", 150),
+                    ("detail", "Detail", 880),
+                ])
+                cols = list(tree["columns"])
 
         values_by_col = {
             "severity": self._bubble_token(sev, "severity"),
@@ -5094,6 +5173,7 @@ class SentinelApp(tk.Tk):
             "detail": detail,
             "source": source,
             "type": "Incident" if "incident" in str(row.get("source","")).lower() or "incident" in title.lower() else "Alert",
+            "signal": title,
         }
         values = [values_by_col.get(str(c), "") for c in cols]
         try:
@@ -5181,6 +5261,7 @@ class SentinelApp(tk.Tk):
     def _paint_defender_table_like_reference(self, tree, rows, include_source=True):
         if tree is None:
             return
+        self._lock_defender_table_shapes()
         self._safe_tree_clear(tree)
 
         for r in rows[:300]:
@@ -5199,80 +5280,9 @@ class SentinelApp(tk.Tk):
                 "detail": "Check Graph throttling/backoff, SecurityIncident.Read.All, SecurityAlert.Read.All and Defender API permissions.",
                 "source": "Microsoft 365 Defender",
                 "type": "Info",
+                "signal": "No Defender/M365 rows returned",
             }
             self._safe_insert_tree(tree, [empty_map.get(str(c), "") for c in cols], "info")
-
-
-    def _set_glow_icon_color(self, widget, color):
-        try:
-            # glow_icon returns a frame with labels/canvas children.
-            for child in widget.winfo_children():
-                try:
-                    child.configure(fg=color)
-                except Exception:
-                    pass
-                try:
-                    for sub in child.winfo_children():
-                        try:
-                            sub.configure(fg=color)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    def _status_color_from_value(self, value, default=BLUE):
-        raw = str(value or "").lower()
-        if any(x in raw for x in ("critical", "offline", "high", "bad", "risk", "issue", "unencrypted")):
-            return RED
-        if any(x in raw for x in ("medium", "degraded", "warning", "throttled", "stale", "posture")):
-            return ORANGE
-        if any(x in raw for x in ("clear", "ok", "healthy", "connected", "compliant", "live")):
-            return GREEN
-        return default
-
-    def _update_card_icon_severity_glow(self, metrics):
-        try:
-            # Overview status cards
-            card_specs = {
-                "overview_defender": self._status_color_from_value(metrics.get("priority_state", "CLEAR"), GREEN),
-                "overview_intune": RED if int(metrics.get("noncompliant", 0) or 0) else GREEN,
-                "overview_unifi": RED if int(metrics.get("unifi_critical_sites", 0) or 0) else (ORANGE if int(metrics.get("unifi_degraded_sites", 0) or 0) else GREEN),
-                "overview_software": ORANGE if str(metrics.get("software_issue_state", "")).lower() != "ok" else GREEN,
-            }
-            for key, color in card_specs.items():
-                card = getattr(self, "overview_status", {}).get(key)
-                if not card:
-                    continue
-                for part in ("dot",):
-                    widget = card.get(part)
-                    if widget is not None:
-                        self._set_glow_icon_color(widget, color)
-                if card.get("value") is not None:
-                    try:
-                        card["value"].configure(fg=color)
-                    except Exception:
-                        pass
-
-            # Row 3 posture cards
-            posture_specs = {
-                "stale_30_count": ORANGE if int(metrics.get("stale_30_count", 0) or 0) else GREEN,
-                "unencrypted_count": RED if int(metrics.get("unencrypted_count", 0) or 0) else GREEN,
-                "no_user_count": AMBER if int(metrics.get("no_user_count", 0) or 0) else GREEN,
-                "unifi_degraded_sites": ORANGE if int(metrics.get("unifi_degraded_sites", 0) or 0) else GREEN,
-            }
-            for key, label in getattr(self, "posture_labels", {}).items():
-                try:
-                    label.configure(fg=posture_specs.get(key, BLUE))
-                    parent = label.master
-                    for child in parent.master.winfo_children():
-                        self._set_glow_icon_color(child, posture_specs.get(key, BLUE))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
 
     def _stable_paint_all_tables(self, payload):
         """Last-mile table renderer.
@@ -5283,6 +5293,7 @@ class SentinelApp(tk.Tk):
         """
         try:
             metrics = payload.get("metrics", {}) or {}
+            self._lock_defender_table_shapes()
             self._update_card_icon_severity_glow(metrics)
             rows = payload.get("alert_rows", []) or []
             events = payload.get("events", []) or []
