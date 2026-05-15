@@ -6574,6 +6574,173 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _security_signal_count(self, metrics):
+        return (
+            self._metric_count(metrics, "active_alerts", "defender_alerts")
+            + self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+        )
+
+    def _repair_defender_tab_priority_live(self, metrics):
+        """Make Defender tab priority match Overview action logic."""
+        try:
+            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
+            m365 = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+            signal = active + m365
+
+            if high:
+                state, hint, color = "CRITICAL", f"{high} high/critical Defender item(s) need immediate triage.", RED
+            elif signal:
+                state, hint, color = "ACTION", f"{active} active Defender • {m365} M365/Graph item(s) need review.", ORANGE
+            else:
+                state, hint, color = "CLEAR", "No active Defender or M365 security items currently driving priority.", GREEN
+
+            self._set_focus_value_safe("defender", "priority_state", state, hint, color)
+            self._set_focus_value_safe("defender", "defender_alerts", active, "Defender active alerts", ORANGE if active else GREEN)
+            self._set_focus_value_safe("defender", "graph_incidents", m365, "M365 incidents / Graph context", ORANGE if m365 else GREEN)
+
+            # Fallback: find Defender priority card labels by text on Defender page.
+            try:
+                def walk(w):
+                    for child in w.winfo_children():
+                        try:
+                            txt = str(child.cget("text"))
+                            if txt in ("CLEAR", "ACTION", "CRITICAL") and "defender" in str(w).lower():
+                                child.configure(text=state, fg=color)
+                            elif txt in ("Defender priority", "no active Defender alerts"):
+                                pass
+                        except Exception:
+                            pass
+                        try:
+                            walk(child)
+                        except Exception:
+                            pass
+                walk(self.tab_defender)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _os_icon(self, os_name):
+        raw = str(os_name or "")
+        low = raw.lower()
+        if "windows" in low:
+            return "▦ Windows"
+        if "android" in low:
+            return "◆ Android"
+        if "ios" in low or "iphone" in low or "ipad" in low:
+            return "● iOS/iPadOS"
+        if "mac" in low:
+            return "◇ macOS"
+        return "✦ " + raw if raw else ""
+
+    def _row_action_tag(self, row):
+        """A clearer action/no-action row decision for SOC tables."""
+        raw = " ".join(str(row.get(k, "")) for k in ("severity", "status", "source", "title", "detail")).lower()
+        if any(x in raw for x in ("critical", "high", "active", "malicious", "phish", "credential", "failed", "offline")) and not any(x in raw for x in ("resolved", "closed", "remediated")):
+            return "action"
+        if any(x in raw for x in ("medium", "noncompliant", "degraded", "unencrypted", "stale", "missing")) and not any(x in raw for x in ("resolved", "closed", "remediated")):
+            return "review"
+        if any(x in raw for x in ("resolved", "closed", "remediated", "healthy", "loaded", "clear", "connected")):
+            return "done"
+        return self._stable_event_tag(row.get("severity", "INFO"), row.get("source", ""), row.get("title", ""), row.get("detail", ""))
+
+    def _configure_sexy_table_tags(self, tree):
+        try:
+            tree.tag_configure("action", foreground="#FF3D7F", background="#330018")
+            tree.tag_configure("review", foreground="#FFD04D", background="#302900")
+            tree.tag_configure("done", foreground="#7DFF57", background="#07301B")
+            tree.tag_configure("os_windows", foreground="#36CFFF", background="#08263E")
+            tree.tag_configure("os_android", foreground="#7DFF57", background="#07301B")
+            tree.tag_configure("os_ios", foreground="#FFC84A", background="#292304")
+            tree.tag_configure("os_mac", foreground="#C06BFF", background="#20143A")
+        except Exception:
+            pass
+
+    def _metric_rows(self, metrics, *keys):
+        for key in keys:
+            rows = metrics.get(key)
+            if isinstance(rows, list):
+                return rows
+        return []
+
+    def _repair_defender_enrichment_tables_live(self, metrics):
+        """Render enrichment tables from real row lists. Counts alone never create fake rows."""
+        try:
+            def clear(tree):
+                for item in tree.get_children():
+                    tree.delete(item)
+
+            def insert(tree, vals, tag="info"):
+                self._configure_sexy_table_tags(tree)
+                cols = list(tree["columns"])
+                vals = list(vals)
+                if len(vals) < len(cols):
+                    vals += [""] * (len(cols) - len(vals))
+                tree.insert("", "end", values=vals[:len(cols)], tags=(tag,))
+
+            rec_tree = getattr(self, "defender_recommendations_table", None)
+            if rec_tree is not None:
+                clear(rec_tree)
+                recs = self._metric_rows(metrics, "defender_recommendation_rows", "security_recommendation_rows", "tvm_recommendation_rows")
+                for r in recs[:500]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = "action" if sev in ("HIGH", "CRITICAL") else "review" if sev == "MEDIUM" else "info"
+                    insert(rec_tree, [
+                        "⚙  " + str(r.get("title") or r.get("recommendationName") or r.get("name") or ""),
+                        self._bubble_token(sev, "severity"),
+                        r.get("category") or r.get("productName") or "",
+                        r.get("impact") or r.get("exposedMachinesCount") or r.get("exposedMachineCount") or "",
+                        self._bubble_token(r.get("status") or r.get("implementationStatus") or "CHECK", "status"),
+                        r.get("detail") or r.get("description") or r.get("remediation") or "",
+                    ], tag)
+                if not recs:
+                    msg = metrics.get("defender_recommendation_error") or "No recommendation rows returned. Card count may be summary-only or API returned count without row payload."
+                    insert(rec_tree, ["⚙  No recommendation rows", self._bubble_token("INFO", "severity"), "Live API", "", self._bubble_token("CHECK", "status"), msg[:300]], "info")
+
+            vuln_tree = getattr(self, "defender_vulnerabilities_table", None)
+            if vuln_tree is not None:
+                clear(vuln_tree)
+                vulns = self._metric_rows(metrics, "defender_vulnerability_rows", "vulnerability_rows", "tvm_vulnerability_rows", "machines_vulnerabilities_rows")
+                for v in vulns[:500]:
+                    sev = str(v.get("severity", "INFO")).upper()
+                    tag = "action" if sev in ("HIGH", "CRITICAL") else "review" if sev == "MEDIUM" else "info"
+                    insert(vuln_tree, [
+                        "◆  " + str(v.get("id") or v.get("cveId") or v.get("name") or ""),
+                        self._bubble_token(sev, "severity"),
+                        v.get("cvss") or v.get("cvssV3") or v.get("cvssScore") or "",
+                        short_ts(v.get("published") or v.get("publishedOn") or v.get("publishedDate") or ""),
+                        short_ts(v.get("updated") or v.get("updatedOn") or v.get("lastModified") or ""),
+                        v.get("detail") or v.get("description") or "",
+                    ], tag)
+                if not vulns:
+                    msg = metrics.get("defender_vulnerability_error") or "No vulnerability rows returned. Card count may be summary-only or API returned count without row payload."
+                    insert(vuln_tree, ["◆  No vulnerability rows", self._bubble_token("INFO", "severity"), "", "", "", msg[:300]], "info")
+
+            machine_tree = getattr(self, "defender_machines_table", None)
+            if machine_tree is not None:
+                clear(machine_tree)
+                machines = self._metric_rows(metrics, "defender_machine_rows", "machine_rows", "defender_machines_rows")
+                for m in machines[:500]:
+                    os_name = m.get("os") or m.get("osPlatform") or ""
+                    risk = str(m.get("risk") or m.get("riskScore") or m.get("exposureLevel") or "INFO").upper()
+                    tag = "action" if risk in ("HIGH", "CRITICAL") else "review" if risk in ("MEDIUM", "MEDIUMRISK") else self._os_tag(os_name, "info") if hasattr(self, "_os_tag") else "info"
+                    insert(machine_tree, [
+                        "⌬  " + str(m.get("name") or m.get("computerDnsName") or m.get("machineName") or ""),
+                        self._bubble_token(risk, "status"),
+                        self._bubble_token(m.get("health") or m.get("healthStatus") or "CHECK", "status"),
+                        self._os_icon(os_name),
+                        short_ts(m.get("last_seen") or m.get("lastSeen") or ""),
+                        m.get("ip") or m.get("lastIpAddress") or "",
+                    ], tag)
+                if not machines:
+                    msg = metrics.get("defender_machine_error") or "No machine rows returned. Card count may be summary-only or API returned count without row payload."
+                    insert(machine_tree, ["⌬  No machine rows", self._bubble_token("INFO", "status"), self._bubble_token("CHECK", "status"), "", "", msg[:300]], "info")
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -6586,7 +6753,9 @@ class SentinelApp(tk.Tk):
             self._repair_overview_cards_live(metrics)
             self._repair_tab_cards_live(metrics)
             self._repair_overview_hero_and_heartbeat(metrics)
+            self._repair_defender_tab_priority_live(metrics)
             self._repair_intune_platform_breakdown(metrics)
+            self._repair_defender_enrichment_tables_live(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
         except Exception:
@@ -6602,6 +6771,7 @@ class SentinelApp(tk.Tk):
         def insert(tree, vals, tag="info"):
             try:
                 self._apply_extra_table_tags(tree)
+                self._configure_sexy_table_tags(tree)
             except Exception:
                 pass
             try:
@@ -6659,7 +6829,7 @@ class SentinelApp(tk.Tk):
                     "✦  " + str(r.get("title", ""))[:180],
                     bubble(str(r.get("status", "ACTIVE")).upper(), "status"),
                     str(r.get("detail", ""))[:300],
-                ], tag_for(r))
+                ], self._row_action_tag(r))
             if not defender_rows:
                 insert(tree, [bubble("INFO", "severity"), "", "✦  No Defender/M365 rows returned", bubble("INFO", "status"), "No Microsoft security rows returned in this poll. Check Full signal feed for API/auth diagnostics."], "info")
 
