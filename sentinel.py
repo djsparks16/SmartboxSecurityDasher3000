@@ -1298,11 +1298,8 @@ class UniFiConnector:
 class QualysConnector:
     """Qualys VMDR host and sev 3/4/5 detection probe kept off Overview metrics.
 
-    Docs-aligned for the classic VM/VMDR XML API:
-    - base URL is the platform API host only, for example https://qualysapi.qg1.apps.qualys.co.uk
-    - authentication is HTTP Basic
-    - X-Requested-With is required for API v2 calls
-    - Host Detection endpoint returns XML at /api/2.0/fo/asset/host/vm/detection/?action=list
+    This connector uses the classic Qualys XML API. Keep Base URL as the host only:
+    https://qualysapi.qg1.apps.qualys.co.uk
     """
     def __init__(self, cfg):
         self.cfg = cfg
@@ -1312,14 +1309,18 @@ class QualysConnector:
         return bool(c.get("enabled") and c.get("base_url") and c.get("username") and c.get("password"))
 
     def _clean_base(self):
-        c = self.cfg["qualys"]
+        c = self.cfg.get("qualys", {})
         base = str(c.get("base_url", "")).strip().rstrip("/")
-        # Users often paste the browser console or a full API path. Normalise to the host.
-        for cut in ("/api/", "/msp/", "/fo/"):
-            if cut in base:
-                base = base.split(cut, 1)[0]
-        base = base.replace("qualysguard.qg1.apps.qualys.co.uk", "qualysapi.qg1.apps.qualys.co.uk")
-        return base
+        if not base:
+            return base
+        if base.startswith("http://qualysguard.qg1.apps.qualys.co.uk"):
+            base = base.replace("http://qualysguard.qg1.apps.qualys.co.uk", "https://qualysapi.qg1.apps.qualys.co.uk", 1)
+        if base.startswith("https://qualysguard.qg1.apps.qualys.co.uk"):
+            base = base.replace("https://qualysguard.qg1.apps.qualys.co.uk", "https://qualysapi.qg1.apps.qualys.co.uk", 1)
+        for marker in ("/api/", "/msp/", "/fo/"):
+            if marker in base:
+                base = base.split(marker, 1)[0]
+        return base.rstrip("/")
 
     def _headers(self):
         c = self.cfg["qualys"]
@@ -1331,23 +1332,25 @@ class QualysConnector:
             "User-Agent": "SmartboxSOC/1.0",
         }
 
-    def _get_xml(self, path, params, timeout=45):
+    def _get_xml(self, path, params=None, timeout=45):
+        params = params or {}
         base = self._clean_base()
         if not path.startswith("/"):
             path = "/" + path
-        url = base + path + "?" + urllib.parse.urlencode(params)
+        url = base + path
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as res:
-                raw = res.read().decode("utf-8", errors="replace")
-                return raw, url
+                return res.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             body = ""
             try:
-                body = e.read().decode("utf-8", errors="replace")[:700]
+                body = e.read().decode("utf-8", errors="replace")[:900]
             except Exception:
                 pass
-            raise RuntimeError(f"HTTP {e.code} calling {url}: {body or e.reason}")
+            raise RuntimeError(f"HTTP {e.code} {e.reason} from {url}: {body}"[:1200])
 
     def _node_text(self, node, name, default=""):
         found = node.find(name)
@@ -1412,6 +1415,14 @@ class QualysConnector:
                 })
         return list(host_seen.values()), detections
 
+    def _try_detection_call(self, params, notes, label):
+        raw = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", params, timeout=60)
+        hosts, detections = self._parse_detections(raw, local_filter=True)
+        notes.append(f"{label} returned {len(hosts)} host(s) and {len(detections)} sev 3/4/5 detection row(s).")
+        if "<WARNING>" in raw:
+            notes.append("Qualys returned a WARNING block; check truncation/pagination if counts look low.")
+        return hosts, detections
+
     def fetch(self):
         if not self.enabled():
             return None
@@ -1420,48 +1431,40 @@ class QualysConnector:
         notes = []
         base = self._clean_base()
         notes.append(f"Using Qualys API base {base}")
-
-        # Docs-aligned Host Detection call. Status defaults to NEW/ACTIVE/REOPENED, so avoid over-filtering.
-        detection_params = {
-            "action": "list",
-            "severities": "3,4,5",
-            "truncation_limit": "1000",
-            "show_results": "0",
-            "show_qds": "1",
-            "show_asset_id": "1",
-        }
         try:
-            raw, url = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", detection_params, timeout=60)
-            detected_hosts, detections = self._parse_detections(raw, local_filter=True)
-            assets.extend(detected_hosts)
-            notes.append(f"Host Detection returned {len(detections)} sev 3/4/5 row(s).")
-            if not detections:
-                notes.append("Detection API responded but no sev 3/4/5 active rows matched. Check scans/VMDR data or try removing the severity filter.")
+            about = self._get_xml("/msp/about.php", {}, timeout=18)
+            if "<ABOUT" in about:
+                notes.append("Qualys API/auth smoke test passed at /msp/about.php.")
         except Exception as e:
-            notes.append("Host Detection sev 3/4/5 query failed: " + str(e)[:220])
-            # Fallback: call without severities. Some subscriptions/search-list policies behave better with local filtering.
-            try:
-                fallback_params = {
-                    "action": "list",
-                    "truncation_limit": "1000",
-                    "show_results": "0",
-                    "show_qds": "1",
-                    "show_asset_id": "1",
-                }
-                raw, url = self._get_xml("/api/2.0/fo/asset/host/vm/detection/", fallback_params, timeout=60)
-                detected_hosts, detections = self._parse_detections(raw, local_filter=True)
-                assets.extend(detected_hosts)
-                notes.append(f"Fallback Host Detection returned {len(detections)} locally-filtered sev 3/4/5 row(s).")
-            except Exception as fallback_e:
-                notes.append("Fallback Host Detection query failed: " + str(fallback_e)[:220])
+            notes.append("Qualys API/auth smoke test failed: " + str(e)[:220])
 
-        # Always keep a host inventory table available even if the detection call is permission-limited.
-        try:
-            raw_assets, url = self._get_xml("/api/2.0/fo/asset/host/", {
+        detection_calls = [
+            ("Host Detection severity-filtered query", {
+                "action": "list",
+                "severities": "3,4,5",
+                "truncation_limit": "1000",
+                "show_results": "1",
+            }),
+            ("Host Detection fallback local-filter query", {
                 "action": "list",
                 "truncation_limit": "1000",
-                "show_asset_id": "1",
-            }, timeout=25)
+                "show_results": "1",
+            }),
+        ]
+        for label, params in detection_calls:
+            if detections:
+                break
+            try:
+                detected_hosts, detections = self._try_detection_call(params, notes, label)
+                assets.extend(detected_hosts)
+            except Exception as e:
+                notes.append(label + " failed: " + str(e)[:260])
+
+        try:
+            raw_assets = self._get_xml("/api/2.0/fo/asset/host/", {
+                "action": "list",
+                "truncation_limit": "1000",
+            }, timeout=30)
             inv_assets = self._parse_assets(raw_assets)
             by_key = {a.get("id") or a.get("ip") or a.get("dns") or str(i): a for i, a in enumerate(assets)}
             for a in inv_assets:
@@ -1470,8 +1473,8 @@ class QualysConnector:
             notes.append(f"Host List returned {len(inv_assets)} asset row(s).")
         except Exception as e:
             if not assets:
-                assets = [{"id": "error", "ip": "", "dns": "Qualys asset query warning", "netbios": "", "os": "", "last_scan": str(e)[:140]}]
-            notes.append("Host List query failed: " + str(e)[:220])
+                assets = [{"id": "error", "ip": "", "dns": "Qualys asset query warning", "netbios": "", "os": "", "last_scan": str(e)[:180]}]
+            notes.append("Host List query failed: " + str(e)[:260])
 
         sev3 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 3)
         sev4 = sum(1 for d in detections if int(d.get("severity", 0) or 0) == 4)
@@ -1490,7 +1493,6 @@ class QualysConnector:
             "qualys_notes": notes,
             "events": [],
         }
-
 
 class AzureVmConnector:
     """Azure Resource Manager VM inventory probe kept off the Overview metrics."""
