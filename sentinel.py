@@ -370,6 +370,12 @@ class MicrosoftGraphConnector:
             pages += 1
         return items
 
+    def defender_get_optional(self, url, headers, label, max_pages=5):
+        try:
+            return self.defender_get_all(url, headers=headers, max_pages=max_pages), ""
+        except Exception as e:
+            return [], str(e)
+
     def classify_os(self, device):
         raw = str(device.get("operatingSystem") or device.get("osVersion") or "").lower()
         if "windows" in raw:
@@ -519,11 +525,17 @@ class MicrosoftGraphConnector:
         # Alert.Read.All and optionally Machine.Read.All for deeper enrichment later.
         defender_base = self.cfg["microsoft"].get("defender_api_url", "https://api.securitycenter.microsoft.com").rstrip("/")
         defender_alerts_url = f"{defender_base}/api/alerts?$top=200"
+        defender_machines_url = f"{defender_base}/api/machines?$top=100"
+        defender_recommendations_url = f"{defender_base}/api/recommendations?$top=100"
+        defender_vulnerabilities_url = f"{defender_base}/api/vulnerabilities?$top=100"
 
         devices = []
         graph_alerts = []
         graph_incidents = []
         defender_alerts = []
+        defender_machines = []
+        defender_recommendations = []
+        defender_vulnerabilities = []
         detected_apps = []
         events = []
 
@@ -531,6 +543,9 @@ class MicrosoftGraphConnector:
         graph_alert_error = None
         graph_incident_error = None
         defender_alert_error = None
+        defender_machine_error = None
+        defender_recommendation_error = None
+        defender_vulnerability_error = None
         detected_apps_error = None
 
         try:
@@ -629,6 +644,9 @@ class MicrosoftGraphConnector:
             defender_token = self.get_token("https://api.securitycenter.microsoft.com/.default")
             defender_headers = {"Authorization": f"Bearer {defender_token}", "Accept": "application/json"}
             defender_alerts = self.defender_get_all(defender_alerts_url, headers=defender_headers, max_pages=20)
+            defender_machines, defender_machine_error = self.defender_get_optional(defender_machines_url, defender_headers, "machines", max_pages=5)
+            defender_recommendations, defender_recommendation_error = self.defender_get_optional(defender_recommendations_url, defender_headers, "recommendations", max_pages=5)
+            defender_vulnerabilities, defender_vulnerability_error = self.defender_get_optional(defender_vulnerabilities_url, defender_headers, "vulnerabilities", max_pages=5)
         except Exception as e:
             defender_alert_error = str(e)
             hint = defender_alert_error[:180]
@@ -828,6 +846,15 @@ class MicrosoftGraphConnector:
             "defender_critical": len(defender_high),
             "defender_returned_alerts": len(defender_alerts),
             "defender_resolved_alerts": defender_resolved,
+            "defender_machines": len(defender_machines),
+            "defender_machine_rows": [self.machine_row(m) for m in defender_machines[:500]],
+            "defender_machine_error": defender_machine_error or "",
+            "defender_recommendations": len(defender_recommendations),
+            "defender_recommendation_rows": [self.recommendation_row(r) for r in defender_recommendations[:500]],
+            "defender_recommendation_error": defender_recommendation_error or "",
+            "defender_vulnerabilities": len(defender_vulnerabilities),
+            "defender_vulnerability_rows": [self.vulnerability_row(v) for v in defender_vulnerabilities[:500]],
+            "defender_vulnerability_error": defender_vulnerability_error or "",
             "graph_alerts": len(graph_active),
             "graph_returned_alerts": len(graph_alerts),
             "graph_resolved_alerts": graph_resolved,
@@ -1610,6 +1637,38 @@ class TelemetryEngine(threading.Thread):
         return "CLEAR", 0, "no active Defender alerts"
 
 
+
+    def recommendation_row(self, r):
+        return {
+            "title": r.get("recommendationName") or r.get("title") or r.get("name") or "Security recommendation",
+            "severity": r.get("severity") or r.get("exposureImpact") or r.get("riskScore") or "",
+            "status": r.get("status") or r.get("implementationStatus") or "",
+            "category": r.get("category") or r.get("productName") or "",
+            "impact": r.get("impact") or r.get("exposedMachinesCount") or r.get("exposedMachineCount") or "",
+            "detail": r.get("description") or r.get("remediationType") or r.get("remediation") or "",
+        }
+
+    def vulnerability_row(self, v):
+        return {
+            "id": v.get("id") or v.get("cveId") or v.get("name") or "vulnerability",
+            "severity": v.get("severity") or v.get("cvssV3") or v.get("cvssScore") or "",
+            "cvss": v.get("cvssV3") or v.get("cvssScore") or "",
+            "published": v.get("publishedOn") or v.get("publishedDate") or "",
+            "updated": v.get("updatedOn") or v.get("lastModified") or "",
+            "detail": v.get("description") or v.get("name") or "",
+        }
+
+    def machine_row(self, m):
+        return {
+            "name": m.get("computerDnsName") or m.get("machineName") or m.get("deviceName") or m.get("id") or "machine",
+            "risk": m.get("riskScore") or m.get("exposureLevel") or "",
+            "health": m.get("healthStatus") or m.get("onboardingStatus") or "",
+            "os": m.get("osPlatform") or m.get("osProcessor") or "",
+            "last_seen": m.get("lastSeen") or "",
+            "ip": m.get("lastIpAddress") or "",
+        }
+
+
     def _is_defender_related_row(self, source, title="", detail=""):
         raw = " ".join([str(source or ""), str(title or ""), str(detail or "")]).lower()
         needles = (
@@ -1692,6 +1751,15 @@ class TelemetryEngine(threading.Thread):
                     "defender_critical": 0,
                     "defender_returned_alerts": 0,
                     "defender_resolved_alerts": 0,
+                    "defender_machines": 0,
+                    "defender_machine_rows": [],
+                    "defender_machine_error": "",
+                    "defender_recommendations": 0,
+                    "defender_recommendation_rows": [],
+                    "defender_recommendation_error": "",
+                    "defender_vulnerabilities": 0,
+                    "defender_vulnerability_rows": [],
+                    "defender_vulnerability_error": "",
                     "graph_alerts": 0,
                     "graph_returned_alerts": 0,
                     "graph_resolved_alerts": 0,
@@ -1776,6 +1844,20 @@ class TelemetryEngine(threading.Thread):
         defender_critical = sum(int(r.get("defender_critical", 0)) for r in results)
         defender_returned_alerts = sum(int(r.get("defender_returned_alerts", r.get("defender_alerts", 0))) for r in results)
         defender_resolved_alerts = sum(int(r.get("defender_resolved_alerts", 0)) for r in results)
+        defender_machines = sum(int(r.get("defender_machines", 0)) for r in results)
+        defender_machine_rows = []
+        defender_machine_error = "; ".join([str(r.get("defender_machine_error", "")) for r in results if r.get("defender_machine_error")])
+        defender_recommendations = sum(int(r.get("defender_recommendations", 0)) for r in results)
+        defender_recommendation_rows = []
+        defender_recommendation_error = "; ".join([str(r.get("defender_recommendation_error", "")) for r in results if r.get("defender_recommendation_error")])
+        defender_vulnerabilities = sum(int(r.get("defender_vulnerabilities", 0)) for r in results)
+        defender_vulnerability_rows = []
+        defender_vulnerability_error = "; ".join([str(r.get("defender_vulnerability_error", "")) for r in results if r.get("defender_vulnerability_error")])
+        for r in results:
+            defender_machine_rows.extend(r.get("defender_machine_rows", []) or [])
+            defender_recommendation_rows.extend(r.get("defender_recommendation_rows", []) or [])
+            defender_vulnerability_rows.extend(r.get("defender_vulnerability_rows", []) or [])
+
         graph_alerts = sum(int(r.get("graph_alerts", 0)) for r in results)
         graph_returned_alerts = sum(int(r.get("graph_returned_alerts", r.get("graph_alerts", 0))) for r in results)
         graph_resolved_alerts = sum(int(r.get("graph_resolved_alerts", 0)) for r in results)
@@ -1860,6 +1942,15 @@ class TelemetryEngine(threading.Thread):
                 "defender_critical": defender_critical,
                 "defender_returned_alerts": defender_returned_alerts,
                 "defender_resolved_alerts": defender_resolved_alerts,
+                "defender_machines": defender_machines,
+                "defender_machine_rows": defender_machine_rows[:500],
+                "defender_machine_error": defender_machine_error,
+                "defender_recommendations": defender_recommendations,
+                "defender_recommendation_rows": defender_recommendation_rows[:500],
+                "defender_recommendation_error": defender_recommendation_error,
+                "defender_vulnerabilities": defender_vulnerabilities,
+                "defender_vulnerability_rows": defender_vulnerability_rows[:500],
+                "defender_vulnerability_error": defender_vulnerability_error,
                 "graph_alerts": graph_alerts,
                 "graph_returned_alerts": graph_returned_alerts,
                 "graph_resolved_alerts": graph_resolved_alerts,
@@ -2946,6 +3037,8 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Defender view", "🛡", lambda: self.nav_to(self.tab_defender, "Security alerts"), BLUE)
         self.neon_sidebar_item(self.left_nav, "Alert focus", "⚡", lambda: self.nav_to(self.tab_defender, "Security alerts"), RED)
         self.neon_sidebar_item(self.left_nav, "Full signal feed", "✦", lambda: self.nav_to(self.tab_defender, "Signal events"), PURPLE)
+        self.neon_sidebar_item(self.left_nav, "Recommendations", "⚙", lambda: self.nav_to(self.tab_defender), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Machines / forensics", "⌬", lambda: self.nav_to(self.tab_defender), BLUE)
 
         section("Intune", PURPLE)
         self.neon_sidebar_item(self.left_nav, "Device posture", "👤", lambda: self.nav_to(self.tab_intune, "Security posture"), PURPLE)
@@ -3569,6 +3662,45 @@ class SentinelApp(tk.Tk):
             ("title", "Signal", 360),
             ("detail", "Detail", 520),
         ], height=28)
+
+
+        # Defender enrichment section: recommendations, vulnerabilities and machine readiness.
+        defender_enrich = tk.Frame(defender_wrap, bg=BG)
+        defender_enrich.pack(fill="both", expand=True, pady=(8, 0))
+
+        enrich_cards = tk.Frame(defender_enrich, bg=BG)
+        enrich_cards.pack(fill="x")
+        self.focus_card(enrich_cards, "TVM recommendations", ORANGE, "defender", "defender_recommendations")
+        self.focus_card(enrich_cards, "Vulnerabilities", RED, "defender", "defender_vulnerabilities")
+        self.focus_card(enrich_cards, "Defender machines", BLUE, "defender", "defender_machines")
+
+        self.defender_recommendations_table = self.table_panel(defender_enrich, "Security recommendations / TVM", [
+            ("title", "Recommendation", 420),
+            ("severity", "Severity", 120),
+            ("category", "Category", 180),
+            ("impact", "Impact", 120),
+            ("status", "Status", 150),
+            ("detail", "Detail", 640),
+        ], height=6)
+
+        self.defender_vulnerabilities_table = self.table_panel(defender_enrich, "Vulnerabilities", [
+            ("id", "CVE / ID", 160),
+            ("severity", "Severity", 120),
+            ("cvss", "CVSS", 90),
+            ("published", "Published", 160),
+            ("updated", "Updated", 160),
+            ("detail", "Detail", 760),
+        ], height=6)
+
+        self.defender_machines_table = self.table_panel(defender_enrich, "Machines / forensic readiness", [
+            ("name", "Machine", 300),
+            ("risk", "Risk / exposure", 150),
+            ("health", "Health", 160),
+            ("os", "OS", 180),
+            ("last_seen", "Last seen", 180),
+            ("ip", "IP", 180),
+        ], height=6)
+
 
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
@@ -4845,6 +4977,38 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
+
+    def recommendation_row(self, r):
+        return {
+            "title": r.get("recommendationName") or r.get("title") or r.get("name") or "Security recommendation",
+            "severity": r.get("severity") or r.get("exposureImpact") or r.get("riskScore") or "",
+            "status": r.get("status") or r.get("implementationStatus") or "",
+            "category": r.get("category") or r.get("productName") or "",
+            "impact": r.get("impact") or r.get("exposedMachinesCount") or r.get("exposedMachineCount") or "",
+            "detail": r.get("description") or r.get("remediationType") or r.get("remediation") or "",
+        }
+
+    def vulnerability_row(self, v):
+        return {
+            "id": v.get("id") or v.get("cveId") or v.get("name") or "vulnerability",
+            "severity": v.get("severity") or v.get("cvssV3") or v.get("cvssScore") or "",
+            "cvss": v.get("cvssV3") or v.get("cvssScore") or "",
+            "published": v.get("publishedOn") or v.get("publishedDate") or "",
+            "updated": v.get("updatedOn") or v.get("lastModified") or "",
+            "detail": v.get("description") or v.get("name") or "",
+        }
+
+    def machine_row(self, m):
+        return {
+            "name": m.get("computerDnsName") or m.get("machineName") or m.get("deviceName") or m.get("id") or "machine",
+            "risk": m.get("riskScore") or m.get("exposureLevel") or "",
+            "health": m.get("healthStatus") or m.get("onboardingStatus") or "",
+            "os": m.get("osPlatform") or m.get("osProcessor") or "",
+            "last_seen": m.get("lastSeen") or "",
+            "ip": m.get("lastIpAddress") or "",
+        }
+
+
     def _is_defender_related_row(self, source, title="", detail=""):
         raw = " ".join([str(source or ""), str(title or ""), str(detail or "")]).lower()
         return any(x in raw for x in (
@@ -5166,6 +5330,83 @@ class SentinelApp(tk.Tk):
                         str(r.get("title", ""))[:150],
                         str(r.get("detail", ""))[:240],
                     ], tag)
+
+
+            # Defender enrichment tables
+            rec_tree = getattr(self, "defender_recommendations_table", None)
+            if rec_tree is not None:
+                self._safe_tree_clear(rec_tree)
+                recs = metrics.get("defender_recommendation_rows", []) or []
+                for r in recs[:500]:
+                    sev = str(r.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, "Defender Recommendations", r.get("title",""), r.get("detail",""))
+                    self._safe_insert_tree(rec_tree, [
+                        r.get("title",""),
+                        self._bubble_token(sev or "INFO", "severity"),
+                        r.get("category",""),
+                        r.get("impact",""),
+                        self._bubble_token(r.get("status","CHECK") or "CHECK", "status"),
+                        r.get("detail",""),
+                    ], tag)
+                if not recs and metrics.get("defender_recommendation_error"):
+                    self._safe_insert_tree(rec_tree, [
+                        "Recommendations unavailable",
+                        self._bubble_token("INFO", "severity"),
+                        "Permission/API",
+                        "",
+                        self._bubble_token("CHECK", "status"),
+                        metrics.get("defender_recommendation_error", "")[:300],
+                    ], "info")
+
+            vuln_tree = getattr(self, "defender_vulnerabilities_table", None)
+            if vuln_tree is not None:
+                self._safe_tree_clear(vuln_tree)
+                vulns = metrics.get("defender_vulnerability_rows", []) or []
+                for v in vulns[:500]:
+                    sev = str(v.get("severity", "INFO")).upper()
+                    tag = self._stable_event_tag(sev, "Defender Vulnerabilities", v.get("id",""), v.get("detail",""))
+                    self._safe_insert_tree(vuln_tree, [
+                        v.get("id",""),
+                        self._bubble_token(sev or "INFO", "severity"),
+                        v.get("cvss",""),
+                        short_ts(v.get("published","")),
+                        short_ts(v.get("updated","")),
+                        v.get("detail",""),
+                    ], tag)
+                if not vulns and metrics.get("defender_vulnerability_error"):
+                    self._safe_insert_tree(vuln_tree, [
+                        "Vulnerabilities unavailable",
+                        self._bubble_token("INFO", "severity"),
+                        "",
+                        "",
+                        "",
+                        metrics.get("defender_vulnerability_error", "")[:300],
+                    ], "info")
+
+            machine_tree = getattr(self, "defender_machines_table", None)
+            if machine_tree is not None:
+                self._safe_tree_clear(machine_tree)
+                machines = metrics.get("defender_machine_rows", []) or []
+                for mrow in machines[:500]:
+                    tag = self._stable_event_tag(mrow.get("risk","INFO"), "Defender Machines", mrow.get("name",""), mrow.get("health",""))
+                    self._safe_insert_tree(machine_tree, [
+                        mrow.get("name",""),
+                        self._bubble_token(mrow.get("risk","INFO") or "INFO", "status"),
+                        self._bubble_token(mrow.get("health","CHECK") or "CHECK", "status"),
+                        mrow.get("os",""),
+                        short_ts(mrow.get("last_seen","")),
+                        mrow.get("ip",""),
+                    ], tag)
+                if not machines and metrics.get("defender_machine_error"):
+                    self._safe_insert_tree(machine_tree, [
+                        "Machines unavailable",
+                        self._bubble_token("INFO", "status"),
+                        self._bubble_token("CHECK", "status"),
+                        "",
+                        "",
+                        metrics.get("defender_machine_error", "")[:300],
+                    ], "info")
+
 
             # Intune tables
             for attr, data_key, row_type in (
