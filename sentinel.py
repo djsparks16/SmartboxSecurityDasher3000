@@ -220,11 +220,19 @@ class Http:
         elif isinstance(body, (bytes, bytearray)):
             data = body
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=timeout) as res:
-            raw = res.read().decode("utf-8", errors="replace")
-            if not raw:
-                return {}
-            return json.loads(raw)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as res:
+                raw = res.read().decode("utf-8", errors="replace")
+                if not raw:
+                    return {}
+                return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            try:
+                body_text = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                body_text = ""
+            hint = body_text[:600] if body_text else str(e)
+            raise RuntimeError(f"HTTP {e.code} {e.reason}: {hint}") from None
 
 
 class MicrosoftGraphConnector:
@@ -267,6 +275,26 @@ class MicrosoftGraphConnector:
             next_url = data.get("@odata.nextLink")
             pages += 1
         return items
+
+    def fetch_graph_incidents(self, headers):
+        """Fetch Microsoft 365 Defender incidents via Graph with safe fallbacks.
+
+        Some tenants reject optional query strings. Start with the documented bare
+        endpoint, then fall back to beta. Do not let this block alerts or Intune.
+        """
+        urls = [
+            "https://graph.microsoft.com/v1.0/security/incidents",
+            "https://graph.microsoft.com/v1.0/security/incidents?$expand=alerts",
+            "https://graph.microsoft.com/beta/security/incidents",
+        ]
+        last_error = ""
+        for url in urls:
+            try:
+                return self.graph_get_all(url, headers=headers, max_pages=10), url, ""
+            except Exception as e:
+                last_error = str(e)
+        return [], "", last_error
+
 
     def defender_get_all(self, url, headers, max_pages=20):
         """Read Microsoft Defender for Endpoint API pages using @odata.nextLink."""
@@ -423,7 +451,7 @@ class MicrosoftGraphConnector:
         # Full paged Intune inventory and Graph security alerts.
         devices_url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=100"
         graph_alerts_url = "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=100"
-        graph_incidents_url = "https://graph.microsoft.com/v1.0/security/incidents?$top=100"
+        graph_incidents_url = "https://graph.microsoft.com/v1.0/security/incidents"
         detected_apps_url = "https://graph.microsoft.com/v1.0/deviceManagement/detectedApps?$top=100"
         detected_apps_beta_url = "https://graph.microsoft.com/beta/deviceManagement/detectedApps?$top=100"
 
@@ -468,13 +496,27 @@ class MicrosoftGraphConnector:
             })
 
         try:
-            graph_incidents = self.graph_get_all(graph_incidents_url, headers=graph_headers, max_pages=10)
+            graph_incidents, graph_incidents_used_url, graph_incident_error = self.fetch_graph_incidents(graph_headers)
+            if graph_incident_error:
+                events.append({
+                    "severity": "medium",
+                    "title": "Microsoft Graph security incidents query failed",
+                    "detail": graph_incident_error[:300],
+                    "source": "Graph Incidents",
+                })
+            elif graph_incidents:
+                events.append({
+                    "severity": "info",
+                    "title": "Microsoft Graph security incidents query live",
+                    "detail": f"{len(graph_incidents)} incident row(s) returned from {graph_incidents_used_url.replace('https://graph.microsoft.com/', '')}",
+                    "source": "Graph Incidents",
+                })
         except Exception as e:
             graph_incident_error = str(e)
             events.append({
                 "severity": "medium",
                 "title": "Microsoft Graph security incidents query failed",
-                "detail": graph_incident_error[:180],
+                "detail": graph_incident_error[:300],
                 "source": "Graph Incidents",
             })
 
@@ -1937,20 +1979,31 @@ class SentinelApp(tk.Tk):
         return shell
 
     def neon_sidebar_item(self, parent, label, icon, command, color=BLUE, active=False):
-        row = tk.Frame(parent, bg="#071423", height=34)
+        row_bg = "#0D2A44" if active else "#071423"
+        row = tk.Frame(parent, bg=row_bg, height=34, highlightthickness=1 if active else 0, highlightbackground=color)
         row.pack(fill="x", padx=10, pady=2)
         row.pack_propagate(False)
-        if active:
-            row.configure(bg="#0D2A44", highlightthickness=1, highlightbackground=color)
-        icon_w = self.glow_icon(row, icon, color, size=12, bg=row.cget("bg"), halo=False)
+        icon_w = self.glow_icon(row, icon, color, size=12, bg=row_bg, halo=False)
         icon_w.pack(side="left", padx=(8, 6))
-        tk.Label(row, text=label, bg=row.cget("bg"), fg="#EAF7FF" if active else "#B9D7EB", font=(self.font_ui, 9, "bold"), anchor="w").pack(side="left", fill="x", expand=True)
-        for w in (row,):
-            w.bind("<Button-1>", lambda e: command())
+        label_w = tk.Label(row, text=label, bg=row_bg, fg="#EAF7FF" if active else "#B9D7EB", font=(self.font_ui, 9, "bold"), anchor="w")
+        label_w.pack(side="left", fill="x", expand=True)
+
+        def bind_tree(widget):
             try:
-                w.configure(cursor="hand2")
+                widget.configure(cursor="hand2")
             except Exception:
                 pass
+            try:
+                widget.bind("<Button-1>", lambda e: command(), add="+")
+            except Exception:
+                pass
+            try:
+                for child in widget.winfo_children():
+                    bind_tree(child)
+            except Exception:
+                pass
+
+        bind_tree(row)
         return row
 
     def neon_metric_tile(self, parent, title, value_key, icon, color, subtitle="", bucket="overview", width_pack=True):
@@ -2646,6 +2699,15 @@ class SentinelApp(tk.Tk):
         if hasattr(self, "hero_priority_shell"):
             self._make_clickable_recursive(self.hero_priority_shell, lambda: self.select_main_tab(self.tab_defender))
 
+    def select_detail_tab(self, main_frame, sub_notebook=None, sub_frame=None):
+        self.select_main_tab(main_frame)
+        try:
+            if sub_notebook is not None and sub_frame is not None:
+                self.select_subtab(sub_notebook, sub_frame)
+        except Exception:
+            pass
+
+
     def _build_left_nav(self, shell):
         """Left rail inspired by the generated SOC cockpit reference."""
         self.left_nav_shell, self.left_nav = self.rounded_panel(shell, fill="#061321", border="#183A55", radius=16, padding=1)
@@ -3068,7 +3130,7 @@ class SentinelApp(tk.Tk):
     def _source_icon_label(self, source):
         raw = str(source or "")
         low = raw.lower()
-        if "incident" in low:
+        if "incident" in low or "microsoft 365 defender" in low:
             return "☄  " + raw
         if "unifi" in low:
             return "📡  " + raw
