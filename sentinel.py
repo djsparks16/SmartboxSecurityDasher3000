@@ -502,11 +502,7 @@ class MicrosoftGraphConnector:
             hint = defender_alert_error[:180]
             if "403" in defender_alert_error or "Forbidden" in defender_alert_error:
                 hint = "403 Forbidden: add WindowsDefenderATP application permission Alert.Read.All, grant admin consent, and verify the Defender API URL/region."
-            
-        # Defender tenants sometimes classify alerts as FalsePositive/BenignPositive
-        # while they are still visible in the portal. The active-alert filter above
-        # is intentionally relaxed so SOC operators still see them here.
-events.append({
+            events.append({
                 "severity": "medium",
                 "title": "Microsoft Defender alert query failed",
                 "detail": hint,
@@ -1746,16 +1742,6 @@ class SentinelApp(tk.Tk):
         ]
 
     def rounded_panel(self, parent, fill=None, border=None, radius=18, padding=1):
-
-    def glow_icon(self, parent, icon, color, size=18, bg=None):
-        bg = bg or parent.cget("bg")
-        wrap = tk.Frame(parent, bg=bg)
-        glow = tk.Label(wrap, text=icon, bg=bg, fg=color, font=(self.font_ui, size + 6, "bold"))
-        glow.place(x=2, y=2)
-        glow.configure(fg=color)
-        main = tk.Label(wrap, text=icon, bg=bg, fg="#F7FBFF", font=(self.font_ui, size, "bold"))
-        main.pack()
-        return wrap
         parent_bg = parent.cget("bg") if hasattr(parent, 'cget') else BG
         shell = tk.Frame(parent, bg=parent_bg, bd=0, highlightthickness=0)
         canvas = tk.Canvas(shell, bg=parent_bg, highlightthickness=0, bd=0, relief="flat")
@@ -1777,6 +1763,48 @@ class SentinelApp(tk.Tk):
         shell.canvas = canvas
         shell.inner = inner
         return shell, inner
+
+
+    def glow_icon(self, parent, icon, color, size=18, bg=None, glow_layers=3):
+        """Draw a lightweight glowing icon using stacked Tk labels.
+
+        This stays dependency-free and PyInstaller-safe. It avoids Canvas circles,
+        so the icon reads as a clean luminous glyph rather than a badge.
+        """
+        try:
+            bg = bg or parent.cget("bg")
+        except Exception:
+            bg = BG
+
+        wrap = tk.Frame(parent, bg=bg, width=size + 18, height=size + 18)
+        wrap.pack_propagate(False)
+
+        glow_palette = ["#133A52", "#1F5B78", color]
+        for idx in range(max(1, glow_layers)):
+            layer_color = glow_palette[min(idx, len(glow_palette) - 1)]
+            lbl = tk.Label(
+                wrap,
+                text=icon,
+                bg=bg,
+                fg=layer_color,
+                font=(self.font_ui, size + (glow_layers - idx) * 2, "bold"),
+                bd=0,
+                highlightthickness=0,
+            )
+            lbl.place(relx=0.5, rely=0.5, anchor="center")
+
+        main = tk.Label(
+            wrap,
+            text=icon,
+            bg=bg,
+            fg="#F7FBFF",
+            font=(self.font_ui, size, "bold"),
+            bd=0,
+            highlightthickness=0,
+        )
+        main.place(relx=0.5, rely=0.5, anchor="center")
+        wrap.icon_label = main
+        return wrap
 
     def _setup_style(self):
         style = ttk.Style()
@@ -1961,7 +1989,7 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = self.glow_icon(top, icon_text, color, size=15, bg=PANEL)
+            dot = self.glow_icon(top, icon_text, color, size=18, bg=PANEL)
             dot.pack(side="left", padx=(0, 10))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
@@ -2475,7 +2503,7 @@ class SentinelApp(tk.Tk):
                 pts = self._rounded_points(2, 2, w-2, 36, 16)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.4, tags="panel")
                 c.tag_lower("panel")
-                btn.configure(bg=bg, fg=TEXT if active else MUTED)
+                btn.configure(bg=bg, fg="#F7FBFF" if active else "#8EDCFF")
 
             for widget in (shell, canvas, btn):
                 widget.bind("<Button-1>", lambda e, f=frame: self.select_main_tab(f))
@@ -2520,7 +2548,7 @@ class SentinelApp(tk.Tk):
                 pts = self._rounded_points(2, 2, w - 2, 32, 14)
                 c.create_polygon(pts, smooth=True, splinesteps=24, fill=bg, outline=border, width=1.3, tags="panel")
                 c.tag_lower("panel")
-                b.configure(bg=bg, fg=TEXT if active else MUTED)
+                b.configure(bg=bg, fg="#F7FBFF" if active else "#8EDCFF")
 
             for widget in (shell, canvas, btn):
                 widget.bind("<Button-1>", lambda e, f=frame, nb=notebook: self.select_subtab(nb, f))
@@ -2950,7 +2978,10 @@ class SentinelApp(tk.Tk):
         # Defender tab
         defender_wrap = tk.Frame(self.tab_defender, bg=BG)
         defender_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(defender_wrap, text="🛡  Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        defender_title = tk.Frame(defender_wrap, bg=BG)
+        defender_title.pack(anchor="w", padx=8, pady=(0, 4))
+        self.glow_icon(defender_title, "🛡", ORANGE, size=20, bg=BG).pack(side="left", padx=(0, 8))
+        tk.Label(defender_title, text="Defender security view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
         tk.Label(defender_wrap, text="A calmer, focused page for Microsoft security alerts and signal quality.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(defender_wrap, bg=BG)
@@ -2993,7 +3024,10 @@ class SentinelApp(tk.Tk):
         # Intune tab
         intune_wrap = tk.Frame(self.tab_intune, bg=BG)
         intune_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(intune_wrap, text="👤  Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        intune_title = tk.Frame(intune_wrap, bg=BG)
+        intune_title.pack(anchor="w", padx=8, pady=(0, 4))
+        self.glow_icon(intune_title, "👤", BLUE, size=20, bg=BG).pack(side="left", padx=(0, 8))
+        tk.Label(intune_title, text="Intune estate view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
         tk.Label(intune_wrap, text="Device inventory and compliance context, separated cleanly from Defender priority.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         row = tk.Frame(intune_wrap, bg=BG)
@@ -3076,7 +3110,10 @@ class SentinelApp(tk.Tk):
         # UniFi tab
         unifi_wrap = tk.Frame(self.tab_unifi, bg=BG)
         unifi_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(unifi_wrap, text="📶  UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        unifi_title = tk.Frame(unifi_wrap, bg=BG)
+        unifi_title.pack(anchor="w", padx=8, pady=(0, 4))
+        self.glow_icon(unifi_title, "📶", BLUE, size=20, bg=BG).pack(side="left", padx=(0, 8))
+        tk.Label(unifi_title, text="UniFi network view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
         tk.Label(unifi_wrap, text="All network context on its own page, without affecting Defender headline severity.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         status_shell = tk.Frame(unifi_wrap, bg=BG)
@@ -3137,7 +3174,10 @@ class SentinelApp(tk.Tk):
         # Software tab
         software_wrap = tk.Frame(self.tab_software, bg=BG)
         software_wrap.pack(fill="both", expand=True, padx=6, pady=6)
-        tk.Label(software_wrap, text="💾  Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(anchor="w", padx=8, pady=(0, 4))
+        software_title = tk.Frame(software_wrap, bg=BG)
+        software_title.pack(anchor="w", padx=8, pady=(0, 4))
+        self.glow_icon(software_title, "💾", GREEN, size=20, bg=BG).pack(side="left", padx=(0, 8))
+        tk.Label(software_title, text="Software change view", bg=BG, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
         tk.Label(software_wrap, text="Detected apps from Intune. Newly observed means new to this local dashboard baseline, not guaranteed install time.", bg=BG, fg=MUTED, font=(self.font_ui, 10)).pack(anchor="w", padx=8, pady=(0, 8))
 
         sw_row = tk.Frame(software_wrap, bg=BG)
