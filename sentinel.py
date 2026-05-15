@@ -2498,7 +2498,7 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = self.glow_icon(top, icon_text, color, size=26, bg=PANEL, halo=True, glow_layers=7)
+            dot = self.glow_icon(top, icon_text, color, size=30, bg=PANEL, halo=True, glow_layers=8)
             dot.pack(side="left", padx=(0, 16))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
@@ -6269,6 +6269,178 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _repair_overview_hero_and_heartbeat(self, metrics):
+        """Repair the main overview hero strip and heartbeat from live metrics."""
+        try:
+            active = self._metric_count(metrics, "active_alerts", "defender_alerts")
+            high = self._metric_count(metrics, "critical", "defender_critical", "defender_high")
+            graph = self._metric_count(metrics, "graph_incidents", "graph_alerts", "m365_incidents")
+
+            if high:
+                hero_state = "DEFENDER CRITICAL"
+                hero_detail = f"{active} active Defender alert(s), {high} high/critical need immediate triage."
+                hero_color = RED
+            elif active:
+                hero_state = "DEFENDER ACTION"
+                hero_detail = f"{active} active Defender alert(s) need triage."
+                hero_color = ORANGE
+            else:
+                hero_state = "DEFENDER CLEAR"
+                hero_detail = "No active Defender alerts currently driving priority."
+                hero_color = GREEN
+
+            # Common variable names used by the dashboard variants.
+            for name in (
+                "overview_priority_value",
+                "defender_priority_value",
+                "overview_hero_value",
+                "priority_value",
+                "headline_value",
+            ):
+                lbl = getattr(self, name, None)
+                if lbl is not None:
+                    try:
+                        lbl.configure(text=hero_state, fg=hero_color)
+                    except Exception:
+                        pass
+
+            for name in (
+                "overview_priority_detail",
+                "defender_priority_detail",
+                "overview_hero_detail",
+                "priority_detail",
+                "headline_detail",
+            ):
+                lbl = getattr(self, name, None)
+                if lbl is not None:
+                    try:
+                        lbl.configure(text=hero_detail)
+                    except Exception:
+                        pass
+
+            # If widgets were not stored by name, find the hero labels by current text.
+            try:
+                def walk(w):
+                    for child in w.winfo_children():
+                        try:
+                            txt = child.cget("text")
+                            if str(txt).startswith("DEFENDER "):
+                                child.configure(text=hero_state, fg=hero_color)
+                            elif "active Defender alert" in str(txt) or "No active Defender" in str(txt):
+                                child.configure(text=hero_detail)
+                        except Exception:
+                            pass
+                        try:
+                            walk(child)
+                        except Exception:
+                            pass
+                walk(self.tab_overview)
+            except Exception:
+                pass
+
+            # Status badge on hero panel.
+            for name in ("overview_priority_badge", "hero_badge", "live_badge"):
+                lbl = getattr(self, name, None)
+                if lbl is not None:
+                    try:
+                        lbl.configure(text="LIVE" if metrics else "WAITING", fg=GREEN if metrics else MUTED)
+                    except Exception:
+                        pass
+
+            # Top command strip summary.
+            try:
+                summary = (
+                    f"Defender: {active} active, {high} high/critical"
+                    f"  •  Intune: {self._metric_count(metrics, 'devices', 'intune_devices')} devices, "
+                    f"{self._metric_count(metrics, 'noncompliant', 'noncompliant_count')} non-compliant"
+                    f"  •  Software: {self._metric_count(metrics, 'new_software_count')} newly observed"
+                    f"  •  UniFi: {self._metric_count(metrics, 'unifi_sites')} sites, "
+                    f"{self._metric_count(metrics, 'unifi_critical_sites', 'unifi_offline_sites')} offline, "
+                    f"{self._metric_count(metrics, 'unifi_degraded_sites')} degraded"
+                )
+                for name in ("overview_summary_label", "summary_label", "command_summary_label"):
+                    lbl = getattr(self, name, None)
+                    if lbl is not None:
+                        lbl.configure(text=summary)
+            except Exception:
+                pass
+
+            # Heartbeat should be connected if any live payload exists, even if one connector is degraded.
+            connected = bool(metrics)
+            heartbeat_text = "CONNECTED" if connected else "CONNECTING"
+            heartbeat_detail = "Polling links active" if connected else "Polling links not yet active"
+            for name in ("heartbeat_status_label", "overview_heartbeat_status", "heartbeat_state_label"):
+                lbl = getattr(self, name, None)
+                if lbl is not None:
+                    try:
+                        lbl.configure(text=heartbeat_text, fg=GREEN if connected else BLUE)
+                    except Exception:
+                        pass
+            for name in ("heartbeat_detail_label", "overview_heartbeat_detail", "heartbeat_subtitle_label"):
+                lbl = getattr(self, name, None)
+                if lbl is not None:
+                    try:
+                        lbl.configure(text=heartbeat_detail)
+                    except Exception:
+                        pass
+
+            # Fallback recursive text replacement for heartbeat panel.
+            try:
+                def walk_h(w):
+                    for child in w.winfo_children():
+                        try:
+                            txt = str(child.cget("text"))
+                            if txt in ("CONNECTING", "CONNECTED"):
+                                child.configure(text=heartbeat_text, fg=GREEN if connected else BLUE)
+                            elif "Polling links" in txt:
+                                child.configure(text=heartbeat_detail)
+                        except Exception:
+                            pass
+                        try:
+                            walk_h(child)
+                        except Exception:
+                            pass
+                walk_h(self.tab_overview)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _boost_row2_icon_glow(self, metrics):
+        """Make row-2 action icons visibly glow and respect action colour."""
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+            for key, card in cards.items():
+                color = self._overview_action_color(key, metrics) if hasattr(self, "_overview_action_color") else BLUE
+                dot = card.get("dot")
+                if dot is not None:
+                    self._set_glow_icon_color(dot, color)
+                    # Add a bright halo outline to the stored glow frame when possible.
+                    try:
+                        dot.configure(highlightthickness=1, highlightbackground=color, highlightcolor=color)
+                    except Exception:
+                        pass
+                    try:
+                        for child in dot.winfo_children():
+                            child.configure(fg=color)
+                            for sub in child.winfo_children():
+                                try:
+                                    sub.configure(fg=color)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                value = card.get("value")
+                if value is not None:
+                    try:
+                        value.configure(fg=color)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Repaint all cards and tables from the latest live payload."""
         payload = payload or getattr(self, "last_payload", None)
@@ -6280,6 +6452,8 @@ class SentinelApp(tk.Tk):
         try:
             self._repair_overview_cards_live(metrics)
             self._repair_tab_cards_live(metrics)
+            self._repair_overview_hero_and_heartbeat(metrics)
+            self._boost_row2_icon_glow(metrics)
         except Exception:
             pass
 
