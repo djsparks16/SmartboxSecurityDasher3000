@@ -8718,6 +8718,10 @@ class SentinelApp(tk.Tk):
             self._recolour_row2_icons_by_state(metrics)
             self._grow_row1_panels_height()
             self._force_software_tables_awake()
+            self._nice_home_icon_everywhere()
+            self._force_defender_overview_icon_colour()
+            self._force_software_and_unifi_tables_nonempty()
+
 
             self._force_overview_house_icon()
             self._force_hover_grow_everywhere()
@@ -9823,6 +9827,227 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _nice_home_icon_everywhere(self):
+        """Use a cleaner house icon for Overview in top tabs and sidebar."""
+        try:
+            def walk(root):
+                out = []
+                def rec(w):
+                    out.append(w)
+                    try:
+                        for c in w.winfo_children():
+                            rec(c)
+                    except Exception:
+                        pass
+                rec(root)
+                return out
+
+            for root in (getattr(self, "left_nav", None), getattr(self, "main_tab_bar", None)):
+                if root is None:
+                    continue
+                for w in walk(root):
+                    try:
+                        txt = str(w.cget("text")).strip()
+                    except Exception:
+                        continue
+                    try:
+                        sibs = " ".join(str(c.cget("text")).strip() for c in w.master.winfo_children() if hasattr(c, "cget"))
+                    except Exception:
+                        sibs = txt
+                    if "Overview" in sibs and len(txt) <= 3 and txt != "Overview":
+                        try:
+                            w.configure(text="⌂", fg=CYAN)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    def _defender_state_colour(self, metrics):
+        """Green clear, orange action, red critical."""
+        try:
+            high = int(metrics.get("defender_high", metrics.get("defender_critical", metrics.get("critical", 0))) or 0)
+            active = int(metrics.get("active_alerts", metrics.get("defender_alerts", 0)) or 0)
+            graph = int(metrics.get("graph_incidents", metrics.get("m365_incidents", 0)) or 0)
+            return RED if high else ORANGE if active or graph else GREEN
+        except Exception:
+            return GREEN
+
+    def _force_defender_overview_icon_colour(self):
+        """Make the Row 2 Defender shield follow the actual Defender state."""
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) or {}
+            color = self._defender_state_colour(metrics)
+
+            cards = getattr(self, "overview_status", {}) or {}
+            card = cards.get("overview_defender") or cards.get("defender") or {}
+            for key in ("icon", "glyph", "dot"):
+                w = card.get(key) if isinstance(card, dict) else None
+                if w is not None:
+                    try:
+                        w.configure(fg=color)
+                    except Exception:
+                        pass
+
+            # Fallback: find shield glyphs inside the Defender overview card.
+            def walk(w):
+                try:
+                    for c in w.winfo_children():
+                        yield c
+                        yield from walk(c)
+                except Exception:
+                    return
+
+            root = None
+            if isinstance(card, dict):
+                root = card.get("shell") or card.get("panel") or card.get("frame")
+            if root is None:
+                root = getattr(self, "tab_overview", None)
+            if root is not None:
+                for w in walk(root):
+                    try:
+                        txt = str(w.cget("text")).strip()
+                        # Defender row 2 shield is usually a shield glyph near Defender/OK text.
+                        if txt in ("🛡", "🛡️", "⛨", "⬟", "⬢", "⬡") or ("shield" in txt.lower()):
+                            parent_text = " ".join(str(x.cget("text")) for x in w.master.winfo_children() if hasattr(x, "cget"))
+                            if "Defender" in parent_text or "OK" in parent_text or "ACTION" in parent_text:
+                                w.configure(fg=color)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _all_treeviews_final(self):
+        found = {}
+        try:
+            for name, value in vars(self).items():
+                try:
+                    if value.winfo_class() == "Treeview":
+                        found[name] = value
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return found
+
+    def _tree_clear_final(self, tree):
+        try:
+            for item in tree.get_children():
+                tree.delete(item)
+        except Exception:
+            pass
+
+    def _tree_insert_final(self, tree, values, tag="info"):
+        try:
+            try:
+                self._apply_extra_table_tags(tree)
+            except Exception:
+                pass
+            cols = list(tree["columns"])
+            values = list(values)
+            values += [""] * max(0, len(cols) - len(values))
+            tree.insert("", "end", values=values[:len(cols)], tags=(tag,))
+        except Exception:
+            pass
+
+    def _force_software_and_unifi_tables_nonempty(self):
+        """Keep Software tables and UniFi connector notes useful, never blank."""
+        try:
+            payload = getattr(self, "last_payload", None) or {}
+            metrics = payload.get("metrics", {}) or {}
+            rows = payload.get("alert_rows", []) or []
+            trees = self._all_treeviews_final()
+
+            detected = (
+                metrics.get("detected_apps", [])
+                or metrics.get("software_all", [])
+                or metrics.get("detected_apps_rows", [])
+                or metrics.get("software_rows", [])
+                or []
+            )
+            new_apps = metrics.get("new_software", []) or metrics.get("new_apps", []) or metrics.get("software_new_rows", []) or []
+
+            # Software subtabs by actual attribute names.
+            for name, tree in trees.items():
+                lname = name.lower()
+                if "software" in lname and any(x in lname for x in ("all", "detected", "app")):
+                    self._tree_clear_final(tree)
+                    if detected:
+                        for app in detected[:3000]:
+                            self._tree_insert_final(tree, [
+                                "▤  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                                app.get("version") or app.get("softwareVersion") or "",
+                                app.get("publisher") or app.get("vendor") or "",
+                                app.get("deviceCount") or app.get("devices") or app.get("machineCount") or 0,
+                            ], "info")
+                    else:
+                        self._tree_insert_final(tree, [
+                            "▤  Detected apps inventory",
+                            metrics.get("detected_apps_source", "Graph v1.0/cache"),
+                            metrics.get("detected_apps_error", "") or "No row payload returned; app count/card is live.",
+                            metrics.get("detected_app_count", metrics.get("detected_apps_count", 0)),
+                        ], "info")
+
+                if "software" in lname and any(x in lname for x in ("new", "observed")):
+                    self._tree_clear_final(tree)
+                    if new_apps:
+                        for app in new_apps[:1000]:
+                            self._tree_insert_final(tree, [
+                                "✦  " + str(app.get("displayName") or app.get("name") or app.get("softwareName") or "Unknown app"),
+                                app.get("version", ""),
+                                app.get("publisher", ""),
+                                app.get("deviceCount", 0),
+                            ], "warn")
+                    else:
+                        self._tree_insert_final(tree, [
+                            "✦  No newly observed software",
+                            "Baseline unchanged",
+                            "0 newly observed since local baseline",
+                            metrics.get("new_software_count", 0),
+                        ], "good")
+
+                if "software" in lname and "note" in lname:
+                    self._tree_clear_final(tree)
+                    self._tree_insert_final(tree, [
+                        self._bubble_token("INFO", "severity"),
+                        "Detected apps",
+                        f"{metrics.get('detected_app_count', metrics.get('detected_apps_count', 0))} app(s); source {metrics.get('detected_apps_source', 'Graph/cache')}",
+                    ], "info")
+                    self._tree_insert_final(tree, [
+                        self._bubble_token("MEDIUM" if "429" in str(metrics.get("detected_apps_error", "")) else "INFO", "severity"),
+                        "Connector state",
+                        metrics.get("detected_apps_error", "") or "No software connector error reported.",
+                    ], "review" if "429" in str(metrics.get("detected_apps_error", "")) else "info")
+
+            # UniFi connector notes by actual attr names.
+            for name, tree in trees.items():
+                lname = name.lower()
+                if "unifi" in lname and ("note" in lname or "connector" in lname):
+                    self._tree_clear_final(tree)
+                    self._tree_insert_final(tree, [
+                        self._bubble_token("INFO", "severity"),
+                        "UniFi Site Manager API",
+                        f"{metrics.get('unifi_sites', 0)} site(s), {metrics.get('unifi_devices', 0)} device(s), {metrics.get('unifi_degraded_sites', 0)} degraded, {metrics.get('unifi_critical_sites', metrics.get('unifi_offline_sites', 0))} offline.",
+                    ], "info")
+                    self._tree_insert_final(tree, [
+                        self._bubble_token("INFO", "severity"),
+                        "Polling endpoints",
+                        "/v1/sites, /v1/devices, /v1/hosts are live. Custom alerts endpoint only used if your UniFi API exposes one.",
+                    ], "info")
+                    uni_rows = [r for r in rows if str(r.get("source", "")).lower() == "unifi"]
+                    for r in uni_rows[:200]:
+                        sev = str(r.get("severity", "INFO")).upper()
+                        tag = self._stable_event_tag(sev, "UniFi", r.get("title", ""), r.get("detail", ""))
+                        self._tree_insert_final(tree, [
+                            self._bubble_token(sev, "severity"),
+                            "📶  " + str(r.get("title", "")),
+                            r.get("detail", ""),
+                        ], tag)
+        except Exception:
+            pass
+
+
     def _final_live_table_repair(self):
         """Final render pass after legacy render code.
 
@@ -9989,7 +10214,13 @@ class SentinelApp(tk.Tk):
             self.after(350, self._disable_grow_hover_and_lock_tab_colours)
             self.after(400, self._grow_row1_panels_height)
             self.after(450, self._force_software_tables_awake)
+            self.after(520, self._nice_home_icon_everywhere)
+            self.after(540, self._force_defender_overview_icon_colour)
+            self.after(560, self._force_software_and_unifi_tables_nonempty)
             self.after(500, self._kill_tab_growth_hovers_final)
+            self.after(520, self._nice_home_icon_everywhere)
+            self.after(540, self._force_defender_overview_icon_colour)
+            self.after(560, self._force_software_and_unifi_tables_nonempty)
         except Exception:
             pass
 
