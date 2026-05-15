@@ -5920,6 +5920,96 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _is_defender_or_microsoft_security(self, row):
+        """True for real Defender/M365/Graph security rows.
+
+        This intentionally excludes Intune posture, UniFi and software inventory rows,
+        but includes Graph incident cache/backoff rows so the Defender page explains
+        why incidents are cached/throttled instead of appearing empty.
+        """
+        try:
+            source = str(row.get("source", "")).lower()
+            title = str(row.get("title", "")).lower()
+            detail = str(row.get("detail", "")).lower()
+        except Exception:
+            source = title = detail = ""
+        joined = " ".join([source, title, detail])
+
+        excluded = (
+            "intune device posture summary",
+            "full intune inventory loaded",
+            "detected apps inventory",
+            "software inventory",
+            "unifi",
+            "site manager",
+            "client and traffic",
+        )
+        if any(x in joined for x in excluded):
+            return False
+
+        included = (
+            "defender",
+            "microsoft 365",
+            "m365",
+            "graph incidents",
+            "graph security",
+            "security alert",
+            "security incident",
+            "incidents live",
+            "alerts live",
+            "email messages",
+            "malicious",
+            "phish",
+            "credential",
+            "safe links",
+            "exchange",
+            "mailbox",
+            "cache/backoff",
+            "graph incident",
+        )
+        return any(x in joined for x in included)
+
+    def _intune_device_rows(self, metrics, kind):
+        """Return real Intune device rows using all known key variants."""
+        key_sets = {
+            "noncompliant": (
+                "noncompliant_devices",
+                "intune_noncompliant_devices",
+                "non_compliant_devices",
+                "noncompliant_rows",
+            ),
+            "stale": (
+                "stale_devices",
+                "stale_30_devices",
+                "intune_stale_devices",
+                "stale_30_rows",
+            ),
+            "unencrypted": (
+                "unencrypted_devices",
+                "intune_unencrypted_devices",
+                "unencrypted_rows",
+            ),
+            "nouser": (
+                "no_user_devices",
+                "no_primary_user_devices",
+                "intune_no_user_devices",
+                "no_user_rows",
+            ),
+            "all": (
+                "devices_rows",
+                "intune_device_rows",
+                "managed_devices",
+                "devices_detail",
+            ),
+        }
+        for key in key_sets.get(kind, ()):
+            rows = metrics.get(key)
+            if isinstance(rows, list):
+                return rows
+        return []
+
+
     def hard_repaint_all_tables(self, payload=None):
         """Fallback renderer that repopulates all table widgets with rich SOC styling."""
         payload = payload or getattr(self, "last_payload", None)
@@ -5956,13 +6046,6 @@ class SentinelApp(tk.Tk):
             except Exception:
                 pass
 
-        def is_def(r):
-            try:
-                return self._is_defender_related_row(r.get("source", ""), r.get("title", ""), r.get("detail", ""))
-            except Exception:
-                raw = " ".join([str(r.get("source","")), str(r.get("title","")), str(r.get("detail",""))]).lower()
-                return any(x in raw for x in ("defender", "microsoft 365", "incident", "security alert", "email messages", "phish", "malicious"))
-
         def tag_for(r):
             sev = str(r.get("severity", "INFO")).upper()
             return self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
@@ -5970,8 +6053,8 @@ class SentinelApp(tk.Tk):
         def bubble(v, kind="status"):
             return self._bubble_token(v, kind)
 
-        # Defender/M365 tables
-        defender_rows = [r for r in rows if is_def(r)]
+        # Defender/M365 tables: include all Microsoft security rows and connector diagnostics.
+        defender_rows = [r for r in rows if self._is_defender_or_microsoft_security(r)]
         for tree_name in ("overview_defender_feed_table", "defender_alert_table"):
             tree = getattr(self, tree_name, None)
             if tree is None:
@@ -5998,9 +6081,15 @@ class SentinelApp(tk.Tk):
                     str(r.get("detail", ""))[:300],
                 ], tag_for(r))
             if not defender_rows:
-                insert(tree, [bubble("INFO", "severity"), "", "✦  No Defender/M365 rows returned", bubble("INFO", "status"), "Awaiting live API data or connector permission."], "info")
+                insert(tree, [
+                    bubble("INFO", "severity"),
+                    "",
+                    "✦  No Defender/M365 rows returned",
+                    bubble("INFO", "status"),
+                    "No Microsoft Defender, M365 incident or Graph security rows were returned in this poll. Check connector event feed for API/auth errors.",
+                ], "info")
 
-        # Full signal / Defender signal
+        # Full signal / Defender signal. Defender signal shows all events so API/auth issues are visible.
         for tree_name in ("overview_full_feed_table", "defender_signal_table"):
             tree = getattr(self, tree_name, None)
             if tree is None:
@@ -6037,50 +6126,56 @@ class SentinelApp(tk.Tk):
                         str(r.get("detail", ""))[:300],
                     ], tag_for(r))
 
-        # Intune tables
+        # Intune tables: use the actual rows from the same live metrics.
         tree = getattr(self, "intune_noncompliant_table", None)
         if tree is not None:
             clear(tree)
-            devs = metrics.get("noncompliant_devices", []) or metrics.get("intune_noncompliant_devices", []) or []
+            devs = self._intune_device_rows(metrics, "noncompliant")
             for d in devs[:500]:
                 insert(tree, [
-                    "👤  " + str(d.get("name","")),
-                    self._decorate_os_cell(d.get("os","")),
-                    d.get("user",""),
-                    bubble(d.get("compliance","NONCOMPLIANT"), "status"),
-                    short_ts(d.get("last_sync","")),
+                    "👤  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""),
+                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
+                    d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "",
+                    bubble(d.get("compliance") or d.get("complianceState") or "NONCOMPLIANT", "status"),
+                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
                 ], "warn")
+            if not devs:
+                insert(tree, ["✦  No non-compliant device rows returned", "", "", bubble("INFO", "status"), "Cards may still show counts if the API returned summary-only data."], "info")
 
         tree = getattr(self, "intune_stale_table", None)
         if tree is not None:
             clear(tree)
-            devs = metrics.get("stale_devices", []) or metrics.get("stale_30_devices", []) or metrics.get("intune_stale_devices", []) or []
+            devs = self._intune_device_rows(metrics, "stale")
             for d in devs[:500]:
                 insert(tree, [
-                    "⏱  " + str(d.get("name","")),
-                    self._decorate_os_cell(d.get("os","")),
-                    d.get("user",""),
-                    bubble(d.get("compliance","CHECK"), "status"),
-                    short_ts(d.get("last_sync","")),
+                    "⏱  " + str(d.get("name") or d.get("deviceName") or d.get("managedDeviceName") or ""),
+                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
+                    d.get("user") or d.get("userPrincipalName") or d.get("emailAddress") or "",
+                    bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"),
+                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
                 ], "warn")
+            if not devs:
+                insert(tree, ["✦  No stale device rows returned", "", "", bubble("INFO", "status"), "Cards may still show counts if the API returned summary-only data."], "info")
 
         tree = getattr(self, "intune_posture_table", None)
         if tree is not None:
             clear(tree)
             posture_rows = []
-            for d in metrics.get("unencrypted_devices", []) or []:
+            for d in self._intune_device_rows(metrics, "unencrypted"):
                 posture_rows.append(("🔑 Unencrypted", d, "bad"))
             for d in metrics.get("jailbroken_devices", []) or metrics.get("rooted_devices", []) or []:
                 posture_rows.append(("◆ Jailbreak/root flag", d, "bad"))
             for label, d, tag in posture_rows[:500]:
                 insert(tree, [
                     bubble(label, "status"),
-                    d.get("name",""),
-                    self._decorate_os_cell(d.get("os","")),
-                    d.get("user",""),
-                    bubble(d.get("compliance","CHECK"), "status"),
-                    short_ts(d.get("last_sync","")),
+                    d.get("name") or d.get("deviceName") or "",
+                    self._decorate_os_cell(d.get("os") or d.get("operatingSystem") or ""),
+                    d.get("user") or d.get("userPrincipalName") or "",
+                    bubble(d.get("compliance") or d.get("complianceState") or "CHECK", "status"),
+                    short_ts(d.get("last_sync") or d.get("lastSyncDateTime") or ""),
                 ], tag)
+            if not posture_rows:
+                insert(tree, [bubble("INFO", "severity"), "No posture rows returned", "", "", bubble("INFO", "status"), "No unencrypted/rooted rows in live data."], "info")
 
         # UniFi
         tree = getattr(self, "unifi_sites_table", None)
