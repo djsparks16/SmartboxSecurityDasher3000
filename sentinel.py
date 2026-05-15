@@ -6802,6 +6802,78 @@ class SentinelApp(tk.Tk):
         except Exception:
             pass
 
+
+
+    def _any_metric_count(self, metrics, *keys):
+        for key in keys:
+            try:
+                value = metrics.get(key)
+                if isinstance(value, (list, tuple, set)):
+                    return len(value)
+                if value not in (None, "", "--"):
+                    return int(value or 0)
+            except Exception:
+                pass
+        return 0
+
+
+    def _outer_outline_only(self, widget, color):
+        """Set only outer border/outline on a card-like widget."""
+        try:
+            widget.configure(highlightthickness=2, highlightbackground=color, highlightcolor=color)
+        except Exception:
+            pass
+        # Avoid inner nested outlines by zeroing child highlight thickness.
+        try:
+            for child in widget.winfo_children():
+                try:
+                    child.configure(highlightthickness=0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _repair_overview_outer_outlines_only(self, metrics):
+        try:
+            cards = getattr(self, "overview_status", {}) or {}
+
+            states = {
+                "overview_defender": self._level_color("critical" if self._metric_count(metrics, "critical", "defender_critical", "defender_high") else "action" if (self._any_metric_count(metrics, "active_alerts", "defender_alerts") + self._any_metric_count(metrics, "graph_incidents", "m365_incidents")) else "good"),
+                "overview_intune": self._level_color("critical" if self._metric_count(metrics, "unencrypted_count") else "action" if (self._any_metric_count(metrics, "noncompliant", "noncompliant_count") + self._any_metric_count(metrics, "stale_30_count") + self._any_metric_count(metrics, "no_user_count")) else "good"),
+                "overview_unifi": self._level_color("critical" if self._metric_count(metrics, "unifi_critical_sites", "unifi_offline_sites") else "action" if self._metric_count(metrics, "unifi_degraded_sites") else "good"),
+                "overview_software": self._level_color("action" if "throttle" in str(metrics.get("software_issue_state", "")).lower() else "good"),
+            }
+
+            for key, color in states.items():
+                card = cards.get(key)
+                if not card:
+                    continue
+                outer = card.get("shell") or card.get("panel") or card.get("frame")
+                if outer is not None:
+                    self._outer_outline_only(outer, color)
+
+            # Row 3 cards are often stored in posture_cards or focus_cards['overview'].
+            for store_name in ("posture_cards", "overview_posture_cards", "row3_cards"):
+                store = getattr(self, store_name, None)
+                if isinstance(store, dict):
+                    mapping = {
+                        "stale_30_count": ORANGE if self._metric_count(metrics, "stale_30_count") else GREEN,
+                        "unencrypted_count": RED if self._metric_count(metrics, "unencrypted_count") else GREEN,
+                        "no_user_count": AMBER if self._metric_count(metrics, "no_user_count") else GREEN,
+                        "unifi_degraded_sites": ORANGE if self._metric_count(metrics, "unifi_degraded_sites") else GREEN,
+                    }
+                    for k, color in mapping.items():
+                        card = store.get(k)
+                        if isinstance(card, dict):
+                            outer = card.get("shell") or card.get("panel") or card.get("frame")
+                        else:
+                            outer = card
+                        if outer is not None:
+                            self._outer_outline_only(outer, color)
+        except Exception:
+            pass
+
+
     def _repair_overview_card_outlines(self, metrics):
         """Dynamic card outlines: green good, orange action, red bad."""
         try:
@@ -6898,8 +6970,27 @@ class SentinelApp(tk.Tk):
             "time": v.get("updated") or v.get("updatedOn") or v.get("lastModified") or "",
         }
 
+
+    def _is_defender_incident_alert_only(self, row):
+        """Defender incidents/alerts table only: no TVM recs, no CVEs."""
+        try:
+            joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
+            if any(x in joined for x in ("tvm", "vulnerability", "cve-", "security recommendation", "recommendation")):
+                return False
+            if hasattr(self, "_is_defender_or_microsoft_security"):
+                return self._is_defender_or_microsoft_security(row)
+            return self._is_defender_related_row(row.get("source",""), row.get("title",""), row.get("detail",""))
+        except Exception:
+            joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
+            return any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages", "phish", "malicious"))
+
+
     def _focus_rows_live(self, payload):
-        metrics = payload.get("metrics", {}) or {}
+        """Action focus should only show Defender/M365 incidents and alerts.
+
+        TVM recommendations and CVEs are deliberately excluded here and rendered in
+        their own Defender subtabs.
+        """
         rows = payload.get("alert_rows", []) or []
         focus = []
 
@@ -6909,18 +7000,16 @@ class SentinelApp(tk.Tk):
             except Exception:
                 joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
                 is_security = any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "email messages", "phish", "malicious"))
-            if is_security:
-                f = self._focus_row_from_event(row)
-                if f["level"] in ("critical", "action", "review"):
-                    focus.append(f)
 
-        for r in self._metric_rows(metrics, "defender_recommendation_rows", "security_recommendation_rows", "tvm_recommendation_rows"):
-            f = self._focus_row_from_recommendation(r)
-            if f["level"] in ("critical", "action", "review"):
-                focus.append(f)
+            if not is_security:
+                continue
 
-        for v in self._metric_rows(metrics, "defender_vulnerability_rows", "vulnerability_rows", "tvm_vulnerability_rows", "machines_vulnerabilities_rows"):
-            f = self._focus_row_from_vulnerability(v)
+            # Keep TVM/CVE out of Defender View / Alert Focus.
+            joined = " ".join([str(row.get("source","")), str(row.get("title","")), str(row.get("detail",""))]).lower()
+            if any(x in joined for x in ("tvm", "vulnerability", "cve-", "security recommendation", "recommendation")):
+                continue
+
+            f = self._focus_row_from_event(row)
             if f["level"] in ("critical", "action", "review"):
                 focus.append(f)
 
@@ -6953,6 +7042,51 @@ class SentinelApp(tk.Tk):
             ], height=22)
         except Exception:
             pass
+
+
+    def _repair_vulnerability_tab_only(self, metrics):
+        """Dedicated vulnerability tab render. CVEs live here, not in Defender View."""
+        try:
+            tree = getattr(self, "defender_vulnerabilities_table", None)
+            if tree is None:
+                return
+
+            rows = []
+            for key in ("defender_vulnerability_rows", "vulnerability_rows", "tvm_vulnerability_rows", "machines_vulnerabilities_rows", "defender_vulnerabilities_rows"):
+                val = metrics.get(key)
+                if isinstance(val, list) and val:
+                    rows = val
+                    break
+
+            self._configure_sexy_table_tags(tree)
+            for item in tree.get_children():
+                tree.delete(item)
+
+            def ins(vals, tag="info"):
+                cols = list(tree["columns"])
+                vals = list(vals)
+                if len(vals) < len(cols):
+                    vals += [""] * (len(cols) - len(vals))
+                tree.insert("", "end", values=vals[:len(cols)], tags=(tag,))
+
+            for v in rows[:1000]:
+                sev = str(v.get("severity") or v.get("risk") or "INFO").upper()
+                tag = "action" if sev in ("CRITICAL", "HIGH") else "review" if sev == "MEDIUM" else "info"
+                ins([
+                    "◆  " + str(v.get("id") or v.get("cveId") or v.get("name") or ""),
+                    self._bubble_token(sev, "severity"),
+                    v.get("cvss") or v.get("cvssV3") or v.get("cvssScore") or "",
+                    short_ts(v.get("published") or v.get("publishedOn") or v.get("publishedDate") or ""),
+                    short_ts(v.get("updated") or v.get("updatedOn") or v.get("lastModified") or ""),
+                    v.get("detail") or v.get("description") or "",
+                ], tag)
+
+            if not rows:
+                msg = metrics.get("defender_vulnerability_error") or "No vulnerability rows returned by the live API."
+                ins(["◆  No vulnerability rows", self._bubble_token("INFO", "severity"), "", "", "", msg[:300]], "info")
+        except Exception:
+            pass
+
 
     def _paint_defender_focus_live(self, payload=None):
         """Paint the triage cockpit table from live data only."""
@@ -7014,8 +7148,9 @@ class SentinelApp(tk.Tk):
             self._repair_defender_tab_priority_live(metrics)
             self._repair_intune_platform_breakdown(metrics)
             self._repair_defender_enrichment_tables_live(metrics)
+            self._repair_vulnerability_tab_only(metrics)
             self._paint_defender_focus_live(payload)
-            self._repair_overview_card_outlines(metrics)
+            self._repair_overview_outer_outlines_only(metrics)
             self._boost_row2_icon_glow(metrics)
             self._boost_sidebar_icon_glow()
         except Exception:
@@ -7064,7 +7199,7 @@ class SentinelApp(tk.Tk):
                 return any(x in joined for x in ("defender", "microsoft 365", "graph incidents", "security incident", "email messages", "phish", "malicious"))
 
         # Defender / M365
-        defender_rows = [r for r in rows if is_defender(r)]
+        defender_rows = [r for r in rows if self._is_defender_incident_alert_only(r)]
         for tree_name in ("overview_defender_feed_table", "defender_alert_table"):
             tree = getattr(self, tree_name, None)
             if tree is None:
