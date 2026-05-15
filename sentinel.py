@@ -2086,9 +2086,14 @@ class SentinelApp(tk.Tk):
     def rounded_panel(self, parent, fill=None, border=None, radius=18, padding=1):
         parent_bg = parent.cget("bg") if hasattr(parent, 'cget') else BG
         shell = tk.Frame(parent, bg=parent_bg, bd=0, highlightthickness=0)
+        # Dynamic rounded-panel colours. Later UI updates can set these attributes
+        # and call shell.redraw_panel() without rebuilding the widget.
+        shell.panel_fill = fill or PANEL
+        shell.panel_border = border or HAIRLINE
+        shell.panel_border_width = 1.4
         canvas = tk.Canvas(shell, bg=parent_bg, highlightthickness=0, bd=0, relief="flat")
         canvas.pack(fill="both", expand=True)
-        inner = tk.Frame(canvas, bg=fill or PANEL, bd=0, highlightthickness=0)
+        inner = tk.Frame(canvas, bg=shell.panel_fill, bd=0, highlightthickness=0)
         win = canvas.create_window((padding, padding), window=inner, anchor="nw")
 
         def redraw(event=None):
@@ -2096,7 +2101,15 @@ class SentinelApp(tk.Tk):
             h = max(canvas.winfo_height(), 40)
             canvas.delete("panel")
             pts = self._rounded_points(padding, padding, w-padding, h-padding, radius)
-            canvas.create_polygon(pts, smooth=True, splinesteps=24, fill=fill or PANEL, outline=border or HAIRLINE, width=1.4, tags="panel")
+            canvas.create_polygon(
+                pts,
+                smooth=True,
+                splinesteps=24,
+                fill=getattr(shell, "panel_fill", fill or PANEL),
+                outline=getattr(shell, "panel_border", border or HAIRLINE),
+                width=getattr(shell, "panel_border_width", 1.4),
+                tags="panel",
+            )
             canvas.coords(win, padding+1, padding+1)
             canvas.itemconfigure(win, width=max(16, w-(padding+1)*2), height=max(16, h-(padding+1)*2))
             canvas.tag_lower("panel")
@@ -2104,6 +2117,7 @@ class SentinelApp(tk.Tk):
         canvas.bind("<Configure>", redraw)
         shell.canvas = canvas
         shell.inner = inner
+        shell.redraw_panel = redraw
         return shell, inner
 
 
@@ -2196,6 +2210,48 @@ class SentinelApp(tk.Tk):
                 except Exception:
                     pass
 
+        def hover_enter(event=None):
+            try:
+                shell.configure(width=width + 10, height=40)
+                canvas.configure(width=width + 10, height=40)
+                for child in row.winfo_children():
+                    try:
+                        txt = str(child.cget("text"))
+                        if txt:
+                            child.configure(font=(self.font_ui, 12 if len(txt) > 3 else 18, "bold"), fg="#FFFFFF")
+                    except Exception:
+                        pass
+                    try:
+                        for sub in child.winfo_children():
+                            txt = str(sub.cget("text"))
+                            if txt:
+                                sub.configure(font=(self.font_ui, 12 if len(txt) > 3 else 18, "bold"), fg="#FFFFFF")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        def hover_leave(event=None):
+            try:
+                shell.configure(width=width, height=36)
+                canvas.configure(width=width, height=36)
+                for child in row.winfo_children():
+                    try:
+                        txt = str(child.cget("text"))
+                        if txt:
+                            child.configure(font=(self.font_ui, 9 if len(txt) > 3 else 14, "bold"), fg="#F7FBFF" if active else "#9BE8FF")
+                    except Exception:
+                        pass
+                    try:
+                        for sub in child.winfo_children():
+                            txt = str(sub.cget("text"))
+                            if txt:
+                                sub.configure(font=(self.font_ui, 9 if len(txt) > 3 else 14, "bold"), fg="#F7FBFF" if active else "#9BE8FF")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         def bind_tree(widget):
             try:
                 widget.configure(cursor="hand2")
@@ -2203,6 +2259,8 @@ class SentinelApp(tk.Tk):
                 pass
             try:
                 widget.bind("<Button-1>", invoke, add="+")
+                widget.bind("<Enter>", hover_enter, add="+")
+                widget.bind("<Leave>", hover_leave, add="+")
             except Exception:
                 pass
             try:
@@ -2263,6 +2321,25 @@ class SentinelApp(tk.Tk):
                 except Exception:
                     pass
 
+        def hover_enter(event=None):
+            try:
+                label_w.configure(font=(self.font_ui, 11, "bold"), fg="#FFFFFF")
+                if hasattr(icon_w, "icon_label"):
+                    icon_w.icon_label.configure(font=(self.font_ui, 18, "bold"), fg="#FFFFFF")
+                row.configure(highlightthickness=1, highlightbackground=color)
+            except Exception:
+                pass
+
+        def hover_leave(event=None):
+            try:
+                label_w.configure(font=(self.font_ui, 9, "bold"), fg="#FFFFFF" if active else "#9EDFFF")
+                if hasattr(icon_w, "icon_label"):
+                    icon_w.icon_label.configure(font=(self.font_ui, 12, "bold"), fg=color)
+                if not active:
+                    row.configure(highlightthickness=0)
+            except Exception:
+                pass
+
         def bind_tree(widget):
             try:
                 widget.configure(cursor="hand2")
@@ -2270,6 +2347,8 @@ class SentinelApp(tk.Tk):
                 pass
             try:
                 widget.bind("<Button-1>", invoke, add="+")
+                widget.bind("<Enter>", hover_enter, add="+")
+                widget.bind("<Leave>", hover_leave, add="+")
             except Exception:
                 pass
             try:
@@ -2439,8 +2518,9 @@ class SentinelApp(tk.Tk):
 
         body = self.make_scrollable_page(self.tab_overview, show_scrollbar=True)
 
-        self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
-        self.overview_focus_bar.pack(fill="x", pady=(0, 4))
+        self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=0, highlightbackground=HAIRLINE)
+        # Hidden: this empty command strip was the blank bar above Defender Priority.
+        # Keep the attributes for compatibility, but do not pack the widget.
         tk.Label(self.overview_focus_bar, text="", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
         self.overview_focus_text = tk.Label(self.overview_focus_bar, text="", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
@@ -5650,25 +5730,39 @@ class SentinelApp(tk.Tk):
             newt = getattr(self, "software_new_table", None)
             if newt is not None:
                 self._safe_tree_clear(newt)
-                for a in (metrics.get("new_software", []) or metrics.get("new_apps", []) or [])[:500]:
+                new_rows = (metrics.get("new_software", []) or metrics.get("new_apps", []) or [])
+                for a in new_rows[:500]:
                     self._safe_insert_tree(newt, [
                         a.get("displayName",""),
                         a.get("version",""),
                         a.get("publisher",""),
                         a.get("deviceCount",0),
-                        "Newly observed",
                     ], "warn")
+                if not new_rows:
+                    self._safe_insert_tree(newt, [
+                        "No newly observed software",
+                        "",
+                        "Baseline unchanged",
+                        metrics.get("new_software_count", 0),
+                    ], "good")
 
             allt = getattr(self, "software_all_table", None)
             if allt is not None:
                 self._safe_tree_clear(allt)
-                for a in (metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])[:1000]:
+                all_rows = (metrics.get("detected_apps", []) or metrics.get("software_all", []) or metrics.get("detected_apps_rows", []) or [])
+                for a in all_rows[:1000]:
                     self._safe_insert_tree(allt, [
                         a.get("displayName",""),
                         a.get("version",""),
                         a.get("publisher",""),
                         a.get("deviceCount",0),
-                        a.get("sizeInByte",0),
+                    ], "info")
+                if not all_rows:
+                    self._safe_insert_tree(allt, [
+                        "Detected apps count",
+                        metrics.get("detected_apps_source", ""),
+                        metrics.get("detected_apps_error", "") or "No row payload returned in this poll",
+                        metrics.get("detected_app_count", 0),
                     ], "info")
         except Exception as e:
             try:
@@ -6406,6 +6500,81 @@ class SentinelApp(tk.Tk):
             pass
 
 
+
+    def _set_rounded_panel_border(self, shell, color, width=2.6):
+        """Change the visible rounded-panel border, not a hidden frame highlight."""
+        try:
+            if shell is None:
+                return
+            shell.panel_border = color
+            shell.panel_border_width = width
+            try:
+                shell.canvas.itemconfigure("panel", outline=color, width=width)
+            except Exception:
+                pass
+            try:
+                shell.redraw_panel()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _pulse_heartbeat_panel_border(self):
+        try:
+            shell = getattr(self, "heartbeat_shell", None)
+            if shell is not None and getattr(self, "last_payload", None):
+                self._heartbeat_pulse_on = not getattr(self, "_heartbeat_pulse_on", False)
+                self._set_rounded_panel_border(shell, "#7DFF57" if self._heartbeat_pulse_on else "#2FEA63", 3.0 if self._heartbeat_pulse_on else 2.2)
+            self.after(700, self._pulse_heartbeat_panel_border)
+        except Exception:
+            try:
+                self.after(1200, self._pulse_heartbeat_panel_border)
+            except Exception:
+                pass
+
+    def _repair_notes_text_panels(self, metrics):
+        """Populate Intune/Software note panels so they never look blank."""
+        try:
+            if hasattr(self, "intune_text"):
+                lines = [
+                    "Intune inventory summary",
+                    "-" * 72,
+                    f"Devices: {metrics.get('devices', 0)}",
+                    f"Compliant devices: {metrics.get('compliant_devices', 0)}",
+                    f"Non-compliant devices: {metrics.get('noncompliant', 0)}",
+                    f"Stale 30+ days: {metrics.get('stale_30_count', 0)}",
+                    f"Unencrypted: {metrics.get('unencrypted_count', 0)}",
+                    f"No primary user: {metrics.get('no_user_count', 0)}",
+                    "",
+                    "Platform breakdown",
+                    "-" * 72,
+                    f"Windows: {metrics.get('windows', 0)}",
+                    f"iPhone / iPad: {metrics.get('ios', 0)}",
+                    f"Mac: {metrics.get('macos', 0)}",
+                    f"Android: {metrics.get('android', 0)}",
+                    f"Other: {metrics.get('other_os', 0)}",
+                ]
+                self.set_text_widget(self.intune_text, "\n".join(lines))
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "software_text"):
+                lines = [
+                    "Software detection notes",
+                    "-" * 72,
+                    f"Detected apps: {metrics.get('detected_app_count', 0)}",
+                    f"Inventory source: {metrics.get('detected_apps_source', 'unknown')}",
+                    f"Newly observed: {metrics.get('new_software_count', 0)}",
+                    f"Status: {metrics.get('software_issue_state', 'ok')}",
+                    "",
+                    "Connector detail",
+                    "-" * 72,
+                    metrics.get("detected_apps_error", "") or "No detectedApps error reported in the latest poll.",
+                ]
+                self.set_text_widget(self.software_text, "\n".join(lines))
+        except Exception:
+            pass
+
     def _repair_overview_hero_and_heartbeat(self, metrics):
         """Repair the main overview hero strip and heartbeat from live metrics."""
         try:
@@ -6502,10 +6671,23 @@ class SentinelApp(tk.Tk):
             except Exception:
                 pass
 
+            # Real Row 1 outlines: these are rounded canvas panels, so update the
+            # rounded panel border rather than a frame highlight that cannot show.
+            self._set_rounded_panel_border(getattr(self, "hero_priority_shell", None), hero_color, 2.8)
+
             # Heartbeat should be connected if any live payload exists, even if one connector is degraded.
             connected = bool(metrics)
             heartbeat_text = "CONNECTED" if connected else "CONNECTING"
             heartbeat_detail = "Polling links active" if connected else "Polling links not yet active"
+            self._set_rounded_panel_border(getattr(self, "heartbeat_shell", None), GREEN if connected else ORANGE, 2.8)
+            if not getattr(self, "_heartbeat_panel_pulse_started", False):
+                self._heartbeat_panel_pulse_started = True
+                self.after(350, self._pulse_heartbeat_panel_border)
+            try:
+                self.heartbeat_state.configure(text=heartbeat_text, fg=GREEN if connected else BLUE)
+                self.heartbeat_meta.configure(text=heartbeat_detail)
+            except Exception:
+                pass
             for name in ("heartbeat_status_label", "overview_heartbeat_status", "heartbeat_state_label"):
                 lbl = getattr(self, name, None)
                 if lbl is not None:
@@ -8507,6 +8689,7 @@ class SentinelApp(tk.Tk):
         try:
             self._repair_overview_cards_live(metrics)
             self._repair_tab_cards_live(metrics)
+            self._repair_notes_text_panels(metrics)
             self._repair_overview_hero_and_heartbeat(metrics)
             self._repair_defender_tab_priority_live(metrics)
             self._repair_intune_platform_breakdown(metrics)
