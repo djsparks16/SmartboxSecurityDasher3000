@@ -2858,9 +2858,29 @@ class SentinelApp(tk.Tk):
         """Select a ttk.Notebook subtab by visible tab text, safely."""
         try:
             wanted_l = str(wanted or "").lower()
+            synonyms = {
+                "newly observed": ("new", "newly", "observed"),
+                "all software": ("all", "software", "inventory"),
+                "security alerts": ("security alerts", "alerts"),
+                "signal events": ("signal", "events"),
+                "sites": ("sites", "network sites"),
+                "connector": ("connector", "notes"),
+            }
+            wanted_terms = synonyms.get(wanted_l, (wanted_l,))
+            # Prefer exact containment.
             for tab_id in notebook.tabs():
                 txt = str(notebook.tab(tab_id, "text") or "").lower()
-                if wanted_l in txt:
+                if wanted_l and wanted_l in txt:
+                    notebook.select(tab_id)
+                    try:
+                        self._sync_subtab_pills(notebook)
+                    except Exception:
+                        pass
+                    return True
+            # Then synonyms.
+            for tab_id in notebook.tabs():
+                txt = str(notebook.tab(tab_id, "text") or "").lower()
+                if any(term and term in txt for term in wanted_terms):
                     notebook.select(tab_id)
                     try:
                         self._sync_subtab_pills(notebook)
@@ -2937,9 +2957,9 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Alerts & events", "⚠", lambda: self.nav_to(self.tab_unifi, "Connector"), ORANGE)
 
         section("Software", ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.nav_to(self.tab_software, "All"), ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.nav_to(self.tab_software, "New"), AMBER)
-        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.nav_to(self.tab_software, "New"), RED)
+        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.nav_to(self.tab_software, "All software"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.nav_to(self.tab_software, "Newly observed"), AMBER)
+        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.nav_to(self.tab_software, "Newly observed"), RED)
 
         spacer = tk.Frame(self.left_nav, bg="#061827")
         spacer.pack(fill="both", expand=True)
@@ -2997,6 +3017,12 @@ class SentinelApp(tk.Tk):
                 self.status_var.set(f"Tab ribbon error: {e}")
             except Exception:
                 pass
+        try:
+            self._normalize_defender_tables()
+            if self.last_payload:
+                self._stable_paint_all_tables(self.last_payload)
+        except Exception:
+            pass
 
     def _build_subtab_pills(self, bar, notebook, tabs):
         if not hasattr(self, "subtab_buttons"):
@@ -4867,10 +4893,54 @@ class SentinelApp(tk.Tk):
 
 
 
-    def _normalize_defender_tables(self):
-        """Make Defender tab table use the same visual structure as Overview."""
+
+
+
+    def _defender_row_status(self, row):
+        raw = " ".join([str(row.get("status", "")), str(row.get("title", "")), str(row.get("detail", ""))]).lower()
+        if "pending approval" in raw or "pending action" in raw:
+            return "PENDING"
+        if "remediated" in raw:
+            return "REMEDIATED"
+        if any(x in raw for x in ("resolved", "closed", "dismissed", "cleared", "archived")):
+            return "RESOLVED/CLOSED"
+        return str(row.get("status") or "ACTIVE").upper()
+
+    def _direct_insert_defender_row(self, tree, row):
+        sev = str(row.get("severity", "INFO")).upper()
+        status = self._defender_row_status(row)
+        tag = self._stable_event_tag(sev, row.get("source",""), row.get("title",""), row.get("detail",""))
+        source = self._stable_source_label(row.get("source",""))
+        title = str(row.get("title", ""))[:160]
+        detail = str(row.get("detail", ""))[:260]
+        time_v = short_ts(row.get("timestamp", ""))
+
+        # Match the actual rendered column names every time. This prevents
+        # old metadata from sliding values sideways after style/table rewrites.
         try:
-            for tree_name in ("defender_alert_table",):
+            cols = list(tree["columns"])
+        except Exception:
+            cols = []
+
+        values_by_col = {
+            "severity": self._bubble_token(sev, "severity"),
+            "time": time_v,
+            "title": title,
+            "status": self._bubble_token(status, "status"),
+            "detail": detail,
+            "source": source,
+            "type": "Incident" if "incident" in str(row.get("source","")).lower() or "incident" in title.lower() else "Alert",
+        }
+        values = [values_by_col.get(str(c), "") for c in cols]
+        try:
+            tree.insert("", "end", values=values, tags=(tag,))
+        except Exception:
+            self._safe_insert_tree(tree, values, tag)
+
+    def _normalize_defender_tables(self):
+        """Make Overview and Defender tab use the same clean incident table."""
+        try:
+            for tree_name in ("defender_alert_table", "overview_defender_feed_table"):
                 tree = getattr(self, tree_name, None)
                 if tree is None:
                     continue
@@ -4878,10 +4948,20 @@ class SentinelApp(tk.Tk):
                 self.setup_tree_columns(tree, [
                     ("severity", "Severity", 120),
                     ("time", "Time", 170),
-                    ("title", "Alert / finding", 560),
-                    ("status", "Status", 145),
-                    ("detail", "Detail", 820),
+                    ("title", "Alert / finding", 620),
+                    ("status", "Status", 150),
+                    ("detail", "Detail", 880),
                 ])
+                try:
+                    tree._smart_col_labels = {
+                        "severity": "Severity",
+                        "time": "Time",
+                        "title": "Alert / finding",
+                        "status": "Status",
+                        "detail": "Detail",
+                    }
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -4894,13 +4974,35 @@ class SentinelApp(tk.Tk):
             title_l = str(r.get("title", "")).lower()
             detail_l = str(r.get("detail", "")).lower()
             source_l = str(r.get("source", "")).lower()
+            joined = " ".join([source_l, title_l, detail_l])
 
-            # Do not let connector-health rows dominate the incident table.
-            is_query_health = "query live" in title_l or "cache/backoff" in title_l or "query failed" in title_l
-            if is_query_health and "incident row" in detail_l:
+            # Exclude non-security inventory/status rows from the Defender table.
+            if any(x in joined for x in (
+                "full intune inventory loaded",
+                "intune device posture summary",
+                "detected apps inventory",
+                "software inventory",
+                "unifi",
+                "site manager",
+                "client and traffic",
+            )):
                 continue
 
-            if self._is_defender_related_row(source_l, title_l, detail_l):
+            # Include all Microsoft security/incident/alert context.
+            include = (
+                self._is_defender_related_row(source_l, title_l, detail_l)
+                or "graph security" in source_l
+                or "security alert" in title_l
+                or "security incidents" in title_l
+                or "incidents live" in title_l
+                or "alerts live" in title_l
+                or "email messages" in title_l
+                or "malicious" in joined
+                or "phish" in joined
+                or "microsoft defender" in joined
+                or "microsoft 365 defender" in joined
+            )
+            if include:
                 out.append(r)
 
         sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
@@ -4917,41 +5019,96 @@ class SentinelApp(tk.Tk):
             return
         self._safe_tree_clear(tree)
 
-        for r in rows[:250]:
-            sev = str(r.get("severity", "INFO")).upper()
-            tag = self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
-            time_v = short_ts(r.get("timestamp", ""))
-            status_v = self._bubble_token(self._stable_status(r), "status")
-            sev_v = self._bubble_token(sev, "severity")
-            source_v = self._stable_source_label(r.get("source",""))
-            title_v = str(r.get("title", ""))[:155]
-            detail_v = str(r.get("detail", ""))[:250]
-
-            cols = list(tree["columns"])
-            if cols == ["severity", "time", "title", "status", "detail"] or tuple(cols) == ("severity", "time", "title", "status", "detail"):
-                values = [sev_v, time_v, title_v, status_v, detail_v]
-            elif len(cols) == 6:
-                values = [time_v, status_v, sev_v, source_v, title_v, detail_v]
-            elif len(cols) == 5:
-                values = [sev_v, time_v, title_v, status_v, detail_v]
-            else:
-                values = [sev_v, time_v, source_v, title_v, detail_v]
-
-            self._safe_insert_tree(tree, values, tag)
+        for r in rows[:300]:
+            self._direct_insert_defender_row(tree, r)
 
         if not rows:
-            cols = list(tree["columns"])
-            if cols == ["severity", "time", "title", "status", "detail"] or tuple(cols) == ("severity", "time", "title", "status", "detail") or len(cols) == 5:
-                empty = [
-                    self._bubble_token("INFO", "severity"),
-                    "",
-                    "No Defender/M365 rows returned",
-                    self._bubble_token("INFO", "status"),
-                    "Check Microsoft Graph SecurityIncident.Read.All, Defender API permissions, and Graph throttling/backoff.",
-                ]
-            else:
-                empty = ["", self._bubble_token("INFO", "status"), self._bubble_token("INFO", "severity"), "Microsoft 365 Defender", "No Defender/M365 rows returned", "Check connector health."]
-            self._safe_insert_tree(tree, empty, "info")
+            try:
+                cols = list(tree["columns"])
+            except Exception:
+                cols = []
+            empty_map = {
+                "severity": self._bubble_token("INFO", "severity"),
+                "time": "",
+                "title": "No Defender/M365 rows returned",
+                "status": self._bubble_token("INFO", "status"),
+                "detail": "Check Graph throttling/backoff, SecurityIncident.Read.All, SecurityAlert.Read.All and Defender API permissions.",
+                "source": "Microsoft 365 Defender",
+                "type": "Info",
+            }
+            self._safe_insert_tree(tree, [empty_map.get(str(c), "") for c in cols], "info")
+
+
+    def _set_glow_icon_color(self, widget, color):
+        try:
+            # glow_icon returns a frame with labels/canvas children.
+            for child in widget.winfo_children():
+                try:
+                    child.configure(fg=color)
+                except Exception:
+                    pass
+                try:
+                    for sub in child.winfo_children():
+                        try:
+                            sub.configure(fg=color)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _status_color_from_value(self, value, default=BLUE):
+        raw = str(value or "").lower()
+        if any(x in raw for x in ("critical", "offline", "high", "bad", "risk", "issue", "unencrypted")):
+            return RED
+        if any(x in raw for x in ("medium", "degraded", "warning", "throttled", "stale", "posture")):
+            return ORANGE
+        if any(x in raw for x in ("clear", "ok", "healthy", "connected", "compliant", "live")):
+            return GREEN
+        return default
+
+    def _update_card_icon_severity_glow(self, metrics):
+        try:
+            # Overview status cards
+            card_specs = {
+                "overview_defender": self._status_color_from_value(metrics.get("priority_state", "CLEAR"), GREEN),
+                "overview_intune": RED if int(metrics.get("noncompliant", 0) or 0) else GREEN,
+                "overview_unifi": RED if int(metrics.get("unifi_critical_sites", 0) or 0) else (ORANGE if int(metrics.get("unifi_degraded_sites", 0) or 0) else GREEN),
+                "overview_software": ORANGE if str(metrics.get("software_issue_state", "")).lower() != "ok" else GREEN,
+            }
+            for key, color in card_specs.items():
+                card = getattr(self, "overview_status", {}).get(key)
+                if not card:
+                    continue
+                for part in ("dot",):
+                    widget = card.get(part)
+                    if widget is not None:
+                        self._set_glow_icon_color(widget, color)
+                if card.get("value") is not None:
+                    try:
+                        card["value"].configure(fg=color)
+                    except Exception:
+                        pass
+
+            # Row 3 posture cards
+            posture_specs = {
+                "stale_30_count": ORANGE if int(metrics.get("stale_30_count", 0) or 0) else GREEN,
+                "unencrypted_count": RED if int(metrics.get("unencrypted_count", 0) or 0) else GREEN,
+                "no_user_count": AMBER if int(metrics.get("no_user_count", 0) or 0) else GREEN,
+                "unifi_degraded_sites": ORANGE if int(metrics.get("unifi_degraded_sites", 0) or 0) else GREEN,
+            }
+            for key, label in getattr(self, "posture_labels", {}).items():
+                try:
+                    label.configure(fg=posture_specs.get(key, BLUE))
+                    parent = label.master
+                    for child in parent.master.winfo_children():
+                        self._set_glow_icon_color(child, posture_specs.get(key, BLUE))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
 
     def _stable_paint_all_tables(self, payload):
         """Last-mile table renderer.
@@ -4962,6 +5119,7 @@ class SentinelApp(tk.Tk):
         """
         try:
             metrics = payload.get("metrics", {}) or {}
+            self._update_card_icon_severity_glow(metrics)
             rows = payload.get("alert_rows", []) or []
             events = payload.get("events", []) or []
 
