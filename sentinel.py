@@ -1793,17 +1793,18 @@ class SentinelApp(tk.Tk):
                   background=[("selected", "#223044"), ("active", "#17212D")],
                   foreground=[("selected", TEXT), ("active", TEXT)])
         style.configure("Dasher.Treeview",
-                  background="#0A1724",
-                  foreground="#EAF4FF",
-                  fieldbackground="#0A1724",
-                  rowheight=31,
+                  background="#071827",
+                  foreground="#F2F8FF",
+                  fieldbackground="#071827",
+                  rowheight=34,
                   borderwidth=0,
                   relief="flat",
                   font=(self.font_ui, 10))
         style.configure("Dasher.Treeview.Heading",
-                  background="#16283C",
-                  foreground="#CAD9E8",
+                  background="#18324B",
+                  foreground="#F5FBFF",
                   relief="flat",
+                  padding=(8, 8),
                   font=(self.font_ui, 10, "bold"))
         style.map("Dasher.Treeview",
                   background=[("selected", "#1A456B")],
@@ -1885,12 +1886,12 @@ class SentinelApp(tk.Tk):
         self.main_tabs.add(self.tab_software, text="Software")
         self._build_main_tab_pills()
 
-        body = self.make_scrollable_page(self.tab_overview, show_scrollbar=False)
+        body = self.make_scrollable_page(self.tab_overview, show_scrollbar=True)
 
         self.overview_focus_bar = tk.Frame(body, bg=GLASS, highlightthickness=1, highlightbackground=HAIRLINE)
         self.overview_focus_bar.pack(fill="x", pady=(0, 8))
-        tk.Label(self.overview_focus_bar, text="Executive snapshot", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
-        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender priority • Intune estate • Software drift • UniFi health", bg=GLASS, fg=TEXT, font=(self.font_ui, 11, "bold"), justify="left")
+        tk.Label(self.overview_focus_bar, text="SOC COMMAND OVERVIEW", bg=GLASS, fg="#58C7FF", font=(self.font_ui, 8, "bold")).pack(anchor="w", padx=14, pady=(7, 1))
+        self.overview_focus_text = tk.Label(self.overview_focus_bar, text="Defender priority • Intune estate • Software drift • UniFi health • scrollable live tables", bg=GLASS, fg=TEXT, font=(self.font_ui, 12, "bold"), justify="left")
         self.overview_focus_text.pack(anchor="w", padx=14, pady=(0, 7))
         self.hero_strip = tk.Frame(body, bg=BG)
         self.hero_strip.pack(fill="x", pady=(0, 8))
@@ -2122,7 +2123,7 @@ class SentinelApp(tk.Tk):
 
         defender_feed_header = tk.Frame(self.overview_defender_feed_panel, bg=GLASS)
         defender_feed_header.pack(fill="x", padx=14, pady=(6, 2))
-        tk.Label(defender_feed_header, text="Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 20, "bold")).pack(side="left")
+        tk.Label(defender_feed_header, text="🛡  Defender alert focus", bg=GLASS, fg=TEXT, font=(self.font_display, 21, "bold")).pack(side="left")
         self.overview_defender_feed_summary = tk.Label(defender_feed_header, text="6 active Defender item(s)  •  0 high/critical  •  1 medium  •  click headers to sort", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold"))
         self.overview_defender_feed_summary.pack(side="right")
 
@@ -2153,13 +2154,14 @@ class SentinelApp(tk.Tk):
         self.overview_defender_feed_table.tag_configure("sev_medium", background="#0E2134", foreground="#FFD75A")
         self.overview_defender_feed_table.tag_configure("sev_info", background="#0A2031", foreground="#58C7FF")
         self.overview_defender_feed_table.tag_configure("sev_low", background="#0B2232", foreground="#72F26B")
+        self._bind_treeview_mousewheel(self.overview_defender_feed_table)
 
         self.overview_full_feed_shell, self.overview_full_feed_panel = self.rounded_panel(left, fill=GLASS, border=HAIRLINE, radius=22, padding=1)
         self.overview_full_feed_shell.pack(fill="both", expand=False, pady=(8, 0))
 
         full_feed_header = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
         full_feed_header.pack(fill="x", padx=14, pady=(6, 2))
-        tk.Label(full_feed_header, text="Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 16, "bold")).pack(side="left")
+        tk.Label(full_feed_header, text="⚡  Full signal feed", bg=GLASS, fg=TEXT, font=(self.font_display, 18, "bold")).pack(side="left")
         tk.Label(full_feed_header, text="Color-coded live event table  •  severity first, newest items first", bg=GLASS, fg="#B7C9DB", font=(self.font_ui, 8, "bold")).pack(side="right")
 
         self.overview_full_feed_table_wrap = tk.Frame(self.overview_full_feed_panel, bg=GLASS)
@@ -2191,8 +2193,7 @@ class SentinelApp(tk.Tk):
         self.overview_full_feed_table.tag_configure("sev_low", background="#0B2232", foreground="#72F26B")
         self.overview_full_feed_table.tag_configure("oddrow", background="#0F2234", foreground="#D8E8F8")
         self.overview_full_feed_table.tag_configure("alt", background="#102235", foreground="#DCEBFA")
-        self.overview_full_feed_table.bind("<Enter>", self._bind_overview_full_feed_mousewheel)
-        self.overview_full_feed_table.bind("<Leave>", self._unbind_overview_full_feed_mousewheel)
+        self._bind_treeview_mousewheel(self.overview_full_feed_table)
         self.overview_full_feed_canvas = self.overview_full_feed_table
         self.overview_full_feed = self.overview_full_feed_table
         for label, key, color in [
@@ -2265,8 +2266,8 @@ class SentinelApp(tk.Tk):
         layout_heights = {
             "hero_priority_shell": 150,
             "heartbeat_shell": 150,
-            "overview_defender_feed_shell": 240,
-            "overview_full_feed_shell": 250,
+            "overview_defender_feed_shell": 260,
+            "overview_full_feed_shell": 285,
         }
         for name, height in layout_heights.items():
             widget = getattr(self, name, None)
@@ -2290,8 +2291,8 @@ class SentinelApp(tk.Tk):
             sizes = {
                 "hero_priority_shell": 142 if compact else 150,
                 "heartbeat_shell": 142 if compact else 150,
-                "overview_defender_feed_shell": 214 if compact else 232,
-                "overview_full_feed_shell": (214 if compact else 240) + extra,
+                "overview_defender_feed_shell": 232 if compact else 260,
+                "overview_full_feed_shell": (246 if compact else 285) + extra,
             }
             for name, height in sizes.items():
                 widget = getattr(self, name, None)
@@ -2299,8 +2300,8 @@ class SentinelApp(tk.Tk):
                     widget.configure(height=height)
 
             for tree_name, rows in (
-                ("overview_defender_feed_table", 5 if compact else 6),
-                ("overview_full_feed_table", max(7, (7 if compact else 8) + extra // 34)),
+                ("overview_defender_feed_table", 6 if compact else 7),
+                ("overview_full_feed_table", max(8, (8 if compact else 10) + extra // 34)),
             ):
                 tree = getattr(self, tree_name, None)
                 if tree is not None:
@@ -2588,6 +2589,44 @@ class SentinelApp(tk.Tk):
             tree.heading(key, text=label, anchor="center", command=lambda c=key, t=tree: self._toggle_tree_sort(t, c))
             tree.column(key, width=width, anchor=anchor, stretch=True)
 
+    def _tree_mousewheel_units(self, event):
+        """Return a cross-platform wheel delta for Treeview widgets."""
+        try:
+            if getattr(event, "num", None) == 4:
+                return -3
+            if getattr(event, "num", None) == 5:
+                return 3
+            delta = getattr(event, "delta", 0)
+            if delta == 0:
+                return 0
+            # Windows reports +/-120. macOS can report smaller values, so keep
+            # at least one unit of movement for every real wheel event.
+            direction = -1 if delta > 0 else 1
+            steps = max(1, abs(int(delta / 120)))
+            return direction * steps
+        except Exception:
+            return 0
+
+    def _scroll_treeview(self, tree, event):
+        try:
+            units = self._tree_mousewheel_units(event)
+            if units:
+                tree.yview_scroll(units, "units")
+            return "break"
+        except Exception:
+            return "break"
+
+    def _bind_treeview_mousewheel(self, tree):
+        """Bind wheel scrolling directly to a table without global bind_all side effects."""
+        if tree is None:
+            return
+        try:
+            tree.bind("<MouseWheel>", lambda event, t=tree: self._scroll_treeview(t, event), add="+")
+            tree.bind("<Button-4>", lambda event, t=tree: self._scroll_treeview(t, event), add="+")
+            tree.bind("<Button-5>", lambda event, t=tree: self._scroll_treeview(t, event), add="+")
+        except Exception:
+            pass
+
     def table_panel(self, parent, title, columns, height=9):
         shell, panel = self.rounded_panel(parent, fill=PANEL, border=HAIRLINE, radius=18, padding=1)
         shell.pack(fill="both", expand=True, padx=6, pady=6)
@@ -2618,6 +2657,7 @@ class SentinelApp(tk.Tk):
         tree.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
         xscroll.pack(side="bottom", fill="x")
+        self._bind_treeview_mousewheel(tree)
         return tree
 
     def clear_table(self, tree):
