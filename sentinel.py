@@ -33,21 +33,21 @@ CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home())) / "SmartboxSentinel"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 SOFTWARE_CACHE_FILE = CONFIG_DIR / "software_cache.json"
 
-BG = "#050A12"
-PANEL = "#091522"
-PANEL_2 = "#102033"
-TEXT = "#F4F8FC"
-MUTED = "#AFC1D4"
-BLUE = "#37D7FF"
-GREEN = "#7CFF4F"
-AMBER = "#FFE66D"
-ORANGE = "#FFB24A"
-RED = "#FF4F86"
-PURPLE = "#C096FF"
-GLASS = "#081421"
-HAIRLINE = "#2D5B82"
-GLASS_2 = "#0A1B2A"
-ROW_ALT = "#102235"
+BG = "#020812"
+PANEL = "#061827"
+PANEL_2 = "#0B2238"
+TEXT = "#F7FBFF"
+MUTED = "#A9C8E4"
+BLUE = "#36CFFF"
+GREEN = "#7DFF57"
+AMBER = "#FFC84A"
+ORANGE = "#FF9B42"
+RED = "#FF4F7D"
+PURPLE = "#C06BFF"
+GLASS = "#061827"
+HAIRLINE = "#173A5A"
+GLASS_2 = "#071B2B"
+ROW_ALT = "#0A2236"
 
 
 def now_iso():
@@ -277,14 +277,9 @@ class MicrosoftGraphConnector:
         return items
 
     def fetch_graph_incidents(self, headers):
-        """Fetch Microsoft 365 Defender incidents via Graph with safe fallbacks.
-
-        Some tenants reject optional query strings. Start with the documented bare
-        endpoint, then fall back to beta. Do not let this block alerts or Intune.
-        """
+        """Fetch Microsoft 365 Defender incidents via Graph with safe fallbacks."""
         urls = [
             "https://graph.microsoft.com/v1.0/security/incidents",
-            "https://graph.microsoft.com/v1.0/security/incidents?$expand=alerts",
             "https://graph.microsoft.com/beta/security/incidents",
         ]
         last_error = ""
@@ -1550,6 +1545,23 @@ class TelemetryEngine(threading.Thread):
         return "CLEAR", 0, "no active Defender alerts"
 
 
+    def _is_defender_related_row(self, source, title="", detail=""):
+        raw = " ".join([str(source or ""), str(title or ""), str(detail or "")]).lower()
+        needles = (
+            "defender",
+            "microsoft 365",
+            "graph incidents",
+            "security incidents",
+            "mdo",
+            "office 365",
+            "email messages",
+            "malicious url",
+            "phish",
+            "credential phish",
+        )
+        return any(n in raw for n in needles)
+
+
     def event_to_alert_row(self, event):
         source = str(event.get("source", "Unknown"))
         severity = str(event.get("severity", "info")).upper()
@@ -1557,8 +1569,12 @@ class TelemetryEngine(threading.Thread):
         detail = str(event.get("detail", ""))
         status = "ACTIVE"
         lowered = (title + " " + detail).lower()
-        if any(word in lowered for word in ("resolved", "closed", "dismissed", "remediated", "cleared", "archived")):
+        if any(word in lowered for word in ("resolved", "closed", "dismissed", "cleared", "archived")):
             status = "RESOLVED/CLOSED"
+        elif "remediated" in lowered:
+            status = "REMEDIATED"
+        elif "pending approval" in lowered or "pending action" in lowered:
+            status = "PENDING"
         if "site health calculated" in lowered and "unifi" in source.lower():
             status = "NETWORK"
         elif (
@@ -1836,6 +1852,8 @@ class SentinelApp(tk.Tk):
         self.alert_breakdown_labels = {}
         self.unifi_labels = {}
         self.connector_widgets = {}
+        self.nav_rows = []
+        self.current_main_frame = None
         self.focus_cards = {"defender": {}, "intune": {}, "unifi": {}, "software": {}}
         self.last_payload = None
         self.trend_history = {"defender": [], "compliance": [], "network": []}
@@ -1961,8 +1979,8 @@ class SentinelApp(tk.Tk):
         shell.pack_propagate(False)
         canvas = tk.Canvas(shell, bg=BG, width=width, height=42, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
-        fill = "#102A42" if active else "#07192A"
-        border = color if active else "#21445E"
+        fill = "#0E2A44" if active else "#061827"
+        border = color if active else "#183A55"
         pts = self._rounded_points(2, 3, width - 2, 39, 14)
         canvas.create_polygon(pts, smooth=True, splinesteps=18, fill=fill, outline=border, width=1.6)
         canvas.create_line(14, 3, width - 18, 3, fill=color if active else "#183B55", width=1)
@@ -1979,31 +1997,70 @@ class SentinelApp(tk.Tk):
         return shell
 
     def neon_sidebar_item(self, parent, label, icon, command, color=BLUE, active=False):
-        row_bg = "#0D2A44" if active else "#071423"
-        row = tk.Frame(parent, bg=row_bg, height=34, highlightthickness=1 if active else 0, highlightbackground=color)
+        row_bg = "#0A1B2C"
+        active_bg = "#0E2F4C"
+        row = tk.Frame(parent, bg=active_bg if active else row_bg, height=36, highlightthickness=1 if active else 0, highlightbackground=color)
         row.pack(fill="x", padx=10, pady=2)
         row.pack_propagate(False)
-        icon_w = self.glow_icon(row, icon, color, size=12, bg=row_bg, halo=False)
+
+        icon_w = self.glow_icon(row, icon, color, size=12, bg=row.cget("bg"), halo=False)
         icon_w.pack(side="left", padx=(8, 6))
-        label_w = tk.Label(row, text=label, bg=row_bg, fg="#EAF7FF" if active else "#B9D7EB", font=(self.font_ui, 9, "bold"), anchor="w")
+        label_w = tk.Label(row, text=label, bg=row.cget("bg"), fg="#F4FBFF" if active else "#B7D8F0", font=(self.font_ui, 9, "bold"), anchor="w")
         label_w.pack(side="left", fill="x", expand=True)
 
-        def bind_tree(widget):
+        item = {"row": row, "label": label_w, "icon": icon_w, "color": color, "active": active}
+        if hasattr(self, "nav_rows"):
+            self.nav_rows.append(item)
+
+        def invoke(event=None):
+            try:
+                for nav in getattr(self, "nav_rows", []):
+                    r = nav.get("row")
+                    l = nav.get("label")
+                    bg = row_bg
+                    try:
+                        r.configure(bg=bg, highlightthickness=0)
+                        l.configure(bg=bg, fg="#B7D8F0")
+                        for child in r.winfo_children():
+                            try:
+                                child.configure(bg=bg)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                row.configure(bg=active_bg, highlightthickness=1, highlightbackground=color)
+                label_w.configure(bg=active_bg, fg="#FFFFFF")
+                for child in row.winfo_children():
+                    try:
+                        child.configure(bg=active_bg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                command()
+            except Exception as e:
+                try:
+                    self.status_var.set(f"Navigation error: {e}")
+                except Exception:
+                    pass
+
+        def bind_all(widget):
             try:
                 widget.configure(cursor="hand2")
             except Exception:
                 pass
             try:
-                widget.bind("<Button-1>", lambda e: command(), add="+")
+                widget.bind("<Button-1>", invoke, add="+")
             except Exception:
                 pass
             try:
                 for child in widget.winfo_children():
-                    bind_tree(child)
+                    bind_all(child)
             except Exception:
                 pass
 
-        bind_tree(row)
+        bind_all(row)
         return row
 
     def neon_metric_tile(self, parent, title, value_key, icon, color, subtitle="", bucket="overview", width_pack=True):
@@ -2127,8 +2184,8 @@ class SentinelApp(tk.Tk):
 
         header = tk.Frame(content_shell, bg=BG)
         header.pack(fill="x")
-        tk.Label(header, text="Smartbox Security Command Deck", bg=BG, fg=TEXT, font=(self.font_display, 25, "bold")).pack(side="left")
-        tk.Label(header, text="Defender priority • Intune estate • UniFi health", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
+        tk.Label(header, text="SMARTBOX SECURITY", bg=BG, fg=TEXT, font=(self.font_display, 25, "bold")).pack(side="left")
+        tk.Label(header, text="Defender priority • Intune estate • UniFi health  ●", bg=BG, fg="#AFC3D8", font=(self.font_ui, 11, "bold")).pack(side="left", padx=18, pady=(14,0))
         tk.Button(header, text="⚙  Setup connectors", command=self.open_setup, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 10, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right")
         tk.Button(header, text="⇩  Export UniFi debug", command=self.export_unifi_debug, bg="#101B2A", fg=TEXT, activebackground="#1D2D42", relief="flat", padx=18, pady=10, font=(self.font_ui, 9, "bold"), highlightthickness=1, highlightbackground=HAIRLINE).pack(side="right", padx=(0, 10))
 
@@ -2776,8 +2833,12 @@ class SentinelApp(tk.Tk):
         self.select_main_tab(self.tab_overview)
 
     def select_main_tab(self, frame):
-        self.main_tabs.select(frame)
-        # Rebuild top pills so the selected tab receives a real neon border.
+        try:
+            self.main_tabs.select(frame)
+            self.current_main_frame = frame
+        except Exception:
+            return
+
         try:
             for child in self.main_tab_bar.winfo_children():
                 child.destroy()
@@ -3018,6 +3079,8 @@ class SentinelApp(tk.Tk):
             "GOOD": "GOOD",
             "CHECK": "CHECK",
             "THROTTLED": "THROTTLED",
+            "REMEDIATED": "REMEDIATED",
+            "PENDING": "PENDING",
         }
         label = aliases.get(upper, upper if kind in ("severity", "status") and len(upper) <= 18 else raw)
         icon = {
@@ -3039,6 +3102,8 @@ class SentinelApp(tk.Tk):
             "GOOD": "✓",
             "CHECK": "◇",
             "THROTTLED": "⏱",
+            "REMEDIATED": "✓",
+            "PENDING": "⌁",
         }.get(upper, "✦")
         return f"  {icon} {label}  "
 
@@ -3130,8 +3195,21 @@ class SentinelApp(tk.Tk):
     def _source_icon_label(self, source):
         raw = str(source or "")
         low = raw.lower()
-        if "incident" in low or "microsoft 365 defender" in low:
-            return "☄  " + raw
+        if "microsoft 365 defender" in low or "incident" in low:
+            return "▣  " + raw
+        if "unifi" in low:
+            return "▥  " + raw
+        if "defender" in low:
+            return "🛡  " + raw
+        if "intune" in low or "microsoft graph" in low or "graph security" in low:
+            return "♟  " + raw
+        if "software" in low or "detected" in low:
+            return "▤  " + raw
+        if "rocket" in low:
+            return "◆  " + raw
+        if "datto" in low:
+            return "◇  " + raw
+        return "✦  " + raw
         if "unifi" in low:
             return "📡  " + raw
         if "defender" in low:
@@ -4323,7 +4401,7 @@ class SentinelApp(tk.Tk):
         rows = []
         for row in payload.get("alert_rows", []) or []:
             source = str(row.get("source", ""))
-            if "defender" in source.lower() or "incident" in source.lower() or "graph incidents" in source.lower():
+            if self._is_defender_related_row(source, title, detail):
                 rows.append(row)
 
         sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFO": 3, "LOW": 4}
