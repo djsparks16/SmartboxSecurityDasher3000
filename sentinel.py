@@ -2458,8 +2458,8 @@ class SentinelApp(tk.Tk):
             top = tk.Frame(card_body, bg=PANEL)
             top.pack(fill="x")
             icon_text = {"Defender": "🛡", "Intune": "👤", "UniFi": "📶", "Software": "💾"}.get(title, "•")
-            dot = self.glow_icon(top, icon_text, color, size=24, bg=PANEL, halo=True)
-            dot.pack(side="left", padx=(0, 14))
+            dot = self.glow_icon(top, icon_text, color, size=26, bg=PANEL, halo=True, glow_layers=7)
+            dot.pack(side="left", padx=(0, 16))
             title_col = tk.Frame(top, bg=PANEL)
             title_col.pack(side="left", fill="x", expand=True)
             tk.Label(title_col, text=title, bg=PANEL, fg=TEXT, font=(self.font_ui, 10, "bold"), anchor="w").pack(anchor="w")
@@ -2951,13 +2951,13 @@ class SentinelApp(tk.Tk):
         try:
             wanted_l = str(wanted or "").lower()
             synonyms = {
-                "newly observed": ("new", "newly", "observed"),
-                "all software": ("all", "software", "inventory"),
-                "security alerts": ("security alerts", "alerts"),
-                "signal events": ("signal", "events"),
-                "recommendations": ("recommendations", "tvm"),
+                "newly observed": ("newly observed", "new", "observed"),
+                "detected apps": ("detected apps", "detected", "all software", "software inventory", "all"),
+                "notes": ("notes", "connector notes", "notes / help"),
+                "incidents & alerts": ("incidents", "alerts", "security alerts"),
+                "signal feed": ("signal feed", "signal", "events"),
+                "security recommendations": ("security recommendations", "recommendations", "tvm"),
                 "vulnerabilities": ("vulnerabilities", "cve"),
-                "machines": ("machines", "forensics"),
                 "machines / forensics": ("machines", "forensics"),
                 "sites": ("sites", "network sites"),
                 "connector": ("connector", "notes"),
@@ -3060,9 +3060,9 @@ class SentinelApp(tk.Tk):
         self.neon_sidebar_item(self.left_nav, "Alerts & events", "⚠", lambda: self.nav_to(self.tab_unifi, "Connector"), ORANGE)
 
         section("Software", ORANGE)
-        self.neon_sidebar_item(self.left_nav, "Overview", "💾", lambda: self.nav_to(self.tab_software, "All software"), ORANGE)
+        self.neon_sidebar_item(self.left_nav, "Detected apps", "💾", lambda: self.nav_to(self.tab_software, "Detected apps"), ORANGE)
         self.neon_sidebar_item(self.left_nav, "Newly observed", "✦", lambda: self.nav_to(self.tab_software, "Newly observed"), AMBER)
-        self.neon_sidebar_item(self.left_nav, "Risky software", "◆", lambda: self.nav_to(self.tab_software, "Newly observed"), RED)
+        self.neon_sidebar_item(self.left_nav, "Notes", "◆", lambda: self.nav_to(self.tab_software, "Notes"), RED)
 
         spacer = tk.Frame(self.left_nav, bg="#061827")
         spacer.pack(fill="both", expand=True)
@@ -3747,11 +3747,7 @@ class SentinelApp(tk.Tk):
         note.pack(anchor="w", padx=12, pady=(2, 8))
 
         self._lock_defender_table_shapes()
-        try:
-            if self.last_payload:
-                self._stable_paint_all_tables(self.last_payload)
-        except Exception:
-            pass
+        self.after(100, self.hard_repaint_all_tables)
 
 
     def _build_focus_tabs(self):
@@ -4536,6 +4532,8 @@ class SentinelApp(tk.Tk):
     def render(self, payload):
         self.last_payload = payload
         self._stable_paint_all_tables(payload)
+        self.hard_repaint_all_tables(payload)
+        self.after(100, lambda p=payload: self.hard_repaint_all_tables(p))
         m = payload["metrics"]
         self.update_configured_visibility(m, payload["sources"])
         for key, val in m.items():
@@ -5614,6 +5612,189 @@ class SentinelApp(tk.Tk):
                 self.status_var.set(f"Table render recovered with warning: {e}")
             except Exception:
                 pass
+
+
+
+    def hard_repaint_all_tables(self, payload=None):
+        """Fallback renderer that repopulates all table widgets from the same payload.
+
+        This prevents blank tables after tabs/pages are rebuilt or after a repoll.
+        Each table is painted independently so one bad table cannot blank the rest.
+        """
+        payload = payload or getattr(self, "last_payload", None)
+        if not payload:
+            return
+        metrics = payload.get("metrics", {}) or {}
+        rows = payload.get("alert_rows", []) or []
+
+        def clear(tree):
+            try:
+                for item in tree.get_children():
+                    tree.delete(item)
+            except Exception:
+                pass
+
+        def insert(tree, vals, tag="info"):
+            try:
+                cols = list(tree["columns"])
+                vals = list(vals)
+                if len(vals) < len(cols):
+                    vals += [""] * (len(cols) - len(vals))
+                elif len(vals) > len(cols):
+                    vals = vals[:len(cols)]
+                tree.insert("", "end", values=vals, tags=(tag,))
+            except Exception:
+                pass
+
+        def is_def(r):
+            try:
+                return self._is_defender_related_row(r.get("source", ""), r.get("title", ""), r.get("detail", ""))
+            except Exception:
+                raw = " ".join([str(r.get("source","")), str(r.get("title","")), str(r.get("detail",""))]).lower()
+                return any(x in raw for x in ("defender", "microsoft 365", "incident", "security alert", "email messages", "phish", "malicious"))
+
+        def tag_for(r):
+            sev = str(r.get("severity", "INFO")).upper()
+            try:
+                return self._stable_event_tag(sev, r.get("source",""), r.get("title",""), r.get("detail",""))
+            except Exception:
+                return "warn" if sev in ("MEDIUM", "HIGH", "CRITICAL") else "info"
+
+        def bubble(v, kind="status"):
+            try:
+                return self._bubble_token(v, kind)
+            except Exception:
+                return str(v)
+
+        # Defender/M365 tables
+        defender_rows = [r for r in rows if is_def(r)]
+        for tree_name in ("overview_defender_feed_table", "defender_alert_table"):
+            tree = getattr(self, tree_name, None)
+            if tree is None:
+                continue
+            try:
+                tree.configure(columns=("severity", "time", "title", "status", "detail"))
+                self.setup_tree_columns(tree, [
+                    ("severity", "Severity", 120),
+                    ("time", "Time", 170),
+                    ("title", "Alert / finding", 620),
+                    ("status", "Status", 150),
+                    ("detail", "Detail", 880),
+                ])
+            except Exception:
+                pass
+            clear(tree)
+            for r in defender_rows[:300]:
+                insert(tree, [
+                    bubble(str(r.get("severity", "INFO")).upper(), "severity"),
+                    short_ts(r.get("timestamp", "")),
+                    str(r.get("title", ""))[:180],
+                    bubble(str(r.get("status", "ACTIVE")).upper(), "status"),
+                    str(r.get("detail", ""))[:300],
+                ], tag_for(r))
+            if not defender_rows:
+                insert(tree, [bubble("INFO", "severity"), "", "No Defender/M365 rows returned", bubble("INFO", "status"), "Awaiting data or connector permission."], "info")
+
+        # Full signal / Defender signal
+        for tree_name in ("overview_full_feed_table", "defender_signal_table"):
+            tree = getattr(self, tree_name, None)
+            if tree is None:
+                continue
+            clear(tree)
+            try:
+                if tree_name == "defender_signal_table":
+                    tree.configure(columns=("time", "severity", "source", "signal", "detail"))
+                    self.setup_tree_columns(tree, [
+                        ("time", "Time", 170),
+                        ("severity", "Severity", 120),
+                        ("source", "Source", 220),
+                        ("signal", "Signal", 520),
+                        ("detail", "Detail", 880),
+                    ])
+            except Exception:
+                pass
+            for r in rows[:300]:
+                if tree_name == "defender_signal_table":
+                    insert(tree, [
+                        short_ts(r.get("timestamp", "")),
+                        bubble(str(r.get("severity", "INFO")).upper(), "severity"),
+                        self._stable_source_label(r.get("source", "")) if hasattr(self, "_stable_source_label") else str(r.get("source","")),
+                        str(r.get("title", ""))[:180],
+                        str(r.get("detail", ""))[:300],
+                    ], tag_for(r))
+                else:
+                    insert(tree, [
+                        bubble(str(r.get("severity", "INFO")).upper(), "severity"),
+                        self._stable_source_label(r.get("source", "")) if hasattr(self, "_stable_source_label") else str(r.get("source","")),
+                        short_ts(r.get("timestamp", "")),
+                        str(r.get("title", ""))[:180],
+                        str(r.get("detail", ""))[:300],
+                    ], tag_for(r))
+
+        # Intune
+        tree = getattr(self, "intune_noncompliant_table", None)
+        if tree is not None:
+            clear(tree)
+            for d in (metrics.get("noncompliant_devices", []) or [])[:500]:
+                insert(tree, [d.get("name",""), d.get("os",""), d.get("user",""), d.get("compliance",""), short_ts(d.get("last_sync",""))], "warn")
+
+        tree = getattr(self, "intune_stale_table", None)
+        if tree is not None:
+            clear(tree)
+            for d in (metrics.get("stale_devices", []) or [])[:500]:
+                insert(tree, [d.get("name",""), d.get("os",""), d.get("user",""), d.get("compliance",""), short_ts(d.get("last_sync",""))], "warn")
+
+        # UniFi
+        tree = getattr(self, "unifi_sites_table", None)
+        if tree is not None:
+            clear(tree)
+            for s in (metrics.get("unifi_site_health", []) or [])[:500]:
+                insert(tree, [s.get("name",""), s.get("status",""), s.get("total",0), s.get("online",0), s.get("offline",0), s.get("degraded",0), s.get("unknown",0), s.get("detail","")], "good" if str(s.get("status","")).upper() == "HEALTHY" else "warn")
+
+        # Software
+        tree = getattr(self, "software_new_table", None)
+        if tree is not None:
+            clear(tree)
+            for a in (metrics.get("new_software", []) or [])[:500]:
+                insert(tree, [a.get("displayName",""), a.get("version",""), a.get("publisher",""), a.get("deviceCount",0)], "warn")
+            if not (metrics.get("new_software", []) or []):
+                insert(tree, ["No newly observed software", "", "", ""], "info")
+
+        tree = getattr(self, "software_all_table", None)
+        if tree is not None:
+            clear(tree)
+            for a in (metrics.get("detected_apps", []) or [])[:1000]:
+                insert(tree, [a.get("displayName",""), a.get("version",""), a.get("publisher",""), a.get("deviceCount",0)], "info")
+            if not (metrics.get("detected_apps", []) or []):
+                insert(tree, ["No detected apps returned", "", "", ""], "info")
+
+        # Defender enrichment
+        tree = getattr(self, "defender_recommendations_table", None)
+        if tree is not None:
+            clear(tree)
+            recs = metrics.get("defender_recommendation_rows", []) or []
+            for r in recs[:500]:
+                insert(tree, [r.get("title",""), bubble(str(r.get("severity","INFO")).upper(), "severity"), r.get("category",""), r.get("impact",""), bubble(r.get("status","CHECK"), "status"), r.get("detail","")], "warn")
+            if not recs:
+                insert(tree, ["Recommendations unavailable", bubble("INFO", "severity"), "Permission/API", "", bubble("CHECK", "status"), (metrics.get("defender_recommendation_error") or "Awaiting data")[:300]], "info")
+
+        tree = getattr(self, "defender_vulnerabilities_table", None)
+        if tree is not None:
+            clear(tree)
+            vulns = metrics.get("defender_vulnerability_rows", []) or []
+            for v in vulns[:500]:
+                insert(tree, [v.get("id",""), bubble(str(v.get("severity","INFO")).upper(), "severity"), v.get("cvss",""), short_ts(v.get("published","")), short_ts(v.get("updated","")), v.get("detail","")], "warn")
+            if not vulns:
+                insert(tree, ["Vulnerabilities unavailable", bubble("INFO", "severity"), "", "", "", (metrics.get("defender_vulnerability_error") or "Awaiting data")[:300]], "info")
+
+        tree = getattr(self, "defender_machines_table", None)
+        if tree is not None:
+            clear(tree)
+            machines = metrics.get("defender_machine_rows", []) or []
+            for m in machines[:500]:
+                insert(tree, [m.get("name",""), bubble(m.get("risk","INFO"), "status"), bubble(m.get("health","CHECK"), "status"), m.get("os",""), short_ts(m.get("last_seen","")), m.get("ip","")], "info")
+            if not machines:
+                insert(tree, ["Machines unavailable", bubble("INFO", "status"), bubble("CHECK", "status"), "", "", (metrics.get("defender_machine_error") or "Awaiting data")[:300]], "info")
 
 
     def pulse_overview_status(self):
